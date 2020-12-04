@@ -1,0 +1,11 @@
+{
+  "name": "Mercari Dataflow Template",
+  "description": "Mercari Dataflow Template",
+  "parameters": [
+    {
+      "name": "config",
+      "label": "Config",
+      "helpText": "Set config json text or gcs path."
+    }
+  ]
+}

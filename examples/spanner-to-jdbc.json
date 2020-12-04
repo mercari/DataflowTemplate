@@ -1,0 +1,28 @@
+{
+  "sources": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "query": "SELECT * FROM mytable"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "jdbc",
+      "module": "jdbc",
+      "input": "spanner",
+      "parameters": {
+        "table": "mydatabase.mytable",
+        "url": "jdbc:mysql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.mysql.SocketFactory",
+        "driver": "com.mysql.cj.jdbc.Driver",
+        "user": "myuser",
+        "password": "mypassword"
+      }
+    }
+  ]
+}

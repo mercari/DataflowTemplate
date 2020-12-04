@@ -1,0 +1,26 @@
+{
+  "sources": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "query": "SELECT * FROM mytable"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "datastore",
+      "module": "datastore",
+      "input": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "kind": "MyKind",
+        "keyFields": ["Field1"]
+      }
+    }
+  ]
+}

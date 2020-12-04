@@ -1,0 +1,27 @@
+{
+  "sources": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "parameters": {
+        "table": "myproject.mydataset.mytable"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "jdbc",
+      "module": "jdbc",
+      "input": "bigquery",
+      "parameters": {
+        "table": "mydatabase.mytable",
+        "url": "jdbc:mysql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.mysql.SocketFactory",
+        "driver": "com.mysql.cj.jdbc.Driver",
+        "user": "myuser",
+        "password": "mypassword",
+        "createTable": true,
+        "keyFields": ["Field1", "Field2"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "mainClass": "com.mercari.solution.FlexPipeline",
+  "classPath": "/template/FlexPipeline/libs/*:/template/FlexPipeline/classes"
+}

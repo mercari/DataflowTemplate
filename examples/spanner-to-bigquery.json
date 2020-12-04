@@ -1,0 +1,34 @@
+{
+  "sources": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "keyRange": [
+          {
+            "startType": "close",
+            "startKeys": 1000,
+            "endType": "close",
+            "endKeys": 2000
+          }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "input": "spanner",
+      "parameters": {
+        "table": "myproject.mydataset.mytable",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    }
+  ]
+}

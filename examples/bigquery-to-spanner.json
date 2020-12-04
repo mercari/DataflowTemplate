@@ -1,0 +1,26 @@
+{
+  "sources": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT * FROM `myproject.mydataset.mytable`"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "input": "bigquery",
+      "parameters": {
+        "projectId": "anotherproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "createTable": true,
+        "keyFields": ["keyField1", "keyField2"]
+      }
+    }
+  ]
+}

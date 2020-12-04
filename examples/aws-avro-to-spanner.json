@@ -1,0 +1,34 @@
+{
+  "settings": {
+    "aws": {
+      "accessKey": "ACCESS_KEY",
+      "secretKey": "SECRET_KEY",
+      "region": "us-west-2"
+    }
+  },
+  "sources": [
+    {
+      "name": "input",
+      "module": "storage",
+      "parameters": {
+        "input": "s3://mybucket/prefix*",
+        "format": "avro"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "output",
+      "module": "spanner",
+      "input": "input",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "createTable": true,
+        "keyFields": ["keyField1", "keyField2"]
+      }
+    }
+  ]
+}

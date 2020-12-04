@@ -1,0 +1,30 @@
+{
+  "settings": {
+    "streaming": true
+  },
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "schema": {
+        "avroSchema": "gs://mybucket/myavroschema.avsc"
+      },
+      "parameters": {
+        "format": "avro",
+        "subscription": "projects/myproject/subscriptions/mysubscription"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutput",
+      "module": "bigquery",
+      "input": "pubsubInput",
+      "parameters": {
+        "table": "myproject:mydataset.mytable",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}

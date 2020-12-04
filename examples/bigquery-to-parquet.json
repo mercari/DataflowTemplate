@@ -1,0 +1,45 @@
+{
+  "sources": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "timestampAttribute": "CreatedAt",
+      "parameters": {
+        "table": "myproject.mydataset.mytable",
+        "rowRestriction": "Field1='value1'"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "window",
+      "module": "window",
+      "inputs": [
+        "bigquery"
+      ],
+      "parameters": {
+        "type": "fixed",
+        "unit": "day",
+        "size": 1,
+        "timezone": "Asia/Tokyo"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "storage",
+      "module": "storage",
+      "input": "window.bigquery",
+      "outputAvroSchema": "gs://mybucket/output_schema.avsc",
+      "parameters": {
+        "output": "gs://mybucket/output",
+        "format": "parquet",
+        "withoutSharding": true,
+        "datetimeFormat": "yyyyMMdd",
+        "datetimeFormatZone": "Asia/Tokyo",
+        "useOnlyEndDatetime": true,
+        "suffix": ".parquet"
+      }
+    }
+  ]
+}

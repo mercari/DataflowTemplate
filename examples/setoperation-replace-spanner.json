@@ -1,0 +1,61 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "table": "myproject.mydataset.mytable",
+        "fields": ["BField1", "BField1", "JoinKey"]
+      }
+    },
+    {
+      "name": "spannerInput",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "fields": ["SKeyField", "SField1", "JoinKey"]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "except",
+      "module": "setoperation",
+      "inputs": ["spannerInput", "bigqueryInput"],
+      "parameters": {
+        "type": "EXCEPT",
+        "keys": ["JoinKey"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spannerWrite",
+      "module": "spanner",
+      "input": "bigqueryInput",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable"
+      }
+    },
+    {
+      "name": "spannerDelete",
+      "module": "spanner",
+      "input": "except.spannerInput",
+      "wait": ["spannerWrite"],
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "mutationOp": "DELETE",
+        "keyFields": ["SKeyField"]
+      }
+    }
+  ]
+}

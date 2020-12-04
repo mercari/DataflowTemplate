@@ -1,0 +1,29 @@
+{
+  "sources": [
+    {
+      "name": "spannerInput",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "query": "SELECT keyField FROM mytable WHERE field1 = 1"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spannerOutput",
+      "module": "spanner",
+      "input": "spannerInput",
+      "parameters": {
+        "projectId": "anotherproject",
+        "instanceId": "anotherinstance",
+        "databaseId": "anotherdatabase",
+        "table": "anothertable",
+        "mutationOp": "DELETE",
+        "keyFields": ["keyField"]
+      }
+    }
+  ]
+}

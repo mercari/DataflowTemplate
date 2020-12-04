@@ -1,0 +1,30 @@
+{
+  "settings": {
+    "aws": {
+      "accessKey": "AWS_ACCESSKEY",
+      "secretKey": "AWS_SECRETKEY",
+      "region": "us-west-2"
+    }
+  },
+  "sources": [
+    {
+      "name": "BigQueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "table": "muproject.mydataset.mytable",
+        "fields": ["Field1", "Field2", "Field3", "Field4"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "outputTransactionHistories",
+      "module": "storage",
+      "input": "BigQueryInput",
+      "parameters": {
+        "output": "s3://mybucket/output",
+        "format": "avro"
+      }
+    }
+  ]
+}

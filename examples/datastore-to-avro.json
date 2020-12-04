@@ -1,0 +1,58 @@
+{
+  "sources": [
+    {
+      "name": "datastoreInput",
+      "module": "datastore",
+      "timestampAttribute": "created_at",
+      "schema": {
+        "fields": [
+          { "name": "field1", "type": "string", "mode": "required" },
+          { "name": "field2", "type": "string", "mode": "repeated" },
+          { "name": "created_at", "type": "timestamp", "mode": "nullable" },
+          {
+            "name": "embaddingField", "type": "record", "mode": "nullable",
+            "fields": [
+              { "name": "childField1", "type": "string", "mode": "nullable" },
+              { "name": "childField2", "type": "integer", "mode": "nullable" }
+            ]
+          }
+        ]
+      },
+      "parameters": {
+        "projectId": "myproject",
+        "gql": "SELECT * FROM MyKind WHERE created_at > DATETIME('2020-01-01T00:00:00Z')"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "window",
+      "module": "window",
+      "inputs": [
+        "datastoreInput"
+      ],
+      "parameters": {
+        "type": "calendar",
+        "unit": "day",
+        "size": 1,
+        "timezone": "Asia/Tokyo"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "datastoreOutput",
+      "module": "storage",
+      "input": "window.datastoreInput",
+      "parameters": {
+        "output": "gs://mybucket/output",
+        "format": "avro",
+        "withoutSharding": true,
+        "datetimeFormat": "yyyyMMdd",
+        "datetimeFormatZone": "Asia/Tokyo",
+        "useOnlyEndDatetime": true,
+        "suffix": ".avro"
+      }
+    }
+  ]
+}

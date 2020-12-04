@@ -1,0 +1,27 @@
+{
+  "sources": [
+    {
+      "name": "storage",
+      "module": "storage",
+      "parameters": {
+        "input": "gs://mybucket/prefix",
+        "format": "avro"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "input": "storage",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "createTable": true,
+        "keyFields": ["KeyField1", "KeyField2"]
+      }
+    }
+  ]
+}

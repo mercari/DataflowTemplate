@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "name": "kind1Input",
+      "module": "storage",
+      "parameters": {
+        "input": "gs://mybucket/prefix*",
+        "format": "avro"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "kind1Output",
+      "module": "datastore",
+      "input": "kind1Input",
+      "parameters": {
+        "projectId": "myproject",
+        "kind": "Kind1",
+        "keyFields": ["KeyField"]
+      }
+    }
+  ]
+}

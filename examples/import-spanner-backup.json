@@ -1,0 +1,39 @@
+{
+  "sources": [
+    {
+      "name": "spannerBackupInput",
+      "module": "spannerBackup",
+      "parameters": {
+        "input": "gs://mybucket/spanner-export.json",
+        "tables": ["table1","table2"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spannerOutput1",
+      "module": "spanner",
+      "input": "spannerBackupInput.table1",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable1",
+        "createTable": true,
+        "keyFields": ["keyField"],
+        "maskFields": ["sensitiveField1","sensitiveField2"]
+      }
+    },
+    {
+      "name": "spannerOutput2",
+      "module": "spanner",
+      "input": "spannerBackupInput.table2",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable2"
+      }
+    }
+  ]
+}

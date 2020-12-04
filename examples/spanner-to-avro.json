@@ -1,0 +1,25 @@
+{
+  "sources": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "query": "SELECT * FROM mytable"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "storage",
+      "module": "storage",
+      "input": "spanner",
+      "parameters": {
+        "output": "gs://mybucket/output",
+        "format": "avro"
+      }
+    }
+  ]
+}

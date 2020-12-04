@@ -1,0 +1,23 @@
+{
+  "sources": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "parameters": {
+        "table": "myproject.mydataset.mytable"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "datastore",
+      "module": "datastore",
+      "input": "bigquery",
+      "parameters": {
+        "projectId": "myproject",
+        "kind": "MyKind",
+        "keyFields": ["Field1"]
+      }
+    }
+  ]
+}
