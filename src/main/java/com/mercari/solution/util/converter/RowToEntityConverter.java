@@ -9,6 +9,7 @@ import com.google.datastore.v1.Value;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.ReadableDateTime;
@@ -58,11 +59,23 @@ public class RowToEntityConverter {
         switch (fieldType.getTypeName()) {
             case BOOLEAN:
                 return Value.newBuilder().setBooleanValue((Boolean) value).build();
-            case BYTES:
-                return Value.newBuilder().setBlobValue(ByteString.copyFrom((ByteBuffer) value)).build();
+            case BYTES: {
+                final ByteString byteString = ByteString.copyFrom((ByteBuffer) value);
+                if(byteString.size() > DatastoreUtil.QUOTE_VALUE_SIZE) {
+                    return Value.newBuilder().setBlobValue(byteString).setExcludeFromIndexes(true).build();
+                } else {
+                    return Value.newBuilder().setBlobValue(byteString).build();
+                }
+            }
             case DECIMAL:
-            case STRING:
-                return Value.newBuilder().setStringValue(value.toString()).build();
+            case STRING: {
+                final String string = value.toString();
+                if(string.getBytes().length > DatastoreUtil.QUOTE_VALUE_SIZE) {
+                    return Value.newBuilder().setStringValue(value.toString()).setExcludeFromIndexes(true).build();
+                } else {
+                    return Value.newBuilder().setStringValue(value.toString()).build();
+                }
+            }
             case BYTE:
                 return Value.newBuilder().setIntegerValue((Byte) value).build();
             case INT16:
@@ -94,11 +107,11 @@ public class RowToEntityConverter {
                 }
             case ROW:
                 final Row childRow = (Row) value;
-                Entity.Builder builder = Entity.newBuilder();
+                final Entity.Builder builder = Entity.newBuilder();
                 for(Schema.Field field : fieldType.getRowSchema().getFields()) {
                     builder.putProperties(field.getName(), convertValue(field.getType(), childRow.getValue(field.getName())));
                 }
-                return Value.newBuilder().setEntityValue(builder.build()).build();
+                return Value.newBuilder().setEntityValue(builder.build()).setExcludeFromIndexes(true).build();
             case ITERABLE:
             case ARRAY:
                 return Value.newBuilder().setArrayValue(ArrayValue.newBuilder()

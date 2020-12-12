@@ -5,6 +5,7 @@ import com.google.datastore.v1.*;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
@@ -80,6 +81,7 @@ public class RecordToEntityConverter {
             if(KEY_FIELD_NAME.equals(field.name())) {
                 continue;
             }
+
             builder.putProperties(field.name(), convertValue(field.schema(), record.get(field.name())));
         }
         return builder.build();
@@ -93,11 +95,23 @@ public class RecordToEntityConverter {
             case BOOLEAN:
                 return Value.newBuilder().setBooleanValue((Boolean) value).build();
             case FIXED:
-            case BYTES:
-                return Value.newBuilder().setBlobValue(ByteString.copyFrom((ByteBuffer) value)).build();
+            case BYTES: {
+                final ByteString byteString = ByteString.copyFrom((ByteBuffer) value);
+                if(byteString.size() >= DatastoreUtil.QUOTE_VALUE_SIZE) {
+                    return Value.newBuilder().setBlobValue(byteString).setExcludeFromIndexes(true).build();
+                } else {
+                    return Value.newBuilder().setBlobValue(byteString).build();
+                }
+            }
             case ENUM:
-            case STRING:
-                return Value.newBuilder().setStringValue(value.toString()).build();
+            case STRING: {
+                final String stringValue = value.toString();
+                if(stringValue.getBytes().length >= DatastoreUtil.QUOTE_VALUE_SIZE) {
+                    return Value.newBuilder().setStringValue(stringValue).setExcludeFromIndexes(true).build();
+                } else {
+                    return Value.newBuilder().setStringValue(stringValue).build();
+                }
+            }
             case INT:
                 final int intValue = (int) value;
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
@@ -130,11 +144,11 @@ public class RecordToEntityConverter {
                 return Value.newBuilder().setDoubleValue((Double) value).build();
             case RECORD:
                 final GenericRecord childRecord = (GenericRecord) value;
-                Entity.Builder builder = Entity.newBuilder();
-                for(Schema.Field field : schema.getFields()) {
+                final Entity.Builder builder = Entity.newBuilder();
+                for(final Schema.Field field : schema.getFields()) {
                     builder.putProperties(field.name(), convertValue(field.schema(), childRecord.get(field.name())));
                 }
-                return Value.newBuilder().setEntityValue(builder.build()).build();
+                return Value.newBuilder().setEntityValue(builder.build()).setExcludeFromIndexes(true).build();
             case ARRAY:
                 return Value.newBuilder().setArrayValue(ArrayValue.newBuilder()
                         .addAllValues(((List<Object>) value).stream()

@@ -8,6 +8,7 @@ import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
+import com.mercari.solution.util.gcp.DatastoreUtil;
 import com.mercari.solution.util.gcp.SpannerUtil;
 
 import java.util.UUID;
@@ -53,10 +54,22 @@ public class StructToEntityConverter {
         switch (field.getType().getCode()) {
             case BOOL:
                 return Value.newBuilder().setBooleanValue(struct.getBoolean(field.getName())).build();
-            case BYTES:
-                return Value.newBuilder().setBlobValue(ByteString.copyFrom(struct.getBytes(field.getName()).toByteArray())).build();
-            case STRING:
-                return Value.newBuilder().setStringValue(struct.getString(field.getName())).build();
+            case BYTES: {
+                final byte[] bytes = struct.getBytes(field.getName()).toByteArray();
+                if(bytes.length > DatastoreUtil.QUOTE_VALUE_SIZE) {
+                    return Value.newBuilder().setBlobValue(ByteString.copyFrom(bytes)).setExcludeFromIndexes(true).build();
+                } else {
+                    return Value.newBuilder().setBlobValue(ByteString.copyFrom(bytes)).build();
+                }
+            }
+            case STRING: {
+                final String stringValue = struct.getString(field.getName());
+                if(stringValue.getBytes().length > DatastoreUtil.QUOTE_VALUE_SIZE) {
+                    return Value.newBuilder().setStringValue(stringValue).setExcludeFromIndexes(true).build();
+                } else {
+                    return Value.newBuilder().setStringValue(stringValue).build();
+                }
+            }
             case INT64:
                 return Value.newBuilder().setIntegerValue(struct.getLong(field.getName())).build();
             case FLOAT64:
@@ -71,7 +84,7 @@ public class StructToEntityConverter {
                 for(Type.StructField childField : field.getType().getStructFields()) {
                     builder.putProperties(childField.getName(), convertValue(childField, childStruct));
                 }
-                return Value.newBuilder().setEntityValue(builder.build()).build();
+                return Value.newBuilder().setEntityValue(builder.build()).setExcludeFromIndexes(true).build();
             case ARRAY:
                 switch (field.getType().getArrayElementType().getCode()) {
                     case BOOL:
