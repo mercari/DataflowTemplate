@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.converter.ResultSetToRecordConverter;
 import com.mercari.solution.util.gcp.JdbcUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
@@ -17,7 +18,6 @@ import org.apache.beam.sdk.values.PCollection;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -93,6 +93,8 @@ public class JdbcSource {
         private Schema schema;
 
         private final JdbcSourceParameters parameters;
+        private final String timestampAttribute;
+        private final String timestampDefault;
 
         public JdbcSourceParameters getParameters() {
             return parameters;
@@ -100,6 +102,8 @@ public class JdbcSource {
 
         private JdbcBatchSource(final SourceConfig config) {
             this.parameters = new Gson().fromJson(config.getParameters(), JdbcSourceParameters.class);
+            this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
         }
 
         @Override
@@ -119,7 +123,7 @@ public class JdbcSource {
                 this.schema = JdbcUtil.createAvroSchema(
                         parameters.getDriver(), parameters.getUrl(),
                         parameters.getUser(), parameters.getPassword(), query);
-                return begin.apply("QueryToJdbc", JdbcIO.<GenericRecord>read()
+                final PCollection<GenericRecord> records = begin.apply("QueryToJdbc", JdbcIO.<GenericRecord>read()
                         .withQuery(query)
                         .withRowMapper(ResultSetToRecordConverter::convert)
                         .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration
@@ -128,6 +132,13 @@ public class JdbcSource {
                                 .withPassword(parameters.getPassword()))
                         .withOutputParallelization(true)
                         .withCoder(AvroCoder.of(this.schema)));
+
+                if(timestampAttribute == null) {
+                    return records;
+                } else {
+                    return records.apply("WithTimestamp", DataTypeTransform
+                            .withTimestamp(DataType.AVRO, timestampAttribute, timestampDefault));
+                }
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }

@@ -29,10 +29,13 @@ import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class DatastoreUtil {
+
+    public static final int QUOTE_VALUE_SIZE = 1500;
 
     private static final Logger LOG = LoggerFactory.getLogger(DatastoreUtil.class);
 
@@ -162,23 +165,36 @@ public class DatastoreUtil {
         switch (value.getValueTypeCase()) {
             case STRING_VALUE: {
                 final String stringValue = value.toString();
-                if(PATTERN_DATE1.matcher(stringValue).find()) {
-                    return new DateTime(
-                            Integer.valueOf(stringValue.substring(0, 4)),
-                            Integer.valueOf(stringValue.substring(4, 6)),
-                            Integer.valueOf(stringValue.substring(6, 8)),
-                            0, 0, DateTimeZone.UTC).toInstant();
-                } else if(PATTERN_DATE2.matcher(stringValue).find() || PATTERN_DATE3.matcher(stringValue).find()) {
-                    return new DateTime(
-                            Integer.valueOf(stringValue.substring(0, 4)),
-                            Integer.valueOf(stringValue.substring(5, 7)),
-                            Integer.valueOf(stringValue.substring(8, 10)),
-                            0, 0, DateTimeZone.UTC).toInstant();
-                }
                 try {
                     return Instant.parse(stringValue);
                 } catch (Exception e) {
-                    return null;
+                    if(PATTERN_DATE1.matcher(stringValue).find()) {
+                        return new DateTime(
+                                Integer.valueOf(stringValue.substring(0, 4)),
+                                Integer.valueOf(stringValue.substring(4, 6)),
+                                Integer.valueOf(stringValue.substring(6, 8)),
+                                0, 0, DateTimeZone.UTC).toInstant();
+                    }
+
+                    Matcher matcher = PATTERN_DATE2.matcher(stringValue);
+                    if(matcher.find()) {
+                        final String[] values = matcher.group().split("-");
+                        return new DateTime(
+                                Integer.valueOf(values[0]),
+                                Integer.valueOf(values[1]),
+                                Integer.valueOf(values[2]),
+                                0, 0, DateTimeZone.UTC).toInstant();
+                    }
+                    matcher = PATTERN_DATE3.matcher(stringValue);
+                    if(matcher.find()) {
+                        final String[] values = matcher.group().split("/");
+                        return new DateTime(
+                                Integer.valueOf(values[0]),
+                                Integer.valueOf(values[1]),
+                                Integer.valueOf(values[2]),
+                                0, 0, DateTimeZone.UTC).toInstant();
+                    }
+                    return timestampDefault;
                 }
             }
             case INTEGER_VALUE: {

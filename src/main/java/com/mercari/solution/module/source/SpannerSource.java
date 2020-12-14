@@ -10,6 +10,7 @@ import com.google.gson.JsonElement;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import freemarker.template.Configuration;
@@ -262,6 +263,7 @@ public class SpannerSource {
         private Type type;
 
         private final String timestampAttribute;
+        private final String timestampDefault;
         private final SpannerSourceParameters parameters;
 
         public SpannerSourceParameters getParameters() {
@@ -271,6 +273,7 @@ public class SpannerSource {
 
         private SpannerBatchSource(final SourceConfig config) {
             this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
             this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
             validateParameters();
             setDefaultParameters();
@@ -390,8 +393,8 @@ public class SpannerSource {
             if(timestampAttribute == null) {
                 return structs;
             } else {
-                final String timestampField = timestampAttribute;
-                return structs.apply("WithTimestamp", WithTimestamps.of(s -> SpannerUtil.getTimestamp(s, timestampField)));
+                return structs.apply("WithTimestamp", DataTypeTransform
+                        .withTimestamp(DataType.STRUCT, timestampAttribute, timestampDefault));
             }
 
         }

@@ -1,13 +1,18 @@
 package com.mercari.solution.util;
 
 
+import org.apache.avro.LogicalTypes;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 
@@ -81,6 +86,59 @@ public class RowSchemaUtil {
             return null;
         }
         return row.getValue(field).toString();
+    }
+
+    public static Instant getTimestamp(final Row row, final String fieldName, final Instant defaultTimestamp) {
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        if(field == null) {
+            return defaultTimestamp;
+        }
+        final Object value = row.getValue(fieldName);
+        if(value == null) {
+            return defaultTimestamp;
+        }
+        switch (field.getType().getTypeName()) {
+            case DATETIME: {
+                return (Instant) value;
+            }
+            case LOGICAL_TYPE: {
+                if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
+                    return (Instant) value;
+                } else if(RowSchemaUtil.isLogicalTypeTimestamp(field.getType())) {
+                    return (Instant) value;
+                }
+                return defaultTimestamp;
+            }
+            case STRING: {
+                final String stringValue = value.toString();
+                try {
+                    return Instant.parse(stringValue);
+                } catch (Exception e) {
+                    return defaultTimestamp;
+                }
+            }
+            case INT32: {
+                final LocalDate localDate = LocalDate.ofEpochDay((int) value);
+                return new DateTime(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                        0, 0, DateTimeZone.UTC).toInstant();
+            }
+            case INT64: {
+                return Instant.ofEpochMilli((long) value);
+            }
+            case BYTES:
+            case BOOLEAN:
+            case FLOAT:
+            case DOUBLE:
+            case MAP:
+            case INT16:
+            case DECIMAL:
+            case BYTE:
+            case ARRAY:
+            case ITERABLE:
+            case ROW:
+            default:
+                return defaultTimestamp;
+        }
     }
 
 }

@@ -6,11 +6,10 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.aws.S3Util;
+import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
-import com.mercari.solution.util.converter.CsvToRowConverter;
-import com.mercari.solution.util.converter.JsonToRowConverter;
-import com.mercari.solution.util.converter.TextToRowConverter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.TextIO;
@@ -22,7 +21,10 @@ import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class StorageSource {
 
@@ -32,6 +34,7 @@ public class StorageSource {
         private String format;
         private String compression;
         private String filterPrefix;
+        private String targetFormat;
 
         public String getInput() {
             return input;
@@ -65,10 +68,18 @@ public class StorageSource {
             this.filterPrefix = filterPrefix;
         }
 
+        public String getTargetFormat() {
+            return targetFormat;
+        }
+
+        public void setTargetFormat(String targetFormat) {
+            this.targetFormat = targetFormat;
+        }
     }
 
     public static FCollection batch(final PBegin begin, final SourceConfig config) {
         final StorageSourceParameters parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
+        validateParameters(parameters);
         switch (parameters.getFormat().toLowerCase()) {
             case "avro":
             case "parquet": {
@@ -78,12 +89,40 @@ public class StorageSource {
             }
             case "csv":
             case "json": {
-                final StorageTextBatchSource sourceText = new StorageTextBatchSource(config);
-                final PCollection<Row> outputText = begin.apply(config.getName(), sourceText);
-                return FCollection.of(config.getName(), outputText, DataType.ROW, sourceText.schema);
+                if(parameters.getTargetFormat() != null && "row".equals(parameters.getTargetFormat().trim().toLowerCase())) {
+                    final StorageTextRowBatchSource sourceText = new StorageTextRowBatchSource(config);
+                    final PCollection<Row> outputText = begin.apply(config.getName(), sourceText);
+                    return FCollection.of(config.getName(), outputText, DataType.ROW, sourceText.schema);
+                } else {
+                    final StorageTextAvroBatchSource sourceText = new StorageTextAvroBatchSource(config);
+                    final PCollection<GenericRecord> outputText = begin.apply(config.getName(), sourceText);
+                    return FCollection.of(config.getName(), outputText, DataType.AVRO, sourceText.schema);
+                }
             }
             default:
-                throw new IllegalArgumentException();
+                throw new IllegalArgumentException("Storage module not support format: " + parameters.getFormat());
+        }
+    }
+
+    private static void validateParameters(final StorageSourceParameters parameters) {
+        if(parameters == null) {
+            throw new IllegalArgumentException("Storage SourceConfig must not be empty!");
+        }
+
+        // check required parameters filled
+        final List<String> errorMessages = new ArrayList<>();
+        if(parameters.getFormat() == null) {
+            errorMessages.add("Parameter must contain query or table");
+        }
+        if(!"avro".equals(parameters.getFormat().toLowerCase())
+                && !"parquet".equals(parameters.getFormat().toLowerCase())
+                && !"csv".equals(parameters.getFormat().toLowerCase())
+                && !"json".equals(parameters.getFormat().toLowerCase())) {
+            errorMessages.add("Parameter not support format: " + parameters.getFormat());
+        }
+
+        if(errorMessages.size() > 0) {
+            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
         }
     }
 
@@ -98,6 +137,8 @@ public class StorageSource {
 
         private final StorageSourceParameters parameters;
         private final SourceConfig.InputSchema inputSchema;
+        private final String timestampAttribute;
+        private final String timestampDefault;
 
         public StorageSourceParameters getParameters() {
             return parameters;
@@ -106,6 +147,8 @@ public class StorageSource {
         private StorageAvroBatchSource(final SourceConfig config) {
             this.inputSchema = config.getSchema();
             this.parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
+            this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
         }
 
         public PCollection<GenericRecord> expand(final PBegin begin) {
@@ -114,44 +157,128 @@ public class StorageSource {
             final String input = parameters.getInput();
             final String format = parameters.getFormat();
 
+            final PCollection<GenericRecord> records;
             switch (format.trim().toLowerCase()) {
                 case "avro": {
-                    final org.apache.avro.Schema avroSchema = getAvroSchema(parameters.getInput(), inputSchema, options);
-                    this.schema = avroSchema;//RecordToRowConverter.convertSchema(avroSchema);
-                    return begin
+                    this.schema = getAvroSchema(parameters.getInput(), inputSchema, options);
+                    records = begin
                             .apply("ReadAvro", AvroIO
-                                    .readGenericRecords(avroSchema)
+                                    .readGenericRecords(this.schema)
                                     .from(input));
+                    break;
                 }
                 case "parquet": {
-                    final org.apache.avro.Schema parquetSchema = getParquetSchema(parameters.getInput(), inputSchema, options);
-                    this.schema = parquetSchema;//RecordToRowConverter.convertSchema(parquetSchema);
-                    return begin
+                    this.schema = getParquetSchema(parameters.getInput(), inputSchema, options);
+                    records = begin
                             .apply("ReadParquet", ParquetIO
-                                    .read(parquetSchema)
+                                    .read(this.schema)
                                     .from(input));
+                    break;
                 }
                 default:
-                    throw new IllegalArgumentException("");
+                    throw new IllegalArgumentException("Storage module not support format: " + format);
+            }
+
+            if(timestampAttribute == null) {
+                return records;
+            } else {
+                return records.apply("WithTimestamp", DataTypeTransform
+                        .withTimestamp(DataType.AVRO, timestampAttribute, timestampDefault));
             }
         }
     }
 
-    public static class StorageTextBatchSource
+    public static class StorageTextAvroBatchSource
+            extends PTransform<PBegin, PCollection<GenericRecord>> {
+
+        private org.apache.avro.Schema schema;
+
+        private final StorageSourceParameters parameters;
+        private final SourceConfig.InputSchema inputSchema;
+        private final String timestampAttribute;
+        private final String timestampDefault;
+
+        public StorageSourceParameters getParameters() {
+            return parameters;
+        }
+
+        private StorageTextAvroBatchSource(final SourceConfig config) {
+            this.inputSchema = config.getSchema();
+            this.parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
+            this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
+        }
+
+        public PCollection<GenericRecord> expand(final PBegin begin) {
+
+            final String format = parameters.getFormat();
+
+            final PCollection<GenericRecord> records;
+            switch (format.trim().toLowerCase()) {
+                case "csv":
+                case "json": {
+                    if (this.inputSchema == null || (inputSchema.getAvroSchema() == null && inputSchema.getFields() == null)) {
+                        this.schema = TextToRecordConverter.DEFAULT_SCHEMA;
+                    } else if ("csv".equals(format.trim().toLowerCase())) {
+                        this.schema = SourceConfig.convertAvroSchema(inputSchema);
+                    } else {
+                        this.schema = SourceConfig.convertAvroSchema(inputSchema);
+                    }
+
+                    TextIO.Read read = TextIO.read().from(parameters.getInput());
+                    if (parameters.getCompression() != null) {
+                        read = read.withCompression(Compression
+                                .valueOf(parameters.getCompression().trim().toUpperCase()));
+                    }
+
+                    final PCollection<String> lines;
+                    if (parameters.getFilterPrefix() != null) {
+                        final String filterPrefix = parameters.getFilterPrefix();
+                        lines = begin
+                                .apply("ReadLine", read)
+                                .apply("FilterPrefix", Filter.by(s -> !s.startsWith(filterPrefix)));
+                    } else {
+                        lines = begin.apply("ReadLine", read);
+                    }
+
+                    records = lines
+                            .apply("ConvertToRecord",ParDo.of(new ToRecordDoFn(format, this.schema.toString())))
+                            .setCoder(AvroCoder.of(schema));
+                    break;
+                }
+                default:
+                    throw new IllegalArgumentException("StorageSource only support format avro, csv, json. but: " + format);
+            }
+
+            if(timestampAttribute == null) {
+                return records;
+            } else {
+                return records.apply("WithTimestamp", DataTypeTransform
+                        .withTimestamp(DataType.AVRO, timestampAttribute, timestampDefault));
+            }
+
+        }
+    }
+
+    public static class StorageTextRowBatchSource
             extends PTransform<PBegin, PCollection<Row>> {
 
         private Schema schema;
 
         private final StorageSourceParameters parameters;
         private final SourceConfig.InputSchema inputSchema;
+        private final String timestampAttribute;
+        private final String timestampDefault;
 
         public StorageSourceParameters getParameters() {
             return parameters;
         }
 
-        private StorageTextBatchSource(final SourceConfig config) {
+        private StorageTextRowBatchSource(final SourceConfig config) {
             this.inputSchema = config.getSchema();
             this.parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
+            this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
         }
 
         public PCollection<Row> expand(final PBegin begin) {
@@ -189,9 +316,16 @@ public class StorageSource {
                         lines = begin.apply("ReadLine", read);
                     }
 
-                    return lines
+                    PCollection<Row> rows = lines
                             .apply("ConvertToRow", MapElements.into(TypeDescriptor.of(Row.class)).via(func))
                             .setRowSchema(schema);
+
+                    if(timestampAttribute == null) {
+                        return rows;
+                    } else {
+                        return rows.apply("WithTimestamp", DataTypeTransform
+                                .withTimestamp(DataType.ROW, timestampAttribute, timestampDefault));
+                    }
                 }
                 default:
                     throw new IllegalArgumentException("StorageSource only support format avro, csv, json. but: " + format);
@@ -209,6 +343,37 @@ public class StorageSource {
 
         public PCollection<Row> expand(final PCollection<Long> begin) {
             return null;
+        }
+
+    }
+
+    private static class ToRecordDoFn extends DoFn<String, GenericRecord> {
+
+        private final String format;
+        private final String schemaString;
+
+        private transient org.apache.avro.Schema schema;
+
+        ToRecordDoFn(final String format, final String schemaString) {
+            if(!"csv".equals(format.trim().toLowerCase()) && !"json".equals(format.trim().toLowerCase())) {
+                throw new IllegalArgumentException("Storage module not support text format: " + format);
+            }
+            this.format = format;
+            this.schemaString = schemaString;
+        }
+
+        @Setup
+        public void setup() {
+            this.schema = new org.apache.avro.Schema.Parser().parse(this.schemaString);
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            if("csv".equals(format)) {
+                c.output(CsvToRecordConverter.convert(schema, c.element()));
+            } else {
+                c.output(JsonToRecordConverter.convert(schema, c.element()));
+            }
         }
 
     }

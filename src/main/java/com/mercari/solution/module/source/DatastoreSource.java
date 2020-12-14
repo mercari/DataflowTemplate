@@ -5,16 +5,15 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.gcp.datastore.DatastoreIO;
 import org.apache.beam.sdk.io.gcp.datastore.DatastoreV1;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.WithTimestamps;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
-import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -145,15 +144,8 @@ public class DatastoreSource {
             if(timestampAttribute == null) {
                 return entities;
             } else {
-                final String timestampField = timestampAttribute;
-                try {
-                    final Instant timestampDefault = Instant.parse(this.timestampDefault);
-                    return entities.apply("WithTimestamp", WithTimestamps.of(e -> DatastoreUtil.getTimestamp(e, timestampField, timestampDefault)));
-                } catch (Exception exception) {
-                    LOG.error("timestampDefault is illegal value: " + timestampDefault);
-                    final Instant timestampDefault = Instant.ofEpochSecond(0L);
-                    return entities.apply("WithTimestamp", WithTimestamps.of(e -> DatastoreUtil.getTimestamp(e, timestampField, timestampDefault)));
-                }
+                return entities.apply("WithTimestamp", DataTypeTransform
+                        .withTimestamp(DataType.ENTITY, timestampAttribute, timestampDefault));
             }
         }
 

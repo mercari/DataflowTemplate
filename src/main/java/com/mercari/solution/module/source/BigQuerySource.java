@@ -12,6 +12,7 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.OptionUtil;
+import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.BigQueryUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.Schema;
@@ -138,6 +139,7 @@ public class BigQuerySource {
         private Schema avroSchema;
 
         private final String timestampAttribute;
+        private final String timestampDefault;
         private final BigQuerySourceParameters parameters;
 
         public BigQuerySourceParameters getParameters() {
@@ -146,6 +148,7 @@ public class BigQuerySource {
 
         private BigQueryBatchSource(final SourceConfig config) {
             this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
             this.parameters = new Gson().fromJson(config.getParameters(), BigQuerySourceParameters.class);
         }
 
@@ -257,15 +260,15 @@ public class BigQuerySource {
             if(timestampAttribute == null) {
                 return records;
             } else {
-                final String timestampField = timestampAttribute;
-                return records.apply("WithTimestamp", WithTimestamps.of(r -> AvroSchemaUtil.getTimestamp(r, timestampField)));
+                return records.apply("WithTimestamp", DataTypeTransform
+                        .withTimestamp(DataType.AVRO, timestampAttribute, timestampDefault));
             }
 
         }
 
         private void validateParameters(final BigQuerySourceParameters parameters) {
             if(parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+                throw new IllegalArgumentException("BigQuery SourceConfig must not be empty!");
             }
 
             // check required parameters filled
@@ -292,6 +295,7 @@ public class BigQuerySource {
         private Schema avroSchema;
 
         private final String timestampAttribute;
+        private final String timestampDefault;
         private final BigQuerySourceParameters parameters;
         private final List<FCollection<?>> wait;
 
@@ -301,6 +305,7 @@ public class BigQuerySource {
 
         private BigQueryBatchQueryWaitSource(final SourceConfig config, final List<FCollection<?>> wait) {
             this.timestampAttribute = config.getTimestampAttribute();
+            this.timestampDefault = config.getTimestampDefault();
             this.wait = wait;
             this.parameters = new Gson().fromJson(config.getParameters(), BigQuerySourceParameters.class);
         }
@@ -361,8 +366,8 @@ public class BigQuerySource {
             if(timestampAttribute == null) {
                 return records;
             } else {
-                final String timestampField = timestampAttribute;
-                return records.apply("WithTimestamp", WithTimestamps.of(r -> AvroSchemaUtil.getTimestamp(r, timestampField)));
+                return records.apply("WithTimestamp", DataTypeTransform
+                        .withTimestamp(DataType.AVRO, timestampAttribute, timestampDefault));
             }
         }
 
