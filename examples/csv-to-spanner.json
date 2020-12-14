@@ -1,0 +1,35 @@
+{
+  "sources": [
+    {
+      "name": "csvInput",
+      "module": "storage",
+      "schema": {
+        "fields": [
+          { "name": "ID", "type": "string", "mode": "required" },
+          { "name": "NumberField", "type": "double", "mode": "nullable" },
+          { "name": "DateField", "type": "date", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "input": "gs://mybucket/mycsv*",
+        "format": "csv",
+        "filterPrefix": "\"ID\""
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spannerOutput",
+      "module": "spanner",
+      "input": "csvInput",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "createTable": true,
+        "keyFields": ["ID"]
+      }
+    }
+  ]
+}

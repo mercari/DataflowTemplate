@@ -28,13 +28,13 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -115,8 +115,8 @@ public class AvroSchemaUtil {
     private static final org.joda.time.format.DateTimeFormatter FORMAT_TIME2 = DateTimeFormat.forPattern("HH:mm");
     private static final org.joda.time.format.DateTimeFormatter FORMAT_TIME3 = DateTimeFormat.forPattern("HH:mm:ss");
     private static final Pattern PATTERN_DATE1 = Pattern.compile("[0-9]{8}");
-    private static final Pattern PATTERN_DATE2 = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}");
-    private static final Pattern PATTERN_DATE3 = Pattern.compile("[0-9]{4}/[0-9]{2}/[0-9]{2}");
+    private static final Pattern PATTERN_DATE2 = Pattern.compile("[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}");
+    private static final Pattern PATTERN_DATE3 = Pattern.compile("[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}");
     private static final Pattern PATTERN_TIME1 = Pattern.compile("[0-9]{4}");
     private static final Pattern PATTERN_TIME2 = Pattern.compile("[0-9]{2}:[0-9]{2}");
     private static final Pattern PATTERN_TIME3 = Pattern.compile("[0-9]{4}:[0-9]{2}:[0-9]{2}");
@@ -262,37 +262,54 @@ public class AvroSchemaUtil {
     }
 
     public static org.joda.time.Instant getTimestamp(final GenericRecord record, final String fieldName) {
+        return getTimestamp(record, fieldName, Instant.ofEpochSecond(0L));
+    }
+
+    public static org.joda.time.Instant getTimestamp(final GenericRecord record, final String fieldName, final Instant defaultTimestamp) {
         final Schema.Field field = record.getSchema().getField(fieldName);
         if(field == null) {
-            return null;
+            return defaultTimestamp;
         }
         final Object value = record.get(fieldName);
         if(value == null) {
-            return null;
+            return defaultTimestamp;
         }
         final Schema schema = unnestUnion(field.schema());
         switch (schema.getType()) {
             case ENUM:
             case STRING: {
-                final String stringValue = value.toString();
-                if(PATTERN_DATE1.matcher(stringValue).find()) {
-                    return new DateTime(
-                            Integer.valueOf(stringValue.substring(0, 4)),
-                            Integer.valueOf(stringValue.substring(4, 6)),
-                            Integer.valueOf(stringValue.substring(6, 8)),
-                            0, 0, DateTimeZone.UTC).toInstant();
-                } else if(PATTERN_DATE2.matcher(stringValue).find() || PATTERN_DATE3.matcher(stringValue).find()) {
-                    return new DateTime(
-                            Integer.valueOf(stringValue.substring(0, 4)),
-                            Integer.valueOf(stringValue.substring(5, 7)),
-                            Integer.valueOf(stringValue.substring(8, 10)),
-                            0, 0, DateTimeZone.UTC).toInstant();
-                }
+                final String stringValue = value.toString().trim();
                 try {
                     return Instant.parse(stringValue);
                 } catch (Exception e) {
-                    return null;
+                    if(PATTERN_DATE1.matcher(stringValue).find()) {
+                        return new DateTime(
+                                Integer.valueOf(stringValue.substring(0, 4)),
+                                Integer.valueOf(stringValue.substring(4, 6)),
+                                Integer.valueOf(stringValue.substring(6, 8)),
+                                0, 0, DateTimeZone.UTC).toInstant();
+                    }
+
+                    Matcher matcher = PATTERN_DATE2.matcher(stringValue);
+                    if(matcher.find()) {
+                        final String[] values = matcher.group().split("-");
+                        return new DateTime(
+                                Integer.valueOf(values[0]),
+                                Integer.valueOf(values[1]),
+                                Integer.valueOf(values[2]),
+                                0, 0, DateTimeZone.UTC).toInstant();
+                    }
+                    matcher = PATTERN_DATE3.matcher(stringValue);
+                    if(matcher.find()) {
+                        final String[] values = matcher.group().split("/");
+                        return new DateTime(
+                                Integer.valueOf(values[0]),
+                                Integer.valueOf(values[1]),
+                                Integer.valueOf(values[2]),
+                                0, 0, DateTimeZone.UTC).toInstant();
+                    }
                 }
+                return defaultTimestamp;
             }
             case INT: {
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
@@ -300,7 +317,7 @@ public class AvroSchemaUtil {
                     return new DateTime(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
                             0, 0, DateTimeZone.UTC).toInstant();
                 }
-                return null;
+                return defaultTimestamp;
             }
             case LONG: {
                 final Long longValue = (Long)value;
@@ -309,7 +326,7 @@ public class AvroSchemaUtil {
                 } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
                     return Instant.ofEpochMilli(longValue / 1000);
                 }
-                return null;
+                return defaultTimestamp;
             }
             case FIXED:
             case BYTES:
@@ -322,7 +339,7 @@ public class AvroSchemaUtil {
             case ARRAY:
             case NULL:
             default:
-                return null;
+                return defaultTimestamp;
         }
     }
 
@@ -389,15 +406,29 @@ public class AvroSchemaUtil {
                     Integer.valueOf(dateString.substring(4, 6)),
                     Integer.valueOf(dateString.substring(6, 8)),
                     0, 0, DateTimeZone.UTC)).getDays();
-        } else if(PATTERN_DATE2.matcher(dateString).find() || PATTERN_DATE3.matcher(dateString).find()) {
-            return Days.daysBetween(EPOCH_DATETIME, new DateTime(
-                    Integer.valueOf(dateString.substring(0, 4)),
-                    Integer.valueOf(dateString.substring(5, 7)),
-                    Integer.valueOf(dateString.substring(8, 10)),
-                    0, 0, DateTimeZone.UTC)).getDays();
-        } else {
-            throw new IllegalArgumentException("Illegal date string: " + dateString);
         }
+
+        Matcher matcher = PATTERN_DATE2.matcher(dateString);
+        if(matcher.find()) {
+            final String[] values = matcher.group().split("-");
+            return Days.daysBetween(EPOCH_DATETIME, new DateTime(
+                    Integer.valueOf(values[0]),
+                    Integer.valueOf(values[1]),
+                    Integer.valueOf(values[2]),
+                    0, 0, DateTimeZone.UTC)).getDays();
+        }
+
+        matcher = PATTERN_DATE3.matcher(dateString);
+        if(matcher.find()) {
+            final String[] values = matcher.group().split("/");
+            return Days.daysBetween(EPOCH_DATETIME, new DateTime(
+                    Integer.valueOf(values[0]),
+                    Integer.valueOf(values[1]),
+                    Integer.valueOf(values[2]),
+                    0, 0, DateTimeZone.UTC)).getDays();
+        }
+
+        throw new IllegalArgumentException("Illegal date string: " + dateString);
     }
 
     public static int convertTimeStringToInteger(final String timeString) {

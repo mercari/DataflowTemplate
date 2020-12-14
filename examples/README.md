@@ -17,6 +17,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Cloud Spanner to Cloud SQL](spanner-to-jdbc.json)
     * [Cloud Spanner to Cloud Spanner(Insert)](spanner-to-spanner.json)
     * [Cloud Spanner to Cloud Spanner(Delete)](spanner-to-spanner-delete.json)
+    * [Cloud Storage(CSV) to Cloud Spanner](csv-to-spanner.json)
     * [Cloud Storage(Avro) to Cloud Spanner](avro-to-spanner.json)
     * [Cloud Storage(Avro) to Cloud Datastore](avro-to-datastore.json)
     * [Cloud Datastore to Cloud Storage(Avro)](datastore-to-avro.json)
