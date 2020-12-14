@@ -10,6 +10,7 @@ import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
 import org.apache.beam.sdk.values.Row;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -54,9 +55,6 @@ public class RowToRecordConverter {
             case DOUBLE:
                 return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_DOUBLE : AvroSchemaUtil.REQUIRED_DOUBLE;
             case DATETIME:
-                //final Schema datetimeSchema = Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.STRING));
-                //datetimeSchema.addProp("sqlType", "DATETIME");
-                //return datetimeSchema;
                 return fieldType.getNullable() ?
                         AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE :
                         AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
@@ -112,6 +110,8 @@ public class RowToRecordConverter {
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     if(value instanceof String) {
                         return AvroSchemaUtil.convertDateStringToInteger(value.toString());
+                    } else if(value instanceof LocalDate) {
+                        return ((Long)((LocalDate) value).toEpochDay()).intValue();
                     } else if(value instanceof Integer) {
                         return value;
                     } else {

@@ -5,18 +5,15 @@ import org.apache.avro.JsonProperties;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
-import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
-import org.joda.time.DateTime;
 import org.joda.time.Instant;
-import org.joda.time.format.ISODateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,26 +21,19 @@ public class RecordToRowConverter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RecordToRowConverter.class);
 
-    public static Row convert(final GenericRecord record) {
-        return convert(record.getSchema(), record);
-    }
-
-    public static Row convert(final org.apache.avro.Schema avroSchema, final GenericRecord record) {
-        final Schema schema = convertSchema(avroSchema);
-        return convert(schema, record);
-    }
-
-    public static Row convert(final SchemaAndRecord schemaAndRecord) {
-        return convert(schemaAndRecord.getRecord());
-    }
-
-    public static Row convert(final Schema schema, final GenericRecord record) {
+    public static Row convert(final org.apache.avro.Schema avroSchema, final Schema schema, final GenericRecord record) {
         final Row.Builder builder = Row.withSchema(schema);
-        final List<Object> values = new ArrayList<>();
-        for(final Schema.Field field : schema.getFields()) {
-            values.add(convertValue(field.getType(), record.get(field.getName())));
+        Row.FieldValueBuilder fieldBuilder = null;
+        for(final org.apache.avro.Schema.Field field : avroSchema.getFields()) {
+            if(fieldBuilder == null) {
+                fieldBuilder = builder.withFieldValue(field.name(),
+                        convertValue(field.schema(), schema.getField(field.name()).getType(), record.get(field.name())));
+            } else {
+                fieldBuilder = fieldBuilder.withFieldValue(field.name(),
+                        convertValue(field.schema(), schema.getField(field.name()).getType(), record.get(field.name())));
+            }
         }
-        return builder.addValues(values).build();
+        return fieldBuilder.build();
     }
 
     public static Schema convertSchema(final String avroSchema) {
@@ -75,59 +65,53 @@ public class RecordToRowConverter {
         return optionBuilder;
     }
 
-
-    private static Object convertValue(final Schema.FieldType fieldType, final Object value) {
+    private static Object convertValue(final org.apache.avro.Schema schema, final Schema.FieldType fieldType, final Object value) {
         if(value == null) {
             return null;
         }
-        switch (fieldType.getTypeName()) {
-            case BOOLEAN:
-                return value;
+        switch (schema.getType()) {
+            case ENUM:
             case STRING:
                 return value.toString();
+            case FIXED:
             case BYTES:
                 final byte[] bytes = ((ByteBuffer)value).array();
                 return Arrays.copyOf(bytes, bytes.length);
-            case DECIMAL:
-                //fieldType.getLogicalType().
-                //final int scale = AvroSchemaUtil.getLogicalTypeDecimal(schema).getScale();
-                return BigDecimal.valueOf(0, 0);
-            case INT16:
-            case INT32:
-            case INT64:
+            case INT: {
+                final Integer intValue = (Integer) value;
+                if(LogicalTypes.date().equals(schema.getLogicalType())) {
+                    return LocalDate.ofEpochDay(intValue.longValue());
+                } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
+                    //return Instant.ofEpochMilli(longValue);
+                }
+                return intValue;
+            }
+            case LONG: {
+                final Long longValue = (Long) value;
+                if(LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
+                    return Instant.ofEpochMilli(longValue);
+                } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
+                    return Instant.ofEpochMilli(longValue * 1000);
+                } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
+                    //return Instant.ofEpochMilli(longValue);
+                }
+                return longValue;
+            }
+            case BOOLEAN:
             case FLOAT:
             case DOUBLE:
                 return value;
-            case DATETIME: {
-                if(value instanceof org.joda.time.DateTime) {
-                    return ((DateTime) value).toInstant();
-                }
-                switch (fieldType.getMetadataString("type")) {
-                    case "millis":
-                        return Instant.ofEpochMilli((Long) value);
-                    case "micros":
-                        return Instant.ofEpochMilli(1000 * (Long) value);
-                    default:
-                        LOG.error("DATETIME_ERROR: " + (Long) value);
-                        return Instant.ofEpochMilli((Long) value / 1000);
-                }
-            }
-            case ROW:
-                return convert(fieldType.getRowSchema(), (GenericRecord) value);
+            case RECORD:
+                return convert(schema, fieldType.getRowSchema(), (GenericRecord) value);
             case ARRAY:
                 return ((List<Object>) value).stream()
-                        .map(o -> convertValue(fieldType.getCollectionElementType(), o))
+                        .map(o -> convertValue(schema.getElementType(), fieldType.getCollectionElementType(), o))
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-            case ITERABLE:
-                return Collections.singletonList(value).stream()
-                        .map(o -> convertValue(fieldType.getCollectionElementType(), o))
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.toList());
-            case LOGICAL_TYPE:
-                return value;
-            case BYTE:
+            case UNION:
+                return convertValue(AvroSchemaUtil.unnestUnion(schema), fieldType, value);
             case MAP:
+            case NULL:
             default:
                 return null;
         }

@@ -23,7 +23,6 @@ import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 
 import java.io.Serializable;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -77,6 +76,20 @@ public class DataTypeTransform {
     public static PTransform<PCollection<?>, PCollection<KV<String, ?>>> withKeys(
             final FCollection<?> inputCollection, final List<String> keyFields) {
         return new WithKeyTransform(inputCollection, keyFields);
+    }
+
+    public static <InputT> PTransform<PCollection<InputT>, PCollection<InputT>> withTimestamp(
+            final DataType dataType, final String timestampAttribute, final String timestampDefault) {
+
+        if(timestampDefault == null) {
+            return new WithTimestampTransform<>(dataType, timestampAttribute, Instant.ofEpochSecond(0L));
+        }
+
+        try {
+            return new WithTimestampTransform<>(dataType, timestampAttribute, Instant.parse(timestampDefault));
+        } catch (Exception e) {
+            return new WithTimestampTransform<>(dataType, timestampAttribute, Instant.ofEpochSecond(0L));
+        }
     }
 
     public static class TypeTransform<OutputT> extends PTransform<PCollection<?>, PCollection<OutputT>> {
@@ -142,8 +155,9 @@ public class DataTypeTransform {
                             final Schema schema = RecordToRowConverter.convertSchema(inputAvroSchema);
                             output = (PCollection<OutputT>) inputAvro
                                     .apply("RecordToRow", ParDo
-                                            .of(new TransformDoFn<>(inputAvroSchema,
-                                                    RecordToRowConverter::convertSchema,
+                                            .of(new RowDoFn<>(inputAvroSchema,
+                                                    inputCollection.getSchema(),
+                                                    AvroSchemaUtil::convertSchema,
                                                     RecordToRowConverter::convert)))
                                     .setCoder(RowCoder.of(schema))
                                     .setRowSchema(schema);
@@ -345,6 +359,42 @@ public class DataTypeTransform {
         OutputT convert(SchemaT schema, InputT element);
     }
 
+    private static class RowDoFn<InputSchemaT, RuntimeSchemaT, InputT> extends DoFn<InputT, Row> {
+
+        private final InputSchemaT schema;
+        private final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+        private final RowConverter<RuntimeSchemaT, InputT> rowConverter;
+
+        private final Schema outputSchema;
+        private transient RuntimeSchemaT runtimeSchema;
+
+        private RowDoFn(final InputSchemaT schema,
+                        final Schema outputSchema,
+                        final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                        final RowConverter<RuntimeSchemaT, InputT> rowConverter) {
+
+            this.schema = schema;
+            this.outputSchema = outputSchema;
+            this.schemaConverter = schemaConverter;
+            this.rowConverter = rowConverter;
+        }
+
+        @Setup
+        public void setup() {
+            this.runtimeSchema = this.schemaConverter.convert(this.schema);
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            c.output(this.rowConverter.convert(runtimeSchema, outputSchema, c.element()));
+        }
+    }
+
+    private interface RowConverter<SchemaT, InputT> extends Serializable {
+        Row convert(SchemaT inputSchema, Schema outputSchema, InputT element);
+    }
+
+
     private static class SpannerMutationDoFn<InputSchemaT, OutputSchemaT, InputT> extends DoFn<InputT, Mutation> {
 
         private final String table;
@@ -429,7 +479,7 @@ public class DataTypeTransform {
                                      final Boolean asBody) {
 
             this.columnFamily = columnFamily;
-            this.keyFields = keyFields;// == null ? null : Arrays.asList(keyFields.split(","));
+            this.keyFields = keyFields;
             this.excludeFields = excludeFields;
             this.schema = schema;
             this.schemaConverter = schemaConverter;
@@ -547,42 +597,47 @@ public class DataTypeTransform {
         }
     }
 
-    public static <OutputT> OutputT convert(final FCollection inputCollection, final DataType outputType, final Object value) {
-        if(value == null) {
-            return null;
+    public static class WithTimestampTransform<InputT extends Object> extends PTransform<PCollection<InputT>, PCollection<InputT>> {
+
+        private final String timestampAttribute;
+        private final DataType dataType;
+        private final Instant timestampDefault;
+
+        public WithTimestampTransform(final DataType dataType,
+                                      final String timestampAttribute,
+                                      final Instant timestampDefault) {
+            this.timestampAttribute = timestampAttribute;
+            this.dataType = dataType;
+            this.timestampDefault = timestampDefault;
         }
-        if(inputCollection.getDataType().equals(outputType)) {
-            return (OutputT) value;
-        }
-        switch (inputCollection.getDataType()) {
-            case AVRO: {
-                final GenericRecord record = (GenericRecord) value;
-                switch (outputType) {
-                    case ROW:
-                        return (OutputT) RecordToRowConverter.convert(inputCollection.getAvroSchema(), record);
+
+        @Override
+        public PCollection<InputT> expand(final PCollection<InputT> input) {
+            final PCollection output;
+            switch (dataType) {
+                case AVRO: {
+                    final PCollection<GenericRecord> records = (PCollection<GenericRecord>)input;
+                    output = records.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, AvroSchemaUtil::getTimestamp, timestampDefault)));
+                    return output;
                 }
-            }
-            case ROW: {
-                final Row row = (Row) value;
-                switch (outputType) {
-                    case AVRO:
-                        return (OutputT) RowToRecordConverter.convert(inputCollection.getAvroSchema(), row);
-                    case MUTATION:
-                        return (OutputT) RowToMutationConverter.convert(row, "", null);
+                case ROW: {
+                    final PCollection<Row> rows = (PCollection<Row>)input;
+                    output = rows.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, RowSchemaUtil::getTimestamp, timestampDefault)));
+                    return output;
                 }
-            }
-            case STRUCT: {
-                final Struct struct = (Struct) value;
-                switch (outputType) {
-                    case AVRO:
-                        return (OutputT) StructToRecordConverter.convert(inputCollection.getAvroSchema(), struct);
-                    case ROW:
-                        return (OutputT) StructToRowConverter.convert(inputCollection.getSchema(), struct);
+                case STRUCT: {
+                    final PCollection<Struct> structs = (PCollection<Struct>)input;
+                    output = structs.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, SpannerUtil::getTimestamp, timestampDefault)));
+                    return output;
                 }
+                case ENTITY: {
+                    final PCollection<Entity> entities = (PCollection<Entity>)input;
+                    output = entities.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, DatastoreUtil::getTimestamp, timestampDefault)));
+                    return output;
+                }
+                default:
+                    throw new IllegalArgumentException("Not supported data type: " + dataType.name());
             }
-            default:
-                throw new IllegalArgumentException("Not supported output type: " + outputType.name()
-                        + ", from input type: " + inputCollection.getDataType().name());
         }
     }
 
@@ -629,6 +684,28 @@ public class DataTypeTransform {
 
     }
 
+    private static class WithTimestampDoFn<InputT> extends DoFn<InputT, InputT> {
+
+        private final String timestampAttribute;
+        private final TimestampExtractor<InputT> timestampExtractor;
+        private final Instant timestampDefault;
+
+        private WithTimestampDoFn(final String timestampAttribute,
+                                  final TimestampExtractor<InputT> timestampExtractor,
+                                  final Instant timestampDefault) {
+            this.timestampAttribute = timestampAttribute;
+            this.timestampExtractor = timestampExtractor;
+            this.timestampDefault = timestampDefault;
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final InputT input = c.element();
+            c.outputWithTimestamp(input, timestampExtractor.getTimestamp(input, timestampAttribute, timestampDefault));
+        }
+
+    }
+
     private interface SpannerMutationConverter<SchemaT, InputT> extends Serializable {
         Mutation convert(final SchemaT schema, final InputT element,
                          final String table, final String mutationOp, final Iterable<String> keyFields,
@@ -650,6 +727,10 @@ public class DataTypeTransform {
 
     private interface FieldExtractor<InputT> extends Serializable {
         String getAsString(final InputT input, final String keyField);
+    }
+
+    private interface TimestampExtractor<InputT> extends Serializable {
+        Instant getTimestamp(final InputT input, final String keyField, final Instant defaultTimestamp);
     }
 
 }
