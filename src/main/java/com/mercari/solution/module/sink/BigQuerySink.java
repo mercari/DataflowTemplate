@@ -230,15 +230,17 @@ public class BigQuerySink {
                     .withSchema(tableSchema)
                     .withTableDescription("Auto Generated");
 
+            if(this.parameters.getDynamicDestination() != null) {
+                write = write.to(new DynamicDestinationFunc<>(table, tableSchema, this.parameters.getDynamicDestination(), destinationFunction));
+            } else {
+                write = write.to(table);
+            }
+
             if(this.parameters.getPartitioning() != null) {
                 final String partitioningType = this.parameters.getPartitioning().trim();
                 final String partitioningField = this.parameters.getPartitioningField();
                 final TimePartitioning timePartitioning = new TimePartitioning().setType(partitioningType).setField(partitioningField);
                 write = write.withTimePartitioning(timePartitioning);
-            } else if(this.parameters.getDynamicDestination() != null) {
-                write = write.to(new DynamicDestinationFunc<>(table, tableSchema, this.parameters.getDynamicDestination(), destinationFunction));
-            } else {
-                write = write.to(table);
             }
 
             write = write.withWriteDisposition(BigQueryIO.Write.WriteDisposition.valueOf(this.parameters.getWriteDisposition()));
@@ -340,7 +342,7 @@ public class BigQuerySink {
             this.table = table;
             this.tableSchema = tableSchema;
             this.dynamicDestination = dynamicDestination;
-            this.isTimePartitioning = dynamicDestination.startsWith("$");;
+            this.isTimePartitioning = dynamicDestination.startsWith("$");
             this.destinationFunction = destinationFunction;
         }
 
