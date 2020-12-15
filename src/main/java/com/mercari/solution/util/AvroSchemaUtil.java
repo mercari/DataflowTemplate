@@ -450,6 +450,22 @@ public class AvroSchemaUtil {
         return false;
     }
 
+    public static boolean isNestedSchema(final Schema schema) {
+        if(schema == null) {
+            return false;
+        }
+        return schema.getFields().stream()
+                .map(f -> unnestUnion(f.schema()))
+                .anyMatch(s -> {
+                    if(Schema.Type.RECORD.equals(s.getType())) {
+                        return true;
+                    } else if(Schema.Type.ARRAY.equals(s.getType())) {
+                        return Schema.Type.RECORD.equals(unnestUnion(s.getElementType()).getType());
+                    }
+                    return false;
+                });
+    }
+
     public static byte[] toBytes(final GenericRecord record) throws IOException {
         final DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(record.getSchema());
         try(final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {

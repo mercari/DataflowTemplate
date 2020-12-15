@@ -25,28 +25,6 @@ import java.util.stream.Collectors;
 
 public class RecordToTableRowConverter {
 
-    private enum TableRowFieldType {
-        STRING,
-        BYTES,
-        INT64,
-        FLOAT64,
-        NUMERIC,
-        BOOL,
-        DATE,
-        TIME,
-        DATETIME,
-        TIMESTAMP,
-        GEOGRAPHY,
-        ARRAY,
-        STRUCT
-    }
-
-    private enum TableRowFieldMode {
-        REQUIRED,
-        NULLABLE,
-        REPEATED
-    }
-
     public static TableSchema convertSchema(final Schema schema) {
         final List<TableFieldSchema> tableFieldSchemas = new ArrayList<>();
         for(final Schema.Field field : schema.getFields()) {
@@ -164,23 +142,8 @@ public class RecordToTableRowConverter {
         }
     }
 
-    private static TableFieldSchema buildTableFieldSchema(final String fieldName, TableRowFieldType type, TableRowFieldMode mode) {
-        return new TableFieldSchema()
-                .setName(fieldName)
-                .setType(type.name())
-                .setMode(mode.name());
-    }
-
-    private static TableFieldSchema buildTableFieldSchema(final String fieldName, TableRowFieldType type, TableRowFieldMode mode, List<TableFieldSchema> fieldSchemas) {
-        return new TableFieldSchema()
-                .setName(fieldName)
-                .setType(type.name())
-                .setFields(fieldSchemas)
-                .setMode(mode.name());
-    }
-
     private static TableFieldSchema convertTableFieldSchema(final Schema.Field field) {
-        return convertTableFieldSchema(field.name(), field.schema(), false);
+        return convertTableFieldSchema(field.name(), field.schema(), AvroSchemaUtil.isNullable(field.schema()));
     }
 
 
@@ -233,21 +196,14 @@ public class RecordToTableRowConverter {
                 final List<TableFieldSchema> childTableFieldSchemas = schema.getFields().stream()
                         .map(RecordToTableRowConverter::convertTableFieldSchema)
                         .collect(Collectors.toList());
-                return tableFieldSchema.setName(name).setType("STRUCT").setFields(childTableFieldSchemas);
+                return tableFieldSchema.setName(name).setType("RECORD").setFields(childTableFieldSchemas);
             case ARRAY:
                 return tableFieldSchema
                         .setName(name)
-                        .setType(convertTableFieldSchema(name, schema.getElementType(), false).getType())
+                        .setType(convertTableFieldSchema(name, schema.getElementType(), AvroSchemaUtil.isNullable(schema.getElementType())).getType())
                         .setMode("REPEATED");
             case UNION:
-                final boolean hasnull = schema.getTypes().stream()
-                        .map(Schema::getType)
-                        .anyMatch(Schema.Type.NULL::equals);
-                final Schema unnested = schema.getTypes().stream()
-                        .filter(s -> !Schema.Type.NULL.equals(s.getType()))
-                        .findAny()
-                        .orElseThrow(() -> new IllegalArgumentException(""));
-                return convertTableFieldSchema(name, unnested, hasnull);
+                return convertTableFieldSchema(name, AvroSchemaUtil.unnestUnion(schema), AvroSchemaUtil.isNullable(schema));
             case MAP:
             case NULL:
             default:

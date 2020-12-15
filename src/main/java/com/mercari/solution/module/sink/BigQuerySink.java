@@ -10,6 +10,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.DatastoreUtil;
@@ -260,14 +261,22 @@ public class BigQuerySink {
             }
 
             if(rows.getPipeline().getOptions().as(DataflowPipelineOptions.class).isStreaming()) {
+                LOG.info("BigQuerySink: TableRowWrite mode.");
                 write = write
                         .withMethod(BigQueryIO.Write.Method.STREAMING_INSERTS)
                         .withFormatFunction(convertTableRowFunction);
             } else {
-                write = write
-                        .withAvroSchemaFactory(TableRowToRecordConverter::convertSchema)
-                        .withAvroFormatFunction(convertAvroFunction)
-                        .useAvroLogicalTypes();
+                if(AvroSchemaUtil.isNestedSchema(collection.getAvroSchema())) {
+                    LOG.info("BigQuerySink: TableRowWrite mode.");
+                    write = write
+                            .withFormatFunction(convertTableRowFunction);
+                } else {
+                    LOG.info("BigQuerySink: AvroWrite mode.");
+                    write = write
+                            .withAvroSchemaFactory(TableRowToRecordConverter::convertSchema)
+                            .withAvroFormatFunction(convertAvroFunction)
+                            .useAvroLogicalTypes();
+                }
             }
 
             final WriteResult writeResult;

@@ -6,8 +6,6 @@ import com.mercari.solution.util.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,20 +16,18 @@ public class TableRowToRecordConverter {
     private static final Logger LOG = LoggerFactory.getLogger(TableRowToRecordConverter.class);
 
     public static Schema convertSchema(final TableSchema tableSchema) {
-        return convertSchema(tableSchema.getFields());
+        try {
+            return convertSchema(tableSchema.getFields(), "root");
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse: " + tableSchema.toString(), e);
+        }
     }
 
-    public static GenericRecord convert(final SchemaAndRecord schemaAndRecord) {
-        //schemaAndRecord.g
-        return null;
-    }
-
-    private static Schema convertSchema(final List<TableFieldSchema> fields) {
-        final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").fields();
-        fields.forEach(field -> schemaFields
-                .name(field.getName())
-                .type(convertFieldType(field, false))
-                .noDefault());
+    private static Schema convertSchema(final List<TableFieldSchema> fields, final String name) {
+        SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record(name).fields();
+        for (final TableFieldSchema field : fields) {
+            schemaFields = schemaFields.name(field.getName()).type(convertFieldType(field, false)).noDefault();
+        }
         return schemaFields.endRecord();
     }
 
@@ -76,7 +72,7 @@ public class TableRowToRecordConverter {
             }
             case "RECORD":
             case "STRUCT":
-                final Schema structSchema = convertSchema(schema.getFields());
+                final Schema structSchema = convertSchema(schema.getFields(), schema.getName());
                 return nullable ? Schema.createUnion(Schema.create(Schema.Type.NULL), structSchema) : structSchema;
             default:
                 throw new IllegalArgumentException("BigQuery TableSchema type: " + schema.toString() + " is not supported!");

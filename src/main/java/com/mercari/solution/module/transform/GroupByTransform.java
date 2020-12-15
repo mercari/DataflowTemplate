@@ -131,8 +131,15 @@ public class GroupByTransform {
                 schemaFields.name(keySchema.getKey()).type(keySchema.getValue()).noDefault();
             }
             for(final Map.Entry<String, Schema> schema : schemas.entrySet()) {
+                final String name;
+                if(schema.getKey().contains(".")) {
+                    final String[] ns = schema.getKey().split("\\.");
+                    name = ns[ns.length-1];
+                } else {
+                    name = schema.getKey();
+                }
                 final Schema childSchema = AvroSchemaUtil.toBuilder(schema.getValue(), schema.getKey(), null).endRecord();
-                schemaFields.name(schema.getKey()).type(Schema.createArray(childSchema)).noDefault();
+                schemaFields.name(name).type(Schema.createArray(childSchema)).noDefault();
             }
             return schemaFields.endRecord();
         }
@@ -186,7 +193,12 @@ public class GroupByTransform {
                         sampleRecord = record;
                     }
                 }
-                recordsMap.put(tableName, records);
+                if(tableName.contains(".")) {
+                    final String[] ns = tableName.split("\\.");
+                    recordsMap.put(ns[ns.length-1], records);
+                } else {
+                    recordsMap.put(tableName, records);
+                }
             }
             final GenericRecord record = createGroupAvroRecord(outputSchema, recordsMap, sampleRecord);
             c.output(record);
