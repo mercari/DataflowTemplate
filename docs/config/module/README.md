@@ -20,6 +20,7 @@
 | --- | --- | --- | --- |
 | [beamsql](transform/beamsql.md) | ○ | ○ | Process the data in a given SQL |
 | [window](transform/window.md) | ○ | ○ | Assign to the specified type of Window from the time of the specified field |
+| [pdfextract](transform/pdfextract.md) | ○ | ○ | Extract text and metadata from PDF files |
 
 ## Sink Modules
 
@@ -27,11 +28,7 @@
 | --- | --- | --- | --- |
 | [bigquery](sink/bigquery.md) | ○ | ○ | Inserting Data into BigQuery Table |
 | [spanner](sink/spanner.md) | ○ | ○ | Inserting Data into Cloud Spanner Table |
-| [storage](sink/storage.md) | ○ | ○(TBA) | Inserting Data into Cloud Storage Table |
+| [storage](sink/storage.md) | ○ | ○(TBA) | Write file to Cloud Storage |
 | [datastore](sink/datastore.md) | ○ | ○ | Inserting Data into Cloud Datastore Table |
 | [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
-
-
-
-
-
+| [solrindex](sink/solrindex.md) | ○ | - | Write solr index file to Cloud Storage |

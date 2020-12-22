@@ -11,6 +11,7 @@ import com.google.datastore.v1.client.Datastore;
 import com.google.datastore.v1.client.DatastoreException;
 import com.google.datastore.v1.client.DatastoreFactory;
 import com.google.datastore.v1.client.DatastoreOptions;
+import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import com.google.rpc.Code;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
@@ -153,8 +154,20 @@ public class DatastoreUtil {
         }
     }
 
+    public static Entity.Builder toBuilder(final Entity entity) {
+        return Entity.newBuilder(entity);
+    }
+
     public static Instant getTimestamp(final Entity entity, final String fieldName) {
         return getTimestamp(entity, fieldName, Instant.ofEpochSecond(0L));
+    }
+
+    public static Timestamp toProtoTimestamp(final Instant instant) {
+        if(instant == null) {
+            return null;
+        }
+        final java.time.Instant jinstant = java.time.Instant.ofEpochMilli(instant.getMillis());
+        return Timestamp.newBuilder().setSeconds(jinstant.getEpochSecond()).setNanos(jinstant.getNano()).build();
     }
 
     public static Instant getTimestamp(final Entity entity, final String fieldName, final Instant timestampDefault) {

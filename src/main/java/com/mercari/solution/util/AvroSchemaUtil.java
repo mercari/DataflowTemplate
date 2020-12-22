@@ -13,6 +13,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.EncoderFactory;
@@ -76,6 +77,7 @@ public class AvroSchemaUtil {
     public static final Schema REQUIRED_LOGICAL_DATE_TYPE = LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT));
     public static final Schema REQUIRED_LOGICAL_TIME_MILLI_TYPE = LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT));
     public static final Schema REQUIRED_LOGICAL_TIME_MICRO_TYPE = LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG));
+    public static final Schema REQUIRED_LOGICAL_TIMESTAMP_MILLI_TYPE = LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG));
     public static final Schema REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE = LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));
     public static final Schema REQUIRED_LOGICAL_DECIMAL_TYPE = LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES));
     public static final Schema REQUIRED_SQL_DATETIME_TYPE = SchemaBuilder.builder().stringBuilder().prop("sqlType", "DATETIME").endString();
@@ -92,6 +94,7 @@ public class AvroSchemaUtil {
     public static final Schema NULLABLE_LOGICAL_DATE_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT)));
     public static final Schema NULLABLE_LOGICAL_TIME_MILLI_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT)));
     public static final Schema NULLABLE_LOGICAL_TIME_MICRO_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG)));
+    public static final Schema NULLABLE_LOGICAL_TIMESTAMP_MILLI_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG)));
     public static final Schema NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG)));
     public static final Schema NULLABLE_LOGICAL_DECIMAL_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES)));
     public static final Schema NULLABLE_SQL_DATETIME_TYPE = SchemaBuilder.unionOf()
@@ -259,6 +262,18 @@ public class AvroSchemaUtil {
             }
         });
         return schemaFields;
+    }
+
+    public static GenericRecordBuilder toBuilder(final GenericRecord record) {
+        return toBuilder(record, record.getSchema());
+    }
+
+    public static GenericRecordBuilder toBuilder(final GenericRecord record, final Schema schema) {
+        final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
+        for(final Schema.Field field : record.getSchema().getFields()) {
+            builder.set(field, record.get(field.name()));
+        }
+        return builder;
     }
 
     public static org.joda.time.Instant getTimestamp(final GenericRecord record, final String fieldName) {

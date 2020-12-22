@@ -14,6 +14,7 @@ import com.mercari.solution.util.gcp.DatastoreUtil;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.*;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
@@ -50,9 +51,6 @@ public class StorageSink {
         // csv
         private Boolean header;
         private Boolean bom;
-        // Solr
-        private String solrCore;
-        private String solrSchema;
 
         public String getOutput() {
             return output;
@@ -166,22 +164,6 @@ public class StorageSink {
             this.bom = bom;
         }
 
-        public String getSolrCore() {
-            return solrCore;
-        }
-
-        public void setSolrCore(String solrCore) {
-            this.solrCore = solrCore;
-        }
-
-        public String getSolrSchema() {
-            return solrSchema;
-        }
-
-        public void setSolrSchema(String solrSchema) {
-            this.solrSchema = solrSchema;
-        }
-
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
@@ -190,7 +172,7 @@ public class StorageSink {
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final StorageSinkParameters parameters = new Gson().fromJson(config.getParameters(), StorageSinkParameters.class);
-        final StorageWrite write = new StorageWrite(collection, parameters);
+        final StorageWrite write = new StorageWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);
         final FCollection<?> fcollection = FCollection.update(collection, output);
         try {
@@ -205,17 +187,32 @@ public class StorageSink {
 
         private FCollection<?> collection;
         private final StorageSinkParameters parameters;
+        private final List<FCollection<?>> waits;
 
         private StorageWrite(final FCollection<?> collection,
-                             final StorageSinkParameters parameters) {
+                             final StorageSinkParameters parameters,
+                             final List<FCollection<?>> waits) {
             this.collection = collection;
             this.parameters = parameters;
+            this.waits = waits;
         }
 
-        public PCollection<KV> expand(final PCollection<?> input) {
+        public PCollection<KV> expand(final PCollection<?> inputP) {
 
             validateParameters();
             setDefaultParameters();
+
+            final PCollection<?> input;
+            if(waits == null || waits.size() == 0) {
+                input = inputP;
+            } else {
+                final List<PCollection<?>> wait = waits.stream()
+                        .map(FCollection::getCollection)
+                        .collect(Collectors.toList());
+                input = inputP
+                        .apply("Wait", Wait.on(wait))
+                        .setCoder((Coder)inputP.getCoder());
+            }
 
             final String format = this.parameters.getFormat();
             final String destinationField = this.parameters.getDynamicSplitField();
@@ -347,14 +344,7 @@ public class StorageSink {
                     final TFRecordSink.RecordFormatter<Row> tfrecordFormatter = RowToTFRecordConverter::convert;
                     //write = write.via(TFRecordSink.of(schema, tfrecordFormatter));
                     break;
-                case "solr": {
-                    final Schema schema = collection.getSchema() == null ?
-                            RecordToRowConverter.convertSchema(collection.getAvroSchema()) :
-                            collection.getSchema();
-                    final SolrSink.RecordFormatter<Row> solrFormatter = (Row row) -> RowToSolrDocumentConverter.convert(schema, row);
-                    //write = write.via(SolrSink.of(parameters.getSolrCore(), parameters.getSolrSchema(), solrFormatter));
-                    break;
-                }
+
                 */
                 default:
                     throw new IllegalArgumentException("Not supported format: " + format);

@@ -1,5 +1,6 @@
 package com.mercari.solution.module.sink.fileio;
 
+import com.mercari.solution.util.SolrUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.lucene.document.Document;
@@ -17,6 +18,7 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -59,6 +61,8 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
     private final String solrSchema;
     private final RecordFormatter<ElementT> formatter;
 
+    private transient List<String> fieldNames;
+
     private int count = 0;
     private transient SolrIndexWriter writer;
     private transient OutputStream outputStream;
@@ -85,14 +89,21 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
 
         final CoreContainer container = CoreContainer.createAndLoad(solrPath);
         final Path corePath = Paths.get("/solr/" + coreName);
+
         corePath.toFile().mkdir();
         try (final FileWriter filewriter = new FileWriter(new File("/solr/" + this.coreName + "/solrconfig.xml"))) {
             filewriter.write(SOLR_CONFIG_XML_DEFAULT);
         }
-        final String schemaString = StorageUtil.readString(this.solrSchema);
+        final String schemaString;
+        if(this.solrSchema.startsWith("gs://")) {
+            schemaString = StorageUtil.readString(this.solrSchema);
+        } else {
+            schemaString = this.solrSchema;
+        }
         try (final FileWriter filewriter = new FileWriter(new File("/solr/" + this.coreName + "/schema.xml"))) {
             filewriter.write(schemaString);
         }
+        this.fieldNames = SolrUtil.getFieldNames(schemaString);
 
         final boolean create;
         if (container.getAllCoreNames().size() > 0) {
@@ -117,7 +128,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
 
     @Override
     public void write(ElementT element) throws IOException {
-        final SolrInputDocument solrDoc = formatter.formatRecord(element);
+        final SolrInputDocument solrDoc = formatter.formatRecord(element, fieldNames);
         final Document doc = DocumentBuilder.toDocument(solrDoc, this.core.getLatestSchema());
         this.writer.addDocument(doc);
         this.count += 1;
@@ -155,7 +166,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         try (final InputStream is = new BufferedInputStream(new FileInputStream(file))) {
             LOG.warn(file.getAbsolutePath() + " ");
             int len;
-            byte[] buf = new byte[1024];
+            byte[] buf = new byte[1024 * 1024];
             while ((len = is.read(buf)) != -1) {
                 zos.write(buf, 0, len);
             }
@@ -163,7 +174,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
     }
 
     public interface RecordFormatter<ElementT> extends Serializable {
-        SolrInputDocument formatRecord(ElementT element);
+        SolrInputDocument formatRecord(ElementT element, List<String> fieldNames);
     }
 
 }

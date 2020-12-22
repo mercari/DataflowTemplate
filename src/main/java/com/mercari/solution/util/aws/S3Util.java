@@ -34,6 +34,12 @@ public class S3Util {
         return readString(s3, paths[0], paths[1]);
     }
 
+    public static byte[] readBytes(final String s3Path, final AwsOptions options) {
+        final String[] paths = parseS3Path(s3Path);
+        final AmazonS3 s3 = storage(options);
+        return readBytes(s3, paths[0], paths[1]);
+    }
+
     public static List<S3ObjectSummary> listFiles(
             final String s3Path,
             final AwsOptions options) {

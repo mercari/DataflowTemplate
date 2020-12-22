@@ -7,7 +7,6 @@ import org.apache.avro.Schema;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.List;
-import java.util.Map;
 
 public class SinkConfig implements Serializable {
 
@@ -18,7 +17,8 @@ public class SinkConfig implements Serializable {
         bigtable,
         datastore,
         jdbc,
-        pubsub
+        pubsub,
+        solrindex
     }
 
     private String name;
@@ -80,7 +80,7 @@ public class SinkConfig implements Serializable {
         if(outputAvroSchema == null) {
             return;
         }
-        if(outputAvroSchema.startsWith("gs://")) {
+        if(!outputAvroSchema.startsWith("gs://")) {
             throw new IllegalArgumentException("Parameter outputAvroSchema is illegal: " + outputAvroSchema);
         }
         if(schema == null) {

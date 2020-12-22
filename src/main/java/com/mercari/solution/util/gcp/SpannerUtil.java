@@ -4,6 +4,7 @@ import com.google.api.gax.longrunning.OperationFuture;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.cloud.Date;
+import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.*;
 import com.google.spanner.admin.database.v1.UpdateDatabaseDdlMetadata;
 import com.mercari.solution.util.RowSchemaUtil;
@@ -20,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import org.threeten.bp.Duration;
 
 import java.io.Serializable;
-import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -207,6 +207,93 @@ public class SpannerUtil {
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
+    }
+
+    public static Timestamp toCloudTimestamp(final Instant instant) {
+        if(instant == null) {
+            return null;
+        }
+        return Timestamp.ofTimeMicroseconds(instant.getMillis() * 1000);
+    }
+
+    public static Type addStructField(final Type type, final List<Type.StructField> fields) {
+        final List<Type.StructField> allFields = type.getStructFields();
+        allFields.addAll(fields);
+        return Type.struct(allFields);
+    }
+
+    public static Struct.Builder toBuilder(final Struct struct) {
+        final Struct.Builder builder = Struct.newBuilder();
+        for(final Type.StructField field : struct.getType().getStructFields()) {
+            switch (field.getType().getCode()) {
+                case BOOL:
+                    builder.set(field.getName()).to(struct.getBoolean(field.getName()));
+                    break;
+                case STRING:
+                    builder.set(field.getName()).to(struct.getString(field.getName()));
+                    break;
+                case BYTES:
+                    builder.set(field.getName()).to(struct.getBytes(field.getName()));
+                    break;
+                case INT64:
+                    builder.set(field.getName()).to(struct.getLong(field.getName()));
+                    break;
+                case FLOAT64:
+                    builder.set(field.getName()).to(struct.getDouble(field.getName()));
+                    break;
+                case NUMERIC:
+                    builder.set(field.getName()).to(struct.getBigDecimal(field.getName()));
+                    break;
+                case TIMESTAMP:
+                    builder.set(field.getName()).to(struct.getTimestamp(field.getName()));
+                    break;
+                case DATE:
+                    builder.set(field.getName()).to(struct.getDate(field.getName()));
+                    break;
+                case STRUCT:
+                    builder.set(field.getName()).to(struct.getStruct(field.getName()));
+                    break;
+                case ARRAY: {
+                    switch (field.getType().getArrayElementType().getCode()) {
+                        case FLOAT64:
+                            builder.set(field.getName()).toFloat64Array(struct.getDoubleList(field.getName()));
+                            break;
+                        case BOOL:
+                            builder.set(field.getName()).toBoolArray(struct.getBooleanList(field.getName()));
+                            break;
+                        case INT64:
+                            builder.set(field.getName()).toInt64Array(struct.getLongList(field.getName()));
+                            break;
+                        case STRING:
+                            builder.set(field.getName()).toStringArray(struct.getStringList(field.getName()));
+                            break;
+                        case BYTES:
+                            builder.set(field.getName()).toBytesArray(struct.getBytesList(field.getName()));
+                            break;
+                        case DATE:
+                            builder.set(field.getName()).toDateArray(struct.getDateList(field.getName()));
+                            break;
+                        case TIMESTAMP:
+                            builder.set(field.getName()).toTimestampArray(struct.getTimestampList(field.getName()));
+                            break;
+                        case NUMERIC:
+                            builder.set(field.getName()).toNumericArray(struct.getBigDecimalList(field.getName()));
+                            break;
+                        case STRUCT:
+                            builder.set(field.getName()).toStructArray(struct.getType(), struct.getStructList(field.getName()));
+                            break;
+                        case ARRAY:
+                            throw new IllegalStateException("Array in Array not supported for spanner struct: " + struct.getType());
+                        default:
+                            break;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        return builder;
     }
 
     public static boolean existsTable(final Spanner spanner, final DatabaseId databaseId, final String table) {

@@ -353,6 +353,9 @@ public class FlexPipeline {
                 case setoperation:
                     outputs.putAll(SetOperationTransform.transform(inputs, transformConfig));
                     break;
+                case pdfextract:
+                    outputs.putAll(PDFExtractTransform.transform(inputs, transformConfig));
+                    break;
                 case feature:
                     outputs.put(transformConfig.getName(), FeatureTransform.transform(inputs, transformConfig));
                     break;
@@ -436,6 +439,9 @@ public class FlexPipeline {
                     break;
                 case jdbc:
                     outputs.put(sinkConfig.getName(), JdbcSink.write(input, sinkConfig, wait));
+                    break;
+                case solrindex:
+                    outputs.put(sinkConfig.getName(), SolrIndexSink.write(input, sinkConfig, wait));
                     break;
                 case pubsub:
                 default:
