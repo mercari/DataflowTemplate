@@ -14,6 +14,7 @@ public class TransformConfig implements Serializable {
         beamsql,
         window,
         setoperation,
+        pdfextract,
         feature,
         javascript,
         onnx,

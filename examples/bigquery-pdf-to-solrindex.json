@@ -1,0 +1,40 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT Field1, Field2, Field3, PDFFileGCSPath FROM `myproject.mydataset.mytable`"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "reshuffle",
+      "module": "reshuffle",
+      "inputs": ["bigqueryInput"]
+    },
+    {
+      "name": "pdfextract",
+      "module": "pdfextract",
+      "inputs": [
+        "reshuffle.bigqueryInput"
+      ],
+      "parameters": {
+        "field": "PDFFileGCSPath"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "solrIndex",
+      "module": "solrindex",
+      "input": "pdfextract.reshuffle.bigqueryInput",
+      "parameters": {
+        "output": "gs://mybucket/index.zip",
+        "coreName": "mycore",
+        "indexSchema": "gs://mybucket/solr_schema.xml"
+      }
+    }
+  ]
+}

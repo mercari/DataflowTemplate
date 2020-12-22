@@ -37,7 +37,7 @@
     <automl.version>1.1.2</automl.version>
     <tensorflow.version>1.15.0</tensorflow.version>
     <hbase.version>2.3.2</hbase.version>
-    <solr.version>8.6.3</solr.version>
+    <solr.version>8.7.0</solr.version>
     <mysql-connector.version>8.0.21</mysql-connector.version>
     <mysql-socket-factory.version>1.1.0</mysql-socket-factory.version>
     <junit.version>4.13.1</junit.version>
@@ -348,12 +348,6 @@
       <groupId>org.apache.solr</groupId>
       <artifactId>solr-langid</artifactId>
       <version>${solr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.calcite</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-analysis-extras -->
@@ -361,12 +355,6 @@
       <groupId>org.apache.solr</groupId>
       <artifactId>solr-analysis-extras</artifactId>
       <version>${solr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.calcite</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-firestore -->

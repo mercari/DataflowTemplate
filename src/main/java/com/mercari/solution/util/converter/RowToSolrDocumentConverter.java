@@ -1,14 +1,14 @@
 package com.mercari.solution.util.converter;
 
-import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.apache.solr.common.SolrInputDocument;
-import org.joda.time.Instant;
 
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
@@ -16,61 +16,88 @@ import java.util.Objects;
 
 public class RowToSolrDocumentConverter {
 
-    public static SolrInputDocument convert(final Schema schema, final Row row) {
+    public static SolrInputDocument convert(final Row row, final List<String> fieldNames) {
         final SolrInputDocument doc = new SolrInputDocument();
-        for(final org.apache.beam.sdk.schemas.Schema.Field field : schema.getFields()) {
-            setFieldValue(doc, field.getName(), field.getType(), row);
+        for(final org.apache.beam.sdk.schemas.Schema.Field field : row.getSchema().getFields()) {
+            if(fieldNames != null && !fieldNames.contains(field.getName())) {
+                continue;
+            }
+            setFieldValue(doc, field.getName(), field.getType(), row, fieldNames);
         }
         return doc;
     }
 
-    private static void setFieldValue(final SolrInputDocument doc, final String fieldName, final Schema.FieldType fieldType, final Row row) {
+    private static void setFieldValue(final SolrInputDocument doc,
+                                      final String fieldName, final Schema.FieldType fieldType,
+                                      final Row row,
+                                      final List<String> fieldNames) {
+
         final boolean isNullField = row.getValue(fieldName) == null;
-        final Object value = row.getValue(fieldName);
         switch (fieldType.getTypeName()) {
-            case BOOLEAN:
-                doc.addField(fieldName, isNullField ? false : (Boolean)value);
+            case BOOLEAN: {
+                doc.addField(fieldName, isNullField ? (Boolean)false : row.getBoolean(fieldName));
                 return;
-            case STRING:
-                doc.addField(fieldName, isNullField ? "" : value.toString());
+            }
+            case STRING: {
+                doc.addField(fieldName, isNullField ? "" : row.getString(fieldName));
                 return;
-            case BYTES:
-                doc.addField(fieldName, isNullField ? new byte[0] : ((ByteBuffer)value).array());
+            }
+            case BYTES: {
+                doc.addField(fieldName, isNullField ? new byte[0] : row.getBytes(fieldName));
                 return;
-            case INT32:
-                doc.addField(fieldName, isNullField ? 0 : (Integer)value);
+            }
+            case INT16: {
+                doc.addField(fieldName, isNullField ? 0 : row.getInt16(fieldName));
                 return;
-            case INT64:
-                doc.addField(fieldName, isNullField ? 0L : (Long)value);
+            }
+            case INT32: {
+                doc.addField(fieldName, isNullField ? 0 : row.getInt32(fieldName));
                 return;
-            case FLOAT:
-                doc.addField(fieldName, isNullField ? 0F : (Float)value);
+            }
+            case INT64: {
+                doc.addField(fieldName, isNullField ? 0L : row.getInt64(fieldName));
                 return;
-            case DOUBLE:
-                doc.addField(fieldName, isNullField ? 0D : (Double)value);
+            }
+            case FLOAT: {
+                doc.addField(fieldName, isNullField ? 0F : row.getFloat(fieldName));
                 return;
-            case DATETIME:
-                doc.addField(fieldName, isNullField ? new Date(0) :new Date(((Instant)value).getMillis()));
+            }
+            case DOUBLE: {
+                doc.addField(fieldName, isNullField ? 0D : row.getDouble(fieldName));
                 return;
-            case ARRAY:
+            }
+            case DATETIME: {
+                doc.addField(fieldName, isNullField ? new Date(0) : row.getDateTime(fieldName).toInstant().toDate());
+                return;
+            }
+            case ITERABLE:
+            case ARRAY: {
                 setArrayFieldValue(doc, fieldName, fieldType.getCollectionElementType(), row);
                 return;
-            case LOGICAL_TYPE:
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    final Date date = AvroSchemaUtil.convertEpochDaysToDate((Integer)value);
-                    doc.addField(fieldName, isNullField ? "" : date);
+            }
+            case ROW: {
+                return;
+            }
+            case LOGICAL_TYPE: {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    final LocalDate localDate = row.getLogicalTypeValue(fieldName, LocalDate.class);
+                    final Date date = Date.from(localDate.atStartOfDay(ZoneOffset.UTC).toInstant());
+                    doc.addField(fieldName, isNullField ? new Date(0) : date);
                     return;
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    doc.addField(fieldName, isNullField ? "" : new Date((Integer) value));
-                    return;
-                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-                    final Date date = isNullField ? new Date(0) : new Date((Long)value / 1000L);
-                    doc.addField(fieldName, date);
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    // TODO
+                    doc.addField(fieldName, isNullField ? "" : "");
                     return;
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
+            }
+            case MAP:
+            case BYTE:
+            case DECIMAL:
+            default:
+                break;
 
         }
     }
