@@ -348,6 +348,12 @@
       <groupId>org.apache.solr</groupId>
       <artifactId>solr-langid</artifactId>
       <version>${solr.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.calcite</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-analysis-extras -->
@@ -355,6 +361,12 @@
       <groupId>org.apache.solr</groupId>
       <artifactId>solr-analysis-extras</artifactId>
       <version>${solr.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.calcite</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-firestore -->
