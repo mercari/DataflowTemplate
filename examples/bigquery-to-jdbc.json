@@ -10,15 +10,31 @@
   ],
   "sinks": [
     {
-      "name": "jdbc",
+      "name": "cloudSQLMySQL",
       "module": "jdbc",
       "input": "bigquery",
       "parameters": {
-        "table": "mydatabase.mytable",
+        "table": "mytable",
         "url": "jdbc:mysql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.mysql.SocketFactory",
         "driver": "com.mysql.cj.jdbc.Driver",
         "user": "myuser",
         "password": "mypassword",
+        "op": "INSERT",
+        "emptyTable": true,
+        "keyFields": ["Field1", "Field2"]
+      }
+    },
+    {
+      "name": "cloudSQLPostgreSQL",
+      "module": "jdbc",
+      "input": "bigquery",
+      "parameters": {
+        "table": "mytable",
+        "url": "jdbc:postgresql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.postgres.SocketFactory",
+        "driver": "org.postgresql.Driver",
+        "user": "myuser",
+        "password": "mypassword",
+        "op": "INSERT_OR_DONOTHING",
         "createTable": true,
         "keyFields": ["Field1", "Field2"]
       }

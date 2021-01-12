@@ -1,4 +1,4 @@
-# JDBC Sink Module
+# JDBC Sink Module (Experimental)
 
 Sink module to write the input data to a specified RDB table.
 
@@ -20,8 +20,10 @@ Sink module to write the input data to a specified RDB table.
 | driver | required | String | Specify driver class such as `com.mysql.cj.jdbc.Driver`, `org.postgresql.Driver` |
 | user | required | String | User name to access the database |
 | password | required | String | User password to access the database |
+| keyFields | required | Array<String\> | Specify the primary key fields. |
+| op | optional | String | One of `INSERT`, `INSERT_OR_UPDATE`(only MySQL support), or `INSERT_OR_DONOTHING`. The default is `INSERT` |
 | createTable | optional | Boolean | Specify true if you want to generate the table automatically if the destination table does not exist. |
-| keyFields | optional | Array<String\> | Required if true is specified in createTable. Specify the name of the fields you want to use as the primary key. |
+| emptyTable | optional | Boolean | Specify true if you want to delete all data from the destination table before inserting data. |
 | batchSize | optional | Integer | Specify the batch size when writing. |
 
 ## Related example config files

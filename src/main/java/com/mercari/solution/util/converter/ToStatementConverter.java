@@ -19,36 +19,49 @@ import java.sql.*;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 public class ToStatementConverter {
 
     private static final Logger LOG = LoggerFactory.getLogger(ToStatementConverter.class);
 
     public static void convertRecord(final GenericRecord record, final PreparedStatement statement) throws SQLException {
+        convertRecordWithKeys(record, statement, null);
+    }
+
+    public static void convertRecordWithKeys(
+            final GenericRecord record, final PreparedStatement statement,
+            final List<String> keyFields) throws SQLException {
+
         int index = 1;
         for(final org.apache.avro.Schema.Field field : record.getSchema().getFields()) {
+            final boolean isNull = record.get(field.name()) == null;
             final org.apache.avro.Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
+            if(keyFields != null && keyFields.size() > 0 && !keyFields.contains(field.name())) {
+                continue;
+            }
             switch (fieldSchema.getType()) {
                 case BOOLEAN:
-                    if(record.get(field.name()) == null) {
-                        statement.setNull(index, Types.TINYINT);
+                    if(isNull) {
+                        statement.setNull(index, Types.BOOLEAN);
                     } else {
                         statement.setBoolean(index, ((Boolean) record.get(field.name())));
                     }
                     break;
                 case FIXED:
                 case BYTES: {
-                    final byte[] bytes = ((ByteBuffer) record.get(field.name())).array();
                     if (AvroSchemaUtil.isLogicalTypeDecimal(fieldSchema)) {
-                        if (record.get(field.name()) == null) {
+                        if (isNull) {
                             statement.setNull(index, Types.DECIMAL);
                         } else {
+                            final byte[] bytes = ((ByteBuffer) record.get(field.name())).array();
                             statement.setBigDecimal(index, new BigDecimal(new BigInteger(1, bytes)));
                         }
                     } else {
-                        if (record.get(field.name()) == null) {
-                            statement.setNull(index, Types.BLOB);
+                        if (isNull) {
+                            statement.setNull(index, Types.BINARY);
                         } else {
+                            final byte[] bytes = ((ByteBuffer) record.get(field.name())).array();
                             statement.setBytes(index, bytes);
                         }
                     }
@@ -56,7 +69,7 @@ public class ToStatementConverter {
                 }
                 case ENUM:
                 case STRING:
-                    if(record.get(field.name()) == null) {
+                    if(isNull) {
                         statement.setNull(index, Types.VARCHAR);
                     } else {
                         statement.setString(index, (record.get(field.name())).toString());
@@ -65,19 +78,19 @@ public class ToStatementConverter {
                 case INT: {
                     final Integer i = (Integer) record.get(field.name());
                     if (LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.DATE);
                         } else {
                             statement.setDate(index, Date.valueOf(LocalDate.ofEpochDay(i)));
                         }
                     } else if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.TIME);
                         } else {
                             statement.setTime(index, Time.valueOf(LocalTime.ofNanoOfDay(i * 1000 * 1000)));
                         }
                     } else {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.INTEGER);
                         } else {
                             statement.setInt(index, i);
@@ -88,25 +101,25 @@ public class ToStatementConverter {
                 case LONG: {
                     final Long i = (Long) record.get(field.name());
                     if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.TIMESTAMP);
                         } else {
                             statement.setTimestamp(index, Timestamp.from(Instant.ofEpochMilli(i)));
                         }
                     } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.TIMESTAMP);
                         } else {
                             statement.setTimestamp(index, Timestamp.from(Instant.ofEpochMilli(i / 1000)));
                         }
                     } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.TIME);
                         } else {
                             statement.setTime(index, Time.valueOf(LocalTime.ofNanoOfDay(i * 1000)));
                         }
                     } else {
-                        if(i == null) {
+                        if(isNull) {
                             statement.setNull(index, Types.BIGINT);
                         } else {
                             statement.setLong(index, i);
@@ -115,14 +128,14 @@ public class ToStatementConverter {
                     break;
                 }
                 case FLOAT:
-                    if(record.get(field.name()) == null) {
+                    if(isNull) {
                         statement.setNull(index, Types.REAL);
                     } else {
                         statement.setFloat(index, ((Float) record.get(field.name())));
                     }
                     break;
                 case DOUBLE:
-                    if(record.get(field.name()) == null) {
+                    if(isNull) {
                         statement.setNull(index, Types.DOUBLE);
                     } else {
                         statement.setDouble(index, ((Double) record.get(field.name())));
@@ -131,78 +144,86 @@ public class ToStatementConverter {
                 case ARRAY:
                 case MAP:
                 case RECORD:
-                case NULL:
                 case UNION:
+                case NULL:
                 default:
                     break;
             }
             index++;
         }
     }
-
     public static void convertRow(final Row row, final PreparedStatement statement) throws SQLException {
+        convertRowWithKeys(row, statement, null);
+    }
+
+    public static void convertRowWithKeys(final Row row, final PreparedStatement statement,
+                                          final List<String> keyFields) throws SQLException {
+
         int index = 1;
         for(final Schema.Field field : row.getSchema().getFields()) {
-            final boolean isnull = row.getValue(field.getName()) == null;
+            final boolean isNull = row.getValue(field.getName()) == null;
+            if(keyFields != null && keyFields.size() > 0 && !keyFields.contains(field.getName())) {
+                continue;
+            }
             switch (field.getType().getTypeName()) {
                 case BOOLEAN:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.BOOLEAN);
                     } else {
                         statement.setBoolean(index, row.getBoolean(field.getName()));
                     }
                     break;
                 case INT16:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.SMALLINT);
                     } else {
                         statement.setShort(index, row.getInt16(field.getName()));
                     }
                     break;
                 case INT32:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.INTEGER);
                     } else {
                         statement.setInt(index, row.getInt32(field.getName()));
                     }
                     break;
                 case INT64:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.BIGINT);
                     } else {
                         statement.setLong(index, row.getInt64(field.getName()));
                     }
                     break;
                 case FLOAT:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.REAL);
                     } else {
                         statement.setFloat(index, row.getFloat(field.getName()));
                     }
                     break;
                 case DOUBLE:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.DOUBLE);
                     } else {
                         statement.setDouble(index, row.getDouble(field.getName()));
                     }
                     break;
                 case BYTES:
-                    if(isnull) {
-                        statement.setNull(index, Types.BLOB);
+                    if(isNull) {
+                        statement.setNull(index, Types.BINARY);
                     } else {
                         statement.setBytes(index, row.getBytes(field.getName()));
                     }
                     break;
                 case STRING:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.VARCHAR);
                     } else {
                         statement.setString(index, row.getString(field.getName()));
                     }
                     break;
                 case DATETIME:
-                    if(isnull) {
+                    if(isNull) {
                         statement.setNull(index, Types.TIMESTAMP);
                     } else {
                         statement.setTimestamp(index, Timestamp.from(Instant.ofEpochMilli(row.getDateTime(field.getName()).getMillis())));
@@ -210,14 +231,14 @@ public class ToStatementConverter {
                     break;
                 case LOGICAL_TYPE:
                     if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
-                        if(isnull) {
+                        if(isNull) {
                             statement.setNull(index, Types.DATE);
                         } else {
                             final LocalDate localDate = row.getLogicalTypeValue(field.getName(), LocalDate.class);
                             statement.setDate(index, Date.valueOf(localDate));
                         }
                     } else if(RowSchemaUtil.isLogicalTypeTime(field.getType())) {
-                        if(isnull) {
+                        if(isNull) {
                             statement.setNull(index, Types.TIME);
                         } else {
                             org.joda.time.Instant instant = row.getLogicalTypeValue(field.getName(), org.joda.time.Instant.class);
@@ -242,8 +263,16 @@ public class ToStatementConverter {
     }
 
     public static void convertStruct(final Struct struct, final PreparedStatement statement) throws SQLException {
+        convertStructWithKeys(struct, statement, null);
+    }
+
+    public static void convertStructWithKeys(final Struct struct, final PreparedStatement statement,
+                                             final List<String> keyFields) throws SQLException {
         int index = 1;
         for(final Type.StructField field : struct.getType().getStructFields()) {
+            if(keyFields != null && keyFields.size() > 0 && !keyFields.contains(field.getName())) {
+                continue;
+            }
             switch (field.getType().getCode()) {
                 case BOOL:
                     if(struct.isNull(field.getName())) {
@@ -261,7 +290,7 @@ public class ToStatementConverter {
                     break;
                 case BYTES:
                     if(struct.isNull(field.getName())) {
-                        statement.setNull(index, Types.BLOB);
+                        statement.setNull(index, Types.BINARY);
                     } else {
                         statement.setBytes(index, struct.getBytes(field.getName()).toByteArray());
                     }
