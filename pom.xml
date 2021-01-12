@@ -38,8 +38,10 @@
     <tensorflow.version>1.15.0</tensorflow.version>
     <hbase.version>2.3.2</hbase.version>
     <solr.version>8.7.0</solr.version>
-    <mysql-connector.version>8.0.21</mysql-connector.version>
-    <mysql-socket-factory.version>1.1.0</mysql-socket-factory.version>
+    <mysql-connector.version>8.0.22</mysql-connector.version>
+    <postgresql-connector.version>42.2.18</postgresql-connector.version>
+    <sqlserver-connector.version>8.4.1.jre8</sqlserver-connector.version>
+    <jdbc-socket-factory.version>1.2.0</jdbc-socket-factory.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.7.0</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -261,6 +263,32 @@
       <version>${beam.version}</version>
     </dependency>
 
+    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-langid -->
+    <dependency>
+      <groupId>org.apache.solr</groupId>
+      <artifactId>solr-langid</artifactId>
+      <version>${solr.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.calcite</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-analysis-extras -->
+    <dependency>
+      <groupId>org.apache.solr</groupId>
+      <artifactId>solr-analysis-extras</artifactId>
+      <version>${solr.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.calcite</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
     <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql -->
     <dependency>
       <groupId>org.apache.beam</groupId>
@@ -343,32 +371,6 @@
       <version>${tensorflow.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-langid -->
-    <dependency>
-      <groupId>org.apache.solr</groupId>
-      <artifactId>solr-langid</artifactId>
-      <version>${solr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.calcite</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-analysis-extras -->
-    <dependency>
-      <groupId>org.apache.solr</groupId>
-      <artifactId>solr-analysis-extras</artifactId>
-      <version>${solr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.calcite</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
     <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-firestore -->
     <dependency>
       <groupId>com.google.cloud</groupId>
@@ -380,7 +382,21 @@
     <dependency>
       <groupId>com.google.cloud.sql</groupId>
       <artifactId>mysql-socket-factory</artifactId>
-      <version>${mysql-socket-factory.version}</version>
+      <version>${jdbc-socket-factory.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/com.google.cloud.sql/postgres-socket-factory -->
+    <dependency>
+      <groupId>com.google.cloud.sql</groupId>
+      <artifactId>postgres-socket-factory</artifactId>
+      <version>${jdbc-socket-factory.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/com.google.cloud.sql/cloud-sql-connector-jdbc-sqlserver -->
+    <dependency>
+      <groupId>com.google.cloud.sql</groupId>
+      <artifactId>cloud-sql-connector-jdbc-sqlserver</artifactId>
+      <version>${jdbc-socket-factory.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/mysql/mysql-connector-java -->
@@ -390,6 +406,19 @@
       <version>${mysql-connector.version}</version>
     </dependency>
 
+    <!-- https://mvnrepository.com/artifact/org.postgresql/postgresql -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${postgresql-connector.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/com.microsoft.sqlserver/mssql-jdbc -->
+    <dependency>
+      <groupId>com.microsoft.sqlserver</groupId>
+      <artifactId>mssql-jdbc</artifactId>
+      <version>${sqlserver-connector.version}</version>
+    </dependency>
 
     <!-- Log -->
     <!-- Add slf4j API frontend binding with JUL backend -->

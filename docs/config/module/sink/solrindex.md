@@ -1,4 +1,4 @@
-# Solr index Sink Module
+# Solr index Sink Module (Experimental)
 
 Sink module to write solr index file to a specified file storage path.
 

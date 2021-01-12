@@ -19,6 +19,19 @@ import java.util.stream.Collectors;
 
 public class JdbcUtil {
 
+    public enum DB {
+        MYSQL,
+        POSTGRESQL,
+        SQLSERVER
+    }
+
+    public enum OP {
+        INSERT,
+        INSERT_OR_UPDATE,
+        INSERT_OR_DONOTHING,
+        DELETE
+    }
+
     private static final List<String> RESERVED_KEYWORDS = Arrays.asList(
             "ALL","AND","ANY","ARRAY","AS","ASC","ASSERT_ROWS_MODIFIED","AT",
             "BETWEEN","BY","CASE","CAST","COLLATE","CONTAINS","CREATE","CROSS","CUBE","CURRENT",
@@ -30,7 +43,7 @@ public class JdbcUtil {
 
     public static DataSource createDataSource(
             final String driverClassName, final String url,
-            final String username, final String password) throws Exception {
+            final String username, final String password) {
 
         final BasicDataSource basicDataSource = new BasicDataSource();
         basicDataSource.setDriverClassName(driverClassName);
@@ -51,7 +64,6 @@ public class JdbcUtil {
         poolableConnectionFactory.setDefaultAutoCommit(false);
         poolableConnectionFactory.setDefaultReadOnly(false);
         return new PoolingDataSource(connectionPool);
-
     }
 
     public static Schema createAvroSchema(
@@ -98,12 +110,9 @@ public class JdbcUtil {
         }
     }
 
-    public static boolean existsTable(final String table) {
-        return false;
-    }
-
     public static String buildCreateTableSQL(final Schema schema,
                                              final String table,
+                                             final DB db,
                                              final List<String> keyFields) {
 
         final StringBuilder sb = new StringBuilder(String.format("CREATE TABLE IF NOT EXISTS %s (", table));
@@ -111,17 +120,101 @@ public class JdbcUtil {
                 .filter(f -> isValidColumnType(f.schema()))
                 .forEach(f -> sb.append(String.format("%s %s%s,",
                         replaceReservedKeyword(f.name()),
-                        getColumnType(f.schema()),
+                        getColumnType(f.schema(), db),
                         AvroSchemaUtil.isNullable(f.schema()) ? "" : " NOT NULL")));
-        sb.deleteCharAt(sb.length() - 1);
+
         if(keyFields == null || keyFields.size() == 0) {
+            sb.deleteCharAt(sb.length() - 1);
             sb.append(");");
         } else {
             final String primaryKey = keyFields.stream()
                     .map(JdbcUtil::replaceReservedKeyword)
                     .collect(Collectors.joining(","));
-            sb.append(String.format(") PRIMARY KEY ( %s );", primaryKey));
+            sb.append(String.format(" PRIMARY KEY ( %s ));", primaryKey));
         }
+        return sb.toString();
+    }
+
+    public static String createStatement(final String table, final Schema schema,
+                                         final OP op, final DB db,
+                                         final List<String> keyFields) {
+
+        final StringBuilder sb;
+        if(OP.DELETE.equals(op)) {
+            /*
+            sb = new StringBuilder("DELETE FROM " + table + " WHERE ");
+            for(final String keyField : keyFields) {
+                sb.append(keyField);
+                sb.append("=? AND ");
+            }
+            sb.append("TRUE");
+            return sb.toString();
+            */
+            throw new IllegalArgumentException("jdbc module does not support DELETE op.");
+        } else {
+            sb = new StringBuilder("INSERT INTO " + table + " (");
+        }
+        for(final Schema.Field field : schema.getFields()) {
+            sb.append(field.name());
+            sb.append(",");
+        }
+        sb.deleteCharAt(sb.length() - 1);
+        sb.append(")");
+
+        sb.append("VALUES(");
+        schema.getFields().forEach(f -> sb.append("?,"));
+        sb.deleteCharAt(sb.length() - 1);
+        sb.append(")");
+
+        if(op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING)) {
+            switch (db) {
+                case MYSQL: {
+                    sb.append(" ON DUPLICATE KEY UPDATE ");
+                    if(op.equals(OP.INSERT_OR_DONOTHING)) {
+                        for (final String keyField : keyFields) {
+                            sb.append("`" + keyField + "`=VALUES(`" + keyField + "`),");
+                        }
+                    } else {
+                        for (final Schema.Field field : schema.getFields()) {
+                            if (keyFields.contains(field.name())) {
+                                continue;
+                            }
+                            sb.append("`" + field.name() + "`=VALUES(`" + field.name() + "`),");
+                        }
+                    }
+                    sb.deleteCharAt(sb.length() - 1);
+                    break;
+                }
+                case POSTGRESQL: {
+                    sb.append(" ON CONFLICT (");
+                    for (final String keyField : keyFields) {
+                        sb.append(keyField);
+                        sb.append(",");
+                    }
+                    sb.deleteCharAt(sb.length() - 1);
+                    if(op.equals(OP.INSERT_OR_DONOTHING)) {
+                        sb.append(") DO NOTHING");
+                    } else {
+                        /*
+                        sb.append(") DO UPDATE SET ");
+                        for (final Schema.Field field : schema.getFields()) {
+                            if(keyFields.contains(field.name())) {
+                                continue;
+                            }
+                            sb.append(field.name() + "'" + field.name() + "'),");
+                        }
+                        sb.deleteCharAt(sb.length() - 1);
+                        */
+                        throw new IllegalArgumentException("jdbc module does not support PostgreSQL INSERT_OR_UPDATE op.");
+                    }
+                    break;
+                }
+                case SQLSERVER: {
+                    break;
+                }
+            }
+        }
+
         return sb.toString();
     }
 
@@ -140,20 +233,45 @@ public class JdbcUtil {
         }
     }
 
-    private static String getColumnType(final Schema schema) {
+    private static String getColumnType(final Schema schema, final DB db) {
         final Schema avroSchema = AvroSchemaUtil.unnestUnion(schema);
         switch (avroSchema.getType()) {
-            case BOOLEAN:
-                return "TINYINT(1)";
+            case BOOLEAN: {
+                switch (db) {
+                    case MYSQL:
+                        return "TINYINT(1)";
+                    case POSTGRESQL:
+                        return "BOOLEAN";
+                    default:
+                        return "BOOLEAN";
+                }
+            }
             case ENUM:
-            case STRING:
-                return "TEXT CHARACTER SET utf8";
+            case STRING: {
+                switch (db) {
+                    case MYSQL:
+                        return "TEXT CHARACTER SET utf8mb4";
+                    case POSTGRESQL:
+                        return "TEXT";
+                    default:
+                        return "TEXT";
+                }
+            }
             case FIXED:
-            case BYTES:
-                if(AvroSchemaUtil.isLogicalTypeDecimal(avroSchema)) {
+            case BYTES: {
+                if (AvroSchemaUtil.isLogicalTypeDecimal(avroSchema)) {
                     return "DECIMAL(38, 9)";
                 }
-                return "BLOB(65535)";
+                switch (db) {
+                    case MYSQL:
+                        return "MEDIUMBLOB";
+                    case POSTGRESQL:
+                        return "BYTEA";
+                    default:
+                        break;
+                }
+                return "BLOB";
+            }
             case INT:
                 if (LogicalTypes.date().equals(avroSchema.getLogicalType())) {
                     return "DATE";
@@ -162,20 +280,56 @@ public class JdbcUtil {
                 } else {
                     return "INTEGER";
                 }
-            case LONG:
-                if (LogicalTypes.timestampMillis().equals(avroSchema.getLogicalType())) {
-                    return "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
-                } else if (LogicalTypes.timestampMicros().equals(avroSchema.getLogicalType())) {
-                    return "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
-                } else if (LogicalTypes.timeMicros().equals(avroSchema.getLogicalType())) {
-                    return "TIME";
-                } else {
-                    return "BIGINT";
+            case LONG: {
+                switch (db) {
+                    case MYSQL: {
+                        if (LogicalTypes.timestampMillis().equals(avroSchema.getLogicalType())) {
+                            return "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
+                        } else if (LogicalTypes.timestampMicros().equals(avroSchema.getLogicalType())) {
+                            return "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
+                        } else if (LogicalTypes.timeMicros().equals(avroSchema.getLogicalType())) {
+                            return "TIME";
+                        } else {
+                            return "BIGINT";
+                        }
+                    }
+                    case POSTGRESQL: {
+                        if (LogicalTypes.timestampMillis().equals(avroSchema.getLogicalType())) {
+                            return "TIMESTAMP";
+                        } else if (LogicalTypes.timestampMicros().equals(avroSchema.getLogicalType())) {
+                            return "TIMESTAMP";
+                        } else if (LogicalTypes.timeMicros().equals(avroSchema.getLogicalType())) {
+                            return "TIME";
+                        } else {
+                            return "BIGINT";
+                        }
+                    }
+                    case SQLSERVER: {
+                        if (LogicalTypes.timestampMillis().equals(avroSchema.getLogicalType())) {
+                            return "TIMESTAMP";
+                        } else if (LogicalTypes.timestampMicros().equals(avroSchema.getLogicalType())) {
+                            return "TIMESTAMP";
+                        } else if (LogicalTypes.timeMicros().equals(avroSchema.getLogicalType())) {
+                            return "TIME";
+                        } else {
+                            return "BIGINT";
+                        }
+                    }
                 }
+            }
             case FLOAT:
                 return "REAL";
-            case DOUBLE:
+            case DOUBLE: {
+                switch (db) {
+                    case MYSQL:
+                        return "DOUBLE";
+                    case POSTGRESQL:
+                        return "DOUBLE PRECISION";
+                    default:
+                        break;
+                }
                 return "DOUBLE";
+            }
             case NULL:
             case MAP:
             case RECORD:

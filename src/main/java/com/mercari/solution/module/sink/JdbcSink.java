@@ -5,7 +5,6 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.util.converter.ToStatementConverter;
 import com.mercari.solution.util.gcp.JdbcUtil;
-import org.apache.avro.Schema;
 import org.apache.beam.sdk.coders.ListCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.jdbc.JdbcIO;
@@ -36,8 +35,10 @@ public class JdbcSink {
         private String password;
         private String kmsKey;
         private Boolean createTable;
+        private Boolean emptyTable;
         private List<String> keyFields;
         private Integer batchSize;
+        private String op;
 
         public String getTable() {
             return table;
@@ -95,6 +96,14 @@ public class JdbcSink {
             this.createTable = createTable;
         }
 
+        public Boolean getEmptyTable() {
+            return emptyTable;
+        }
+
+        public void setEmptyTable(Boolean emptyTable) {
+            this.emptyTable = emptyTable;
+        }
+
         public List<String> getKeyFields() {
             return keyFields;
         }
@@ -111,6 +120,13 @@ public class JdbcSink {
             this.batchSize = batchSize;
         }
 
+        public String getOp() {
+            return op;
+        }
+
+        public void setOp(String op) {
+            this.op = op;
+        }
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
@@ -131,8 +147,8 @@ public class JdbcSink {
                 write =  new JdbcWrite<>(collection, parameters, ToStatementConverter::convertStruct);
                 break;
             case ENTITY:
-                write =  new JdbcWrite<>(collection, parameters, ToStatementConverter::convertEntity);
-                break;
+                //write =  new JdbcWrite<>(collection, parameters, ToStatementConverter::convertEntity);
+                //break;
             default:
                 throw new IllegalArgumentException("Not supported input type: " + collection.getDataType());
         }
@@ -166,14 +182,18 @@ public class JdbcSink {
             validateParameters();
             setDefaultParameters();
 
+            final JdbcUtil.DB db = getDB(parameters.getDriver());
             final List<List<String>> ddls;
             if (this.parameters.getCreateTable()) {
                 ddls = new ArrayList<>();
                 final String ddl = JdbcUtil.buildCreateTableSQL(
-                        inputCollection.getAvroSchema(), parameters.getTable(), parameters.getKeyFields());
+                        inputCollection.getAvroSchema(), parameters.getTable(), db, parameters.getKeyFields());
                 ddls.add(Arrays.asList(ddl));
             } else {
                 ddls = new ArrayList<>();
+            }
+            if (parameters.getEmptyTable()) {
+                ddls.add(Arrays.asList("DELETE FROM " + parameters.getTable()));
             }
 
             final PCollection<InputT> tableReady;
@@ -189,11 +209,24 @@ public class JdbcSink {
                         .setCoder(input.getCoder());
             }
 
-            final String statementString = createStatement(parameters.getTable(), inputCollection.getAvroSchema());
+            final String statementString = JdbcUtil.createStatement(
+                    parameters.getTable(), inputCollection.getAvroSchema(),
+                    JdbcUtil.OP.valueOf(parameters.getOp()), db,
+                    parameters.getKeyFields());
 
             return tableReady.apply("WriteJdbc", ParDo.of(new WriteDoFn<>(
                     parameters.getDriver(), parameters.getUrl(), parameters.getUser(), parameters.getPassword(),
                     statementString, parameters.getBatchSize(), formatter)));
+        }
+
+        private JdbcUtil.DB getDB(final String driver) {
+            if(driver.contains("mysql")) {
+                return JdbcUtil.DB.MYSQL;
+            } else if(driver.contains("postgresql")) {
+                return JdbcUtil.DB.POSTGRESQL;
+            } else {
+                throw new IllegalStateException("Not supported JDBC driver: " + driver);
+            }
         }
 
         private void validateParameters() {
@@ -223,25 +256,18 @@ public class JdbcSink {
             if(parameters.getCreateTable() == null) {
                 parameters.setCreateTable(false);
             }
+            if(parameters.getEmptyTable() == null) {
+                parameters.setEmptyTable(false);
+            }
+            if(parameters.getOp() == null) {
+                parameters.setOp(JdbcUtil.OP.INSERT.name());
+            }
             if(parameters.getBatchSize() == null) {
                 parameters.setBatchSize(1000);
             }
-        }
-
-        private String createStatement(final String table, final Schema schema) {
-            final StringBuilder sb = new StringBuilder("INSERT INTO " + table + "(");
-            for(final Schema.Field field : schema.getFields()) {
-                sb.append(field.name());
-                sb.append(",");
+            if(parameters.getKeyFields() == null) {
+                parameters.setKeyFields(new ArrayList<>());
             }
-            sb.deleteCharAt(sb.length() - 1);
-            sb.append(")");
-
-            sb.append("VALUES(");
-            schema.getFields().forEach(f -> sb.append("?,"));
-            sb.deleteCharAt(sb.length() - 1);
-            sb.append(")");
-            return sb.toString();
         }
 
     }
@@ -275,7 +301,7 @@ public class JdbcSink {
 
 
         @Setup
-        public void setup() throws Exception {
+        public void setup() {
             this.dataSource = JdbcUtil.createDataSource(driver, url, user, password);
         }
 
@@ -311,11 +337,18 @@ public class JdbcSink {
 
         @FinishBundle
         public void finishBundle() throws Exception {
-            if (bufferSize > 0) {
-                preparedStatement.executeBatch();
-                connection.commit();
+            try {
+                if (bufferSize > 0) {
+                    preparedStatement.executeBatch();
+                    connection.commit();
+                }
+                cleanUpStatementAndConnection();
+            } catch (SQLException e) {
+                preparedStatement.clearBatch();
+                connection.rollback();
+                cleanUpStatementAndConnection();
+                throw new RuntimeException(e);
             }
-            cleanUpStatementAndConnection();
         }
 
         @Override
@@ -369,11 +402,13 @@ public class JdbcSink {
             }
             try(final Connection connection = JdbcUtil.createDataSource(driver, url, user, password).getConnection()) {
                 for(final String sql : ddl) {
-                    LOG.info("Execute DDL: " + sql);
-                    connection.createStatement().execute(sql);
+                    LOG.info("ExecuteDDL: " + sql);
+                    connection.createStatement().executeUpdate(sql);
+                    connection.commit();
+                    LOG.info("ExecutedDDL: " + sql);
                 }
-                c.output("ok");
             }
+            c.output("ok");
         }
     }
 

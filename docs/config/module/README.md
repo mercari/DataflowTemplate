@@ -31,4 +31,3 @@
 | [storage](sink/storage.md) | ○ | ○(TBA) | Write file to Cloud Storage |
 | [datastore](sink/datastore.md) | ○ | ○ | Inserting Data into Cloud Datastore Table |
 | [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
-| [solrindex](sink/solrindex.md) | ○ | - | Write solr index file to Cloud Storage |
