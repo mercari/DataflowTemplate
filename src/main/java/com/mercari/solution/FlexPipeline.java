@@ -233,7 +233,7 @@ public class FlexPipeline {
                 }
                 case bigquery: {
                     if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        //inputs.put(sourceConfig.getName(), beats.apply(sourceConfig.getName(), BigQuerySource.microbatch(sourceConfig)));
+                        outputs.put(sourceConfig.getName(), BigQuerySource.microbatch(beats, sourceConfig));
                     } else {
                         outputs.put(sourceConfig.getName(), BigQuerySource.batch(begin, sourceConfig, wait));
                     }

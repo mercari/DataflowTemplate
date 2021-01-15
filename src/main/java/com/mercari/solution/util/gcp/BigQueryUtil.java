@@ -22,13 +22,8 @@ import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.collect.ImmutableList;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.converter.TableRecordToRowConverter;
-import org.apache.beam.sdk.extensions.gcp.util.BackOffAdapter;
 import org.apache.beam.sdk.extensions.gcp.util.RetryHttpRequestInitializer;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
 import org.apache.beam.sdk.schemas.Schema;
-import org.apache.beam.sdk.util.FluentBackoff;
-import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +46,18 @@ public class BigQueryUtil {
         final String tableId   = path[path.length - 1];
 
         return new TableReference().setProjectId(projectId).setDatasetId(datasetId).setTableId(tableId);
+    }
+
+    public static DatasetReference getDatasetReference(final String datasetName, final String defaultProjectId) {
+        final String[] path = datasetName.replaceAll(":", ".").split("\\.");
+        if(path.length < 1) {
+            throw new IllegalArgumentException("dataset: " + datasetName + " is illegal. table must be {projectId}.{datasetId}");
+        }
+
+        final String projectId = path.length == 1 ? defaultProjectId : path[0];
+        final String datasetId = path[path.length - 1];
+
+        return new DatasetReference().setProjectId(projectId).setDatasetId(datasetId);
     }
 
     public static Schema getSchemaFromQuery(final String projectId, final String query) {

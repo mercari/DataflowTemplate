@@ -1,0 +1,32 @@
+{
+  "sources": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "microbatch": true,
+      "parameters": {
+        "query": "SELECT * FROM `myproject.mydataset.mytable` WHERE CreatedAt >= TIMESTAMP_SECONDS(${__EVENT_EPOCH_SECOND_PRE__}) AND CreatedAt < TIMESTAMP_SECONDS(${__EVENT_EPOCH_SECOND__})",
+        "queryTempDataset": "temp",
+        "queryLocation": "US",
+        "startDatetime": "2021-01-01T00:00:00+0900",
+        "intervalSecond": 60,
+        "gapSecond": 30,
+        "maxDurationMinute": 60,
+        "catchupIntervalSecond": 60
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "input": "bigquery",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable"
+      }
+    }
+  ]
+}
