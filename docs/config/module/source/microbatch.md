@@ -40,7 +40,7 @@ The frequency of query execution and the time range to be retrieved by the query
 
 The following figure shows the relationship between these parameters.
 
-<img src="https://raw.githubusercontent.com/mercari/DataflowTemplate/master/docs/images/microbath-parameters.png">
+<img src="https://raw.githubusercontent.com/mercari/DataflowTemplate/master/docs/images/microbatch-parameters.png">
 
 
 ## Related example config files
