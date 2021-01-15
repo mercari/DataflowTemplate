@@ -13,6 +13,7 @@ import com.mercari.solution.module.FCollection;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
+import com.mercari.solution.util.converter.TableRowToRecordConverter;
 import com.mercari.solution.util.gcp.BigQueryUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.Schema;
@@ -26,12 +27,13 @@ import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.gcp.util.BackOffAdapter;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.gcp.bigquery.*;
-import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.util.FluentBackoff;
 import org.apache.beam.sdk.values.*;
-import org.apache.beam.sdk.values.Row;
 import org.joda.time.Duration;
+import org.joda.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -51,6 +53,16 @@ public class BigQuerySource {
         private List<String> fields;
         private String rowRestriction;
         private String kmsKey;
+
+        // for microbatch
+        private Integer intervalSecond;
+        private Integer gapSecond;
+        private Integer maxDurationMinute;
+        private Integer catchupIntervalSecond;
+        private String startDatetime;
+        private String outputCheckpoint;
+        private Boolean useCheckpointAsStartDatetime;
+
 
         public String getQuery() {
             return query;
@@ -116,6 +128,61 @@ public class BigQuerySource {
             this.kmsKey = kmsKey;
         }
 
+        public Integer getIntervalSecond() {
+            return intervalSecond;
+        }
+
+        public void setIntervalSecond(Integer intervalSecond) {
+            this.intervalSecond = intervalSecond;
+        }
+
+        public Integer getGapSecond() {
+            return gapSecond;
+        }
+
+        public void setGapSecond(Integer gapSecond) {
+            this.gapSecond = gapSecond;
+        }
+
+        public Integer getMaxDurationMinute() {
+            return maxDurationMinute;
+        }
+
+        public void setMaxDurationMinute(Integer maxDurationMinute) {
+            this.maxDurationMinute = maxDurationMinute;
+        }
+
+        public Integer getCatchupIntervalSecond() {
+            return catchupIntervalSecond;
+        }
+
+        public void setCatchupIntervalSecond(Integer catchupIntervalSecond) {
+            this.catchupIntervalSecond = catchupIntervalSecond;
+        }
+
+        public String getStartDatetime() {
+            return startDatetime;
+        }
+
+        public void setStartDatetime(String startDatetime) {
+            this.startDatetime = startDatetime;
+        }
+
+        public String getOutputCheckpoint() {
+            return outputCheckpoint;
+        }
+
+        public void setOutputCheckpoint(String outputCheckpoint) {
+            this.outputCheckpoint = outputCheckpoint;
+        }
+
+        public Boolean getUseCheckpointAsStartDatetime() {
+            return useCheckpointAsStartDatetime;
+        }
+
+        public void setUseCheckpointAsStartDatetime(Boolean useCheckpointAsStartDatetime) {
+            this.useCheckpointAsStartDatetime = useCheckpointAsStartDatetime;
+        }
     }
 
     public static FCollection<GenericRecord> batch(final PBegin begin, final SourceConfig config, final List<FCollection<?>> wait) {
@@ -130,8 +197,10 @@ public class BigQuerySource {
         }
     }
 
-    public static BigQueryMicrobatchRead microbatch(final SourceConfig input) {
-        return new BigQueryMicrobatchRead();
+    public static FCollection<GenericRecord> microbatch(final PCollection<Long> beats, final SourceConfig config) {
+        final BigQueryMicrobatchRead source = new BigQueryMicrobatchRead(config);
+        final PCollection<GenericRecord> output = beats.apply(config.getName(), source);
+        return FCollection.of(config.getName(), output, DataType.AVRO, source.schema);
     }
 
     public static class BigQueryBatchSource extends PTransform<PBegin, PCollection<GenericRecord>> {
@@ -559,12 +628,188 @@ public class BigQuerySource {
 
     }
 
-    private static class BigQueryMicrobatchRead extends PTransform<PCollection<Long>, PCollection<Row>> {
+    private static class BigQueryMicrobatchRead extends PTransform<PCollection<Long>, PCollection<GenericRecord>> {
 
-        public PCollection<Row> expand(final PCollection<Long> begin) {
-            return null;
+        private Schema schema;
+
+        private final String timestampAttribute;
+        private final BigQuerySourceParameters parameters;
+
+        public BigQueryMicrobatchRead(final SourceConfig config) {
+            this.timestampAttribute = config.getTimestampAttribute();
+            this.parameters = new Gson().fromJson(config.getParameters(), BigQuerySourceParameters.class);
+            validateParameters();
+            setDefaultParameters();
         }
 
+        private void validateParameters() {
+            if (this.parameters == null) {
+                throw new IllegalArgumentException("BigQuery SourceConfig must not be empty!");
+            }
+
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if (parameters.getQuery() == null) {
+                errorMessages.add("BigQuery source module[microbatch mode] parameters must contain query");
+            }
+            if (parameters.getQueryTempDataset() == null) {
+                errorMessages.add("BigQuery source module[microbatch mode] parameters must contain queryTempDataset");
+            }
+            if (errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+
+        private void setDefaultParameters() {
+            if (parameters.getQueryLocation() == null) {
+                parameters.setQueryLocation("US");
+            }
+            //
+            if(parameters.getIntervalSecond() == null) {
+                parameters.setIntervalSecond(60);
+            }
+            if(parameters.getGapSecond() == null) {
+                parameters.setGapSecond(30);
+            }
+            if(parameters.getMaxDurationMinute() == null) {
+                parameters.setMaxDurationMinute(60);
+            }
+            if(parameters.getCatchupIntervalSecond() == null) {
+                parameters.setCatchupIntervalSecond(parameters.getIntervalSecond());
+            }
+            if(parameters.getUseCheckpointAsStartDatetime() == null) {
+                parameters.setUseCheckpointAsStartDatetime(false);
+            }
+        }
+
+        public PCollection<GenericRecord> expand(final PCollection<Long> beat) {
+
+            final String sampleQuery = MicrobatchQuery.createQuery(MicrobatchQuery.createTemplate(
+                    parameters.getQuery()), Instant.now(), Instant.now().plus(1));
+
+            final String projectId = beat.getPipeline().getOptions().as(GcpOptions.class).getProject();
+            this.schema = BigQueryUtil.getAvroSchemaFromQuery(projectId, sampleQuery);
+
+            return beat
+                    .apply("MicrobatchQuery", MicrobatchQuery.of(
+                            parameters.getQuery(),
+                            parameters.getStartDatetime(),
+                            parameters.getIntervalSecond(),
+                            parameters.getGapSecond(),
+                            parameters.getMaxDurationMinute(),
+                            parameters.getOutputCheckpoint(),
+                            parameters.getCatchupIntervalSecond(),
+                            parameters.getUseCheckpointAsStartDatetime(),
+                            new MicrobatchQueryDoFn(
+                                    projectId,
+                                    parameters.getQueryTempDataset(),
+                                    parameters.getQueryLocation(),
+                                    1000L,
+                                    schema,
+                                    timestampAttribute)))
+                    .setCoder(AvroCoder.of(schema));
+        }
+
+        private static class MicrobatchQueryDoFn extends DoFn<KV<KV<Integer, KV<Long, Instant>>, String>, GenericRecord> {
+
+            private static final Logger LOG = LoggerFactory.getLogger(MicrobatchQueryDoFn.class);
+
+            private final String projectId;
+            private final String dataset;
+            private final String location;
+            private final Long timeoutMs;
+            private final String schemaString;
+            private final String timestampAttribute;
+
+            private transient Schema schema;
+            private transient Bigquery bigquery;
+            private transient DatasetReference datasetReference;
+
+            private MicrobatchQueryDoFn(final String projectId,
+                                        final String dataset,
+                                        final String location,
+                                        final Long timeoutMs,
+                                        final Schema schema,
+                                        final String timestampAttribute) {
+
+                this.projectId = projectId;
+                this.dataset = dataset;
+                this.location = location;
+                this.timeoutMs = timeoutMs;
+                this.schemaString = schema.toString();
+                this.timestampAttribute = timestampAttribute;
+            }
+
+            @Setup
+            public void setup() {
+                this.schema = new Schema.Parser().parse(schemaString);
+                this.bigquery = BigQueryUtil.getBigquery();
+                this.datasetReference = BigQueryUtil.getDatasetReference(dataset, projectId);
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) throws Exception {
+
+                final Instant start = Instant.now();
+                final String query = c.element().getValue();
+                final QueryResponse response = this.bigquery.jobs()
+                        .query(projectId, new QueryRequest()
+                                .setQuery(query)
+                                .setUseLegacySql(false)
+                                .setTimeoutMs(timeoutMs)
+                                .setLocation(location)
+                                .setUseQueryCache(false)
+                                .setMaxResults(5000L)
+                                .setDefaultDataset(datasetReference))
+                        .execute();
+
+                final String jobId = response.getJobReference().getJobId();
+
+                GetQueryResultsResponse queryResults = bigquery.jobs().getQueryResults(projectId, jobId).execute();
+                while(!queryResults.getJobComplete()) {
+                    Thread.sleep(1000L);
+                    queryResults = bigquery.jobs().getQueryResults(projectId, jobId).execute();
+                }
+
+                if(queryResults.getTotalRows().longValue() == 0) {
+                    final long time = Instant.now().getMillis() - start.getMillis();
+                    LOG.info(String.format("Query [%s] result zero, took [%d] millisec to execute the query.",
+                            query, time));
+                    c.output(new TupleTag<>("checkpoint"), c.element().getKey());
+                    return;
+                }
+
+                queryResults.getRows().stream()
+                        .map(tableRow -> TableRowToRecordConverter.convertQueryResult(schema, tableRow))
+                        .forEach(c::output);
+
+                while(queryResults.getPageToken() != null) {
+                    queryResults = bigquery.jobs()
+                            .getQueryResults(projectId, jobId)
+                            .setPageToken(queryResults.getPageToken())
+                            .execute();
+                    queryResults.getRows().stream()
+                            .map(tableRow -> TableRowToRecordConverter.convertQueryResult(schema, tableRow))
+                            .forEach(c::output);
+                }
+
+                final long time = Instant.now().getMillis() - start.getMillis();
+                LOG.info(String.format("Query [%s] result num [%d], took [%d] millisec to execute the query.",
+                        query, queryResults.getTotalRows().longValue(), time));
+
+                c.output(new TupleTag<>("checkpoint"), c.element().getKey());
+            }
+
+            @Override
+            public org.joda.time.Duration getAllowedTimestampSkew() {
+                if (timestampAttribute != null) {
+                    return org.joda.time.Duration.standardDays(365);
+                } else {
+                    return super.getAllowedTimestampSkew();
+                }
+            }
+
+        }
     }
 
 }

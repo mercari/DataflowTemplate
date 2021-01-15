@@ -31,3 +31,6 @@ Try to find and arrange a configuration file that is similar to the data process
   * Data Transfer
     * [Cloud PubSub(Avro) to BigQuery](pubsub-avro-to-bigquery.json)
     * [Cloud PubSub(Avro) to Cloud Spanner](pubsub-avro-to-spanner.json)
+  * Microbatch
+    * [Spanner(Microbatch) to BigQuery](spanner-microbatch-to-bigquery.json)
+    * [BigQuery(Microbatch) to Spanner](bigquery-microbatch-to-spanner.json)

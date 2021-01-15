@@ -4,7 +4,6 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.*;
 import com.google.cloud.spanner.Partition;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mercari.solution.config.SourceConfig;
@@ -13,34 +12,16 @@ import com.mercari.solution.module.FCollection;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
-import freemarker.template.Configuration;
-import freemarker.template.TemplateException;
-import org.apache.beam.sdk.coders.BigEndianLongCoder;
-import org.apache.beam.sdk.coders.BooleanCoder;
-import org.apache.beam.sdk.coders.InstantCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.Transaction;
-import org.apache.beam.sdk.state.StateSpec;
-import org.apache.beam.sdk.state.StateSpecs;
-import org.apache.beam.sdk.state.ValueState;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.transforms.windowing.AfterPane;
-import org.apache.beam.sdk.transforms.windowing.GlobalWindows;
-import org.apache.beam.sdk.transforms.windowing.Repeatedly;
-import org.apache.beam.sdk.transforms.windowing.Window;
 import org.apache.beam.sdk.values.*;
-import org.joda.time.Duration;
 import org.joda.time.Instant;
-import org.joda.time.format.ISODateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import freemarker.template.Template;
 
-import java.io.IOException;
 import java.io.Serializable;
-import java.io.StringReader;
-import java.io.StringWriter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -621,9 +602,6 @@ public class SpannerSource {
 
     private static class SpannerMicrobatchRead extends PTransform<PCollection<Long>, PCollection<Struct>> {
 
-        private static final TupleTag<Struct> tagStruct = new TupleTag<Struct>(){ private static final long serialVersionUID = 1L; };
-        private static final TupleTag<String> tagCheckpoint = new TupleTag<String>(){ private static final long serialVersionUID = 1L; };
-
         private Type type;
 
         private final String timestampAttribute;
@@ -634,304 +612,6 @@ public class SpannerSource {
             this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
             validateParameters();
             setDefaultParameters();
-        }
-
-        public PCollection<Struct> expand(final PCollection<Long> beat) {
-
-            final PCollectionView<Instant> startInstantView = beat.getPipeline()
-                    .apply("Seed", Create.of(KV.of(true, true)))
-                    .apply("ReadCheckpointText", ParDo.of(new ReadStartDatetimeDoFn(
-                            parameters.getStartDatetime(),
-                            parameters.getOutputCheckpoint(),
-                            parameters.getUseCheckpointAsStartDatetime())))
-                    .apply("ToSingleton", Min.globally())
-                    .apply("AsView", View.asSingleton());
-
-            //
-
-            final String sampleQuery = createQuery(createTemplate(parameters.getQuery()), Instant.now(), Instant.now().plus(1));
-            this.type = SpannerUtil.getTypeFromQuery(
-                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), sampleQuery, false);
-
-            final PCollectionTuple queryResults = beat
-                    .apply("GlobalWindow", Window
-                            .<Long>into(new GlobalWindows())
-                            .triggering(Repeatedly.forever(AfterPane.elementCountAtLeast(1)))
-                            .discardingFiredPanes()
-                            .withAllowedLateness(Duration.standardDays(365)))
-                    .apply("WithFixedKey", WithKeys.of(true))
-                    .apply("GenerateQuery", ParDo.of(new QueryGenerateDoFn(
-                                parameters.getProjectId(),
-                                parameters.getInstanceId(),
-                                parameters.getDatabaseId(),
-                                parameters.getQuery(),
-                                parameters.getIntervalSecond(),
-                                parameters.getGapSecond(),
-                                parameters.getMaxDurationMinute(),
-                                parameters.getCatchupIntervalSecond(),
-                                startInstantView))
-                            .withSideInputs(startInstantView)
-                            .withOutputTags(tagStruct, TupleTagList.of(tagCheckpoint)));
-
-            return queryResults.get(tagStruct);
-        }
-
-        private static class ReadStartDatetimeDoFn extends DoFn<KV<Boolean, Boolean>, Instant> {
-
-            private static final Logger LOG = LoggerFactory.getLogger(ReadStartDatetimeDoFn.class);
-
-            private static final String STATEID_START_INSTANT = "startInstant";
-
-            private final String startDatetime;
-            private final String outputCheckpoint;
-            private final Boolean useCheckpointAsStartDatetime;
-
-            public ReadStartDatetimeDoFn(
-                    final String startDatetime,
-                    final String outputCheckpoint,
-                    final Boolean useCheckpointAsStartDatetime) {
-
-                this.startDatetime = startDatetime;
-                this.outputCheckpoint = outputCheckpoint;
-                this.useCheckpointAsStartDatetime = useCheckpointAsStartDatetime;
-            }
-
-            @StateId(STATEID_START_INSTANT)
-            private final StateSpec<ValueState<Instant>> startState = StateSpecs.value(InstantCoder.of());
-
-            @ProcessElement
-            public void processElement(final ProcessContext c,
-                                       final @StateId(STATEID_START_INSTANT) ValueState<Instant> startState) {
-
-                if(startState.read() != null) {
-                    LOG.info(String.format("ReadStartDatetime from state: %s", startState.read()));
-                    c.output(startState.read());
-                    return;
-                }
-                final Instant start = getStartDateTimeOrCheckpoint();
-                LOG.info(String.format("ReadStartDatetime from parameter: %s", start));
-                startState.write(start);
-                c.output(start);
-            }
-
-            private Instant getStartDateTimeOrCheckpoint() {
-                if(useCheckpointAsStartDatetime) {
-                    final Instant start = getCheckpointDateTime();
-                    if(start != null) {
-                        return start;
-                    } else {
-                        LOG.warn("'useCheckpointAsStartDatetime' is 'True' but checkpoint object doesn't exist. Using 'startDatetime' instead");
-                    }
-                }
-                return getStartDateTime();
-            }
-
-            private Instant getCheckpointDateTime() {
-                // Returns Instant object from outputCheckpoint or null if the storage object does not exist
-                if(outputCheckpoint == null) {
-                    String errorMessage = "'outputCheckpoint' is not specified";
-                    LOG.error(errorMessage);
-                    throw new IllegalArgumentException(errorMessage);
-                }
-                if(!StorageUtil.exists(outputCheckpoint)) {
-                    LOG.warn(String.format("outputCheckpoint object %s does not exist", outputCheckpoint));
-                    return null;
-                }
-                final String checkpointDatetimeString = StorageUtil.readString(outputCheckpoint).trim();
-                try {
-                    LOG.info(String.format("Start from checkpoint: %s", checkpointDatetimeString));
-                    return Instant.parse(checkpointDatetimeString);
-                } catch (Exception e) {
-                    final String errorMessage = String.format("Failed to parse checkpoint text %s,  cause %s",
-                            checkpointDatetimeString, e.getMessage());
-                    LOG.error(errorMessage);
-                    throw new IllegalArgumentException(errorMessage);
-                }
-            }
-
-            private Instant getStartDateTime() {
-                //final String startDatetimeString = startDatetime.get();
-                LOG.info(String.format("Start from startDatetime: %s", startDatetime));
-                if(startDatetime == null) {
-                    String errorMessage = "'startDatetimeString' is not specified";
-                    LOG.error(errorMessage);
-                    throw new IllegalArgumentException(errorMessage);
-                }
-                try {
-                    return Instant.parse(startDatetime);
-                } catch (Exception e) {
-                    final String errorMessage = String.format("Failed to parse startDatetime %s, cause %s",
-                            startDatetime, e.getMessage());
-                    LOG.error(errorMessage);
-                    throw new IllegalArgumentException(errorMessage);
-                }
-            }
-        }
-
-        @VisibleForTesting
-        //private static class QueryGenerateDoFn extends DoFn<KV<Boolean, Long>, KV<KV<Integer, KV<Long,Instant>>, String>> {
-        private static class QueryGenerateDoFn extends DoFn<KV<Boolean, Long>, Struct> {
-
-            private static final Logger LOG = LoggerFactory.getLogger(QueryGenerateDoFn.class);
-
-            private static final String STATEID_INTERVAL_COUNT = "intervalCount";
-            private static final String STATEID_LASTEVENT_TIME = "lastEventTime";
-            private static final String STATEID_LASTPROCESSING_TIME = "lastProcessingTime";
-            private static final String STATEID_CATCHUP = "catchup";
-            private static final String STATEID_PRECATCHUP = "preCatchup";
-
-            private final String projectId;
-            private final String instanceId;
-            private final String databaseId;
-            private final String query;
-
-            private final Integer intervalSecond;
-            private final Integer gapSecond;
-            private final Integer maxDurationMinute;
-            private final Integer catchupIntervalSecond;
-            private final PCollectionView<Instant> startInstantView;
-
-            private transient Template template;
-            private transient Spanner spanner;
-            private transient BatchClient client;
-
-            private QueryGenerateDoFn(final String projectId,
-                                      final String instanceId,
-                                      final String databaseId,
-                                      final String query,
-                                      final Integer intervalSecond,
-                                      final Integer gapSecond,
-                                      final Integer maxDurationMinute,
-                                      final Integer catchupIntervalSecond,
-                                      final PCollectionView<Instant> startInstantView) {
-
-                this.projectId = projectId;
-                this.instanceId = instanceId;
-                this.databaseId = databaseId;
-                this.query = query;
-                this.intervalSecond = intervalSecond;
-                this.gapSecond = gapSecond;
-                this.maxDurationMinute = maxDurationMinute;
-                this.catchupIntervalSecond = catchupIntervalSecond;
-                this.startInstantView = startInstantView;
-            }
-
-            @StateId(STATEID_INTERVAL_COUNT)
-            private final StateSpec<ValueState<Long>> queryCountState = StateSpecs.value(BigEndianLongCoder.of());
-            @StateId(STATEID_LASTEVENT_TIME)
-            private final StateSpec<ValueState<Instant>> lastEventTimeState = StateSpecs.value(InstantCoder.of());
-            @StateId(STATEID_LASTPROCESSING_TIME)
-            private final StateSpec<ValueState<Instant>> lastProcessingTimeState = StateSpecs.value(InstantCoder.of());
-            @StateId(STATEID_CATCHUP)
-            private final StateSpec<ValueState<Boolean>> catchupState = StateSpecs.value(BooleanCoder.of());
-            @StateId(STATEID_PRECATCHUP)
-            private final StateSpec<ValueState<Boolean>> preCatchupState = StateSpecs.value(BooleanCoder.of());
-
-            @Setup
-            public void setup() {
-                this.template = createTemplate(this.query);
-                this.spanner = SpannerUtil.connectSpanner(projectId, 1, 1, 1, true, false);
-                this.client = spanner.getBatchClient(DatabaseId.of(projectId, instanceId, databaseId));
-            }
-
-            @Teardown
-            public void teardown() {
-                this.spanner.close();
-            }
-
-            @ProcessElement
-            public void processElement(final ProcessContext c,
-                                       final @StateId(STATEID_LASTEVENT_TIME) ValueState<Instant> lastEventTimeState,
-                                       final @StateId(STATEID_LASTPROCESSING_TIME) ValueState<Instant> lastProcessingTimeState,
-                                       final @StateId(STATEID_INTERVAL_COUNT) ValueState<Long> queryCountState,
-                                       final @StateId(STATEID_CATCHUP) ValueState<Boolean> catchupState,
-                                       final @StateId(STATEID_PRECATCHUP) ValueState<Boolean> preCatchupState) {
-
-                final Instant currentTime = Instant.now();
-                final Instant endEventTime = currentTime.minus(Duration.standardSeconds(gapSecond));
-                final Instant lastQueryEventTime = Optional.ofNullable(lastEventTimeState.read()).orElse(c.sideInput(this.startInstantView));
-
-                // Skip if last queried event time(plus interval) is over current time(minus gap duration)
-                if (lastQueryEventTime.plus(Duration.standardSeconds(this.intervalSecond)).isAfter(endEventTime)) {
-                    return;
-                }
-
-                // Skip if pre-query's duration was over maxDurationMinute.
-                final Boolean catchup = Optional.ofNullable(catchupState.read()).orElse(false);
-                final Instant lastProcessingTime = Optional.ofNullable(lastProcessingTimeState.read()).orElse(new Instant(0L));
-                if (lastProcessingTime
-                        .plus(Duration.standardSeconds(catchup ? this.catchupIntervalSecond : this.intervalSecond))
-                        .isAfter(currentTime)) {
-                    return;
-                }
-
-                // Determine query duration
-                final Duration allEventDuration = new Duration(lastQueryEventTime, endEventTime);
-                final Instant queryEventTime;
-                if (allEventDuration.getStandardMinutes() > this.maxDurationMinute) {
-                    queryEventTime = lastQueryEventTime.plus(Duration.standardMinutes(this.maxDurationMinute));
-                    catchupState.write(true);
-                    preCatchupState.write(true);
-                } else {
-                    queryEventTime = lastQueryEventTime.plus(allEventDuration);
-                    final Boolean preCatchup = Optional.ofNullable(preCatchupState.read()).orElse(false);
-                    catchupState.write(preCatchup); // To skip pre-pre-query's duration was over maxDurationMinute
-                    preCatchupState.write(false);
-                }
-
-                // Generate Queries and output
-                long queryCount = Optional.ofNullable(queryCountState.read()).orElse(1L);
-                final String queryString = createQuery(template, lastQueryEventTime, queryEventTime);
-                final Statement statement = Statement.of(queryString);
-
-                //final KV<Integer, KV<Long, Instant>> checkpoint = KV.of(0, KV.of(queryCount, queryEventTime));
-                //c.output(KV.of(checkpoint, queryString));
-
-                try(final BatchReadOnlyTransaction transaction = this.client
-                        .batchReadOnlyTransaction(TimestampBound.strong())) {
-
-                    try {
-                        final List<Partition> partitions = transaction
-                                .partitionQuery(PartitionOptions.newBuilder().build(), statement);
-                        LOG.info(String.format("Query [%s] divided to [%d] partitions.", statement.getSql(), partitions.size()));
-                        for (final Partition partition : partitions) {
-                            try (final ResultSet resultSet = transaction.execute(partition)) {
-                                while (resultSet.next()) {
-                                    c.output(resultSet.getCurrentRowAsStruct());
-                                }
-                            }
-                        }
-                    } catch (SpannerException e) {
-                        if (!e.getErrorCode().equals(ErrorCode.INVALID_ARGUMENT)) {
-                            throw e;
-                        }
-                        LOG.warn(e.getMessage());
-                        LOG.warn(String.format("Query [%s] could not be executed. Retrying as single query.", statement.getSql()));
-                        try (final ResultSet resultSet = transaction.executeQuery(statement)) {
-                            int count = 0;
-                            while (resultSet.next()) {
-                                c.output(resultSet.getCurrentRowAsStruct());
-                                count++;
-                            }
-                            LOG.info(String.format("Query read record num [%d]", count));
-                        }
-                    }
-                }
-
-                LOG.info(String.format("Query from: %s to: %s count: %d", lastQueryEventTime.toString(), queryEventTime.toString(), queryCount));
-
-                // Update states
-                queryCount += 1;
-                lastEventTimeState.write(queryEventTime);
-                lastProcessingTimeState.write(currentTime);
-                queryCountState.write(queryCount);
-            }
-
-            @Override
-            public org.joda.time.Duration getAllowedTimestampSkew() {
-                return org.joda.time.Duration.standardDays(365);
-            }
-
         }
 
         private void validateParameters() {
@@ -963,40 +643,134 @@ public class SpannerSource {
             if(parameters.getEmulator() == null) {
                 parameters.setEmulator(false);
             }
+            if(parameters.getIntervalSecond() == null) {
+                parameters.setIntervalSecond(60);
+            }
             if(parameters.getGapSecond() == null) {
-                parameters.setGapSecond(0);
+                parameters.setGapSecond(30);
+            }
+            if(parameters.getMaxDurationMinute() == null) {
+                parameters.setMaxDurationMinute(60);
+            }
+            if(parameters.getCatchupIntervalSecond() == null) {
+                parameters.setCatchupIntervalSecond(parameters.getIntervalSecond());
+            }
+            if(parameters.getUseCheckpointAsStartDatetime() == null) {
+                parameters.setUseCheckpointAsStartDatetime(false);
             }
         }
 
-        private static Template createTemplate(final String template) {
-            final Configuration templateConfig = new Configuration(Configuration.VERSION_2_3_30);
-            templateConfig.setNumberFormat("computer");
-            try {
-                return new Template("config", new StringReader(template), templateConfig);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+        public PCollection<Struct> expand(final PCollection<Long> beat) {
+
+            final String sampleQuery = MicrobatchQuery.createQuery(MicrobatchQuery.createTemplate(
+                    parameters.getQuery()), Instant.now(), Instant.now().plus(1));
+            this.type = SpannerUtil.getTypeFromQuery(
+                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), sampleQuery, false);
+
+            return beat.apply("MicrobatchQuery", MicrobatchQuery.of(
+                    parameters.getQuery(),
+                    parameters.getStartDatetime(),
+                    parameters.getIntervalSecond(),
+                    parameters.getGapSecond(),
+                    parameters.getMaxDurationMinute(),
+                    parameters.getOutputCheckpoint(),
+                    parameters.getCatchupIntervalSecond(),
+                    parameters.getUseCheckpointAsStartDatetime(),
+                    new MicrobatchQueryDoFn(parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), timestampAttribute)
+            ));
         }
 
+        private static class MicrobatchQueryDoFn extends DoFn<KV<KV<Integer, KV<Long, Instant>>, String>, Struct> {
 
-        private static String createQuery(final Template template, final Instant lastTime, final Instant eventTime) {
+            private static final Logger LOG = LoggerFactory.getLogger(MicrobatchQueryDoFn.class);
 
-            final Map<String, Object> context = new HashMap<>();
-            context.put("__EVENT_EPOCH_SECOND__", eventTime.getMillis() / 1000);
-            context.put("__EVENT_EPOCH_SECOND_PRE__", lastTime.getMillis() / 1000);
-            context.put("__EVENT_EPOCH_MILLISECOND__", eventTime.getMillis());
-            context.put("__EVENT_EPOCH_MILLISECOND_PRE__", lastTime.getMillis());
-            context.put("__EVENT_DATETIME_ISO__", eventTime.toString(ISODateTimeFormat.dateTime()));
-            context.put("__EVENT_DATETIME_ISO_PRE__", lastTime.toString(ISODateTimeFormat.dateTime()));
-            final StringWriter sw = new StringWriter();
-            try {
-                template.process(context, sw);
-                return sw.toString();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (TemplateException e) {
-                throw new RuntimeException(e);
+            private final String projectId;
+            private final String instanceId;
+            private final String databaseId;
+            private final String timestampAttribute;
+
+            private transient Spanner spanner;
+            private transient BatchClient client;
+
+            private MicrobatchQueryDoFn(final String projectId, final String instanceId, final String databaseId, final String timestampAttribute) {
+                this.projectId = projectId;
+                this.instanceId = instanceId;
+                this.databaseId = databaseId;
+                this.timestampAttribute = timestampAttribute;
             }
+
+            @Setup
+            public void setup() {
+                this.spanner = SpannerUtil.connectSpanner(projectId, 1, 1, 1, true, false);
+                this.client = spanner.getBatchClient(DatabaseId.of(projectId, instanceId, databaseId));
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+
+                final String query = c.element().getValue();
+                final Statement statement = Statement.of(query);
+                try(final BatchReadOnlyTransaction transaction = this.client
+                        .batchReadOnlyTransaction(TimestampBound.strong())) {
+
+                    final Instant eventTimestamp = c.timestamp();
+                    try {
+                        final List<Partition> partitions = transaction
+                                .partitionQuery(PartitionOptions.newBuilder().build(), statement);
+
+                        int count = 0;
+                        final Instant start = Instant.now();
+                        for (final Partition partition : partitions) {
+                            try (final ResultSet resultSet = transaction.execute(partition)) {
+                                while (resultSet.next()) {
+                                    final Struct struct = resultSet.getCurrentRowAsStruct();
+                                    if(timestampAttribute == null) {
+                                        c.output(struct);
+                                    } else {
+                                        c.outputWithTimestamp(struct, SpannerUtil.getTimestamp(struct, timestampAttribute, eventTimestamp));
+                                    }
+                                    count += 1;
+                                }
+                            }
+                        }
+                        final long time = Instant.now().getMillis() - start.getMillis();
+                        LOG.info(String.format("Partition Query [%s] divided to [%d] partitions and result num [%d], took [%d] millisec to execute the query.",
+                                statement.getSql(), partitions.size(), count, time));
+                        c.output(new TupleTag<>("checkpoint"), c.element().getKey());
+                    } catch (SpannerException e) {
+                        if (!e.getErrorCode().equals(ErrorCode.INVALID_ARGUMENT)) {
+                            throw e;
+                        }
+                        final Instant start = Instant.now();
+                        try (final ResultSet resultSet = transaction.executeQuery(statement)) {
+                            int count = 0;
+                            while (resultSet.next()) {
+                                final Struct struct = resultSet.getCurrentRowAsStruct();
+                                if(timestampAttribute == null) {
+                                    c.output(struct);
+                                } else {
+                                    c.outputWithTimestamp(struct, SpannerUtil.getTimestamp(struct, timestampAttribute, eventTimestamp));
+                                }
+                                count += 1;
+                            }
+                            final long time = Instant.now().getMillis() - start.getMillis();
+                            LOG.info(String.format("Single query [%s] result num [%d], took [%d] millisec to execute the query.",
+                                    statement.getSql(), count, time));
+                            c.output(new TupleTag<>("checkpoint"), c.element().getKey());
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public org.joda.time.Duration getAllowedTimestampSkew() {
+                if(timestampAttribute != null) {
+                    return org.joda.time.Duration.standardDays(365);
+                } else {
+                    return super.getAllowedTimestampSkew();
+                }
+            }
+
         }
 
     }

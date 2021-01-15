@@ -20,6 +20,14 @@ public class Config implements Serializable {
     private static final Logger LOG = LoggerFactory.getLogger(Config.class);
 
     private static final DateTimeFormatter FORMATTER_YYYYMMDD = DateTimeFormat.forPattern("yyyyMMdd");
+    private static final String[] RESERVED_PARAMETERS = {
+            "__EVENT_EPOCH_SECOND__",
+            "__EVENT_EPOCH_SECOND_PRE__",
+            "__EVENT_EPOCH_MILLISECOND__",
+            "__EVENT_EPOCH_MILLISECOND_PRE__",
+            "__EVENT_DATETIME_ISO__",
+            "__EVENT_DATETIME_ISO_PRE__"
+    };
 
     private String name;
     private Settings settings;
@@ -211,6 +219,9 @@ public class Config implements Serializable {
 
     private static String executeTemplate(final String config, final Map<String, String> parameters) throws IOException, TemplateException {
         final Map<String, Object> map = new HashMap<>();
+        for(final String reservedParameter : RESERVED_PARAMETERS) {
+            map.put(reservedParameter, String.format("${%s}", reservedParameter));
+        }
         for(final Map.Entry<String, String> entry : parameters.entrySet()) {
             JsonElement jsonElement;
             try {

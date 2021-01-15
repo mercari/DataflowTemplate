@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "name": "spanner",
+      "module": "spanner",
+      "microbatch": true,
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "query": "SELECT * FROM MyTable@{FORCE_INDEX=MyTableCreatedAtDesc} WHERE ShardCreatedAt = 1 AND CreatedAt >= TIMESTAMP_SECONDS(${__EVENT_EPOCH_SECOND_PRE__}) AND CreatedAt < TIMESTAMP_SECONDS(${__EVENT_EPOCH_SECOND__})",
+        "outputCheckpoint": "gs://mybucket/checkpoint.txt",
+        "startDatetime": "2021-01-01T00:00:00Z",
+        "intervalSecond": 60,
+        "gapSecond": 30,
+        "maxDurationMinute": 60,
+        "catchupIntervalSecond": 60
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigquery",
+      "module": "bigquery",
+      "input": "spanner",
+      "parameters": {
+        "table": "myproject:mydataset.mytable",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}
