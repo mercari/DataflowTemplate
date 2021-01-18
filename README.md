@@ -54,7 +54,7 @@ The Dataflow job will be started, and you can check the execution status of the 
 
 ### Requirements
 
-* Java 8
+* Java 11
 * Maven 3
 
 ### Push Template Container Image to Cloud Container Registry.

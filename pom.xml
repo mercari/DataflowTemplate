@@ -40,10 +40,10 @@
     <solr.version>8.7.0</solr.version>
     <mysql-connector.version>8.0.22</mysql-connector.version>
     <postgresql-connector.version>42.2.18</postgresql-connector.version>
-    <sqlserver-connector.version>8.4.1.jre8</sqlserver-connector.version>
+    <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
     <jdbc-socket-factory.version>1.2.0</jdbc-socket-factory.version>
     <junit.version>4.13.1</junit.version>
-    <maven-compiler-plugin.version>3.7.0</maven-compiler-plugin.version>
+    <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
     <maven-jar-plugin.version>3.0.2</maven-jar-plugin.version>
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
@@ -74,8 +74,8 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>${maven-compiler-plugin.version}</version>
         <configuration>
-          <source>1.8</source>
-          <target>1.8</target>
+          <source>11</source>
+          <target>11</target>
         </configuration>
       </plugin>
 
@@ -153,7 +153,7 @@
         </executions>
         <configuration>
           <from>
-            <image>gcr.io/dataflow-templates-base/java8-template-launcher-base:latest</image>
+            <image>gcr.io/dataflow-templates-base/java11-template-launcher-base:latest</image>
           </from>
           <container>
             <appRoot>/template/FlexPipeline</appRoot>
