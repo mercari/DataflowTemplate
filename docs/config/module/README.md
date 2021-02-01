@@ -31,3 +31,4 @@
 | [storage](sink/storage.md) | ○ | ○(TBA) | Write file to Cloud Storage |
 | [datastore](sink/datastore.md) | ○ | ○ | Inserting Data into Cloud Datastore Table |
 | [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
+| [text](sink/text.md) | ○ | ○(TBA) | Create text files with the template specified for each row |

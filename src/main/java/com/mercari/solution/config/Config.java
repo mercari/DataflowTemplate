@@ -1,7 +1,7 @@
 package com.mercari.solution.config;
 
 import com.google.gson.*;
-import freemarker.template.Configuration;
+import com.mercari.solution.util.TemplateUtil;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import org.joda.time.DateTimeZone;
@@ -232,9 +232,7 @@ public class Config implements Serializable {
             map.put(entry.getKey(), extractTemplateParameters(jsonElement));
         }
 
-        final Configuration templateConfig = new Configuration(Configuration.VERSION_2_3_30);
-        templateConfig.setNumberFormat("computer");
-        final Template template = new Template("config", new StringReader(config), templateConfig);
+        final Template template = TemplateUtil.createSafeTemplate("config", config);
         final StringWriter stringWriter = new StringWriter();
         template.process(map, stringWriter);
         return stringWriter.toString();

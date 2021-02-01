@@ -2,9 +2,7 @@ package com.mercari.solution.util.aws;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.AmazonS3Exception;
-import com.amazonaws.services.s3.model.ObjectListing;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.amazonaws.services.s3.model.*;
 import com.google.common.io.ByteStreams;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.Schema;
@@ -23,8 +21,17 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 
 public class S3Util {
+
+    public static AmazonS3 storage(final AwsOptions options) {
+        return AmazonS3ClientBuilder
+                .standard()
+                .withCredentials(options.getAwsCredentialsProvider())
+                .withRegion(options.getAwsRegion())
+                .build();
+    }
 
     public static String readString(final String s3Path,
                                     final AwsOptions options) {
@@ -38,6 +45,37 @@ public class S3Util {
         final String[] paths = parseS3Path(s3Path);
         final AmazonS3 s3 = storage(options);
         return readBytes(s3, paths[0], paths[1]);
+    }
+
+    public static void writeBytes(
+            final String s3Path,
+            final byte[] content,
+            final String type,
+            final Map<String, Object> fields,
+            final Map<String, String> metadata,
+            final AwsOptions options) {
+
+        writeBytes(storage(options), s3Path, content, type, fields, metadata);
+    }
+
+    public static void writeBytes(
+            final AmazonS3 s3,
+            final String s3Path,
+            final byte[] content,
+            final String type,
+            final Map<String, Object> fields,
+            final Map<String, String> metadata) {
+
+        final String[] paths = parseS3Path(s3Path);
+        final ObjectMetadata objectMetadata = new ObjectMetadata();
+        objectMetadata.setContentType(type);
+        objectMetadata.setUserMetadata(metadata);
+
+        try(final InputStream is = new ByteArrayInputStream(content)) {
+            s3.putObject(new PutObjectRequest(paths[0], paths[1], is, objectMetadata));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public static List<S3ObjectSummary> listFiles(
@@ -141,15 +179,6 @@ public class S3Util {
         } catch (Exception e) {
             return null;
         }
-    }
-
-
-    private static AmazonS3 storage(final AwsOptions options) {
-        return AmazonS3ClientBuilder
-                .standard()
-                .withCredentials(options.getAwsCredentialsProvider())
-                .withRegion(options.getAwsRegion())
-                .build();
     }
 
     public static class ParquetStream implements InputFile {

@@ -223,7 +223,7 @@ public class StorageSink {
                         case AVRO: {
                             final FileIO.Write<String, GenericRecord> write = createWrite(
                                     parameters, e -> e.get(destinationField).toString());
-                            writeResult = ((PCollection<GenericRecord>) input).apply("WriteCSV", write.via(TextSink.of(
+                            writeResult = ((PCollection<GenericRecord>) input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getAvroSchema().getFields().stream()
                                             .map(org.apache.avro.Schema.Field::name)
                                             .collect(Collectors.toList()),
@@ -235,7 +235,7 @@ public class StorageSink {
                         case ROW: {
                             final FileIO.Write<String, Row> write = createWrite(
                                     parameters, e -> e.getValue(destinationField).toString());
-                            writeResult = ((PCollection<Row>)input).apply("WriteCSV", write.via(TextSink.of(
+                            writeResult = ((PCollection<Row>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
@@ -245,7 +245,7 @@ public class StorageSink {
                         case STRUCT: {
                             final FileIO.Write<String, Struct> write = createWrite(
                                     parameters, e -> SpannerUtil.getAsString(e, destinationField));
-                            writeResult = ((PCollection<Struct>)input).apply("WriteCSV", write.via(TextSink.of(
+                            writeResult = ((PCollection<Struct>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
                                             .collect(Collectors.toList()),
@@ -257,7 +257,7 @@ public class StorageSink {
                         case ENTITY: {
                             final FileIO.Write<String, Entity> write = createWrite(
                                     parameters, e -> DatastoreUtil.getFieldValueAsString(e, destinationField));
-                            writeResult = ((PCollection<Entity>)input).apply("WriteCSV", write.via(TextSink.of(
+                            writeResult = ((PCollection<Entity>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
@@ -275,7 +275,7 @@ public class StorageSink {
                         case AVRO: {
                             final FileIO.Write<String, GenericRecord> write = createWrite(
                                     parameters, e -> e.get(destinationField).toString());
-                            writeResult = ((PCollection<GenericRecord>)input).apply("WriteJson", write.via(TextSink.of(
+                            writeResult = ((PCollection<GenericRecord>)input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
@@ -285,7 +285,7 @@ public class StorageSink {
                         case ROW: {
                             final FileIO.Write<String, Row> write = createWrite(
                                     parameters, e -> e.getValue(destinationField).toString());
-                            writeResult = ((PCollection<Row>)input).apply("WriteJson", write.via(TextSink.of(
+                            writeResult = ((PCollection<Row>)input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
                                             .collect(Collectors.toList()),
@@ -297,7 +297,7 @@ public class StorageSink {
                         case STRUCT: {
                             final FileIO.Write<String, Struct> write = createWrite(
                                     parameters, e -> SpannerUtil.getAsString(e, destinationField));
-                            writeResult = ((PCollection<Struct>)input).apply("WriteJson", write.via(TextSink.of(
+                            writeResult = ((PCollection<Struct>)input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
                                             .collect(Collectors.toList()),
@@ -309,7 +309,7 @@ public class StorageSink {
                         case ENTITY: {
                             final FileIO.Write<String, Entity> write = createWrite(
                                     parameters, e -> DatastoreUtil.getFieldValueAsString(e, destinationField));
-                            writeResult = ((PCollection<Entity>)input).apply("WriteJson", write.via(TextSink.of(
+                            writeResult = ((PCollection<Entity>)input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),

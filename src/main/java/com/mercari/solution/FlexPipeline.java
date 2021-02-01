@@ -440,6 +440,9 @@ public class FlexPipeline {
                 case jdbc:
                     outputs.put(sinkConfig.getName(), JdbcSink.write(input, sinkConfig, wait));
                     break;
+                case text:
+                    outputs.put(sinkConfig.getName(), TextSink.write(input, sinkConfig, wait));
+                    break;
                 case solrindex:
                     outputs.put(sinkConfig.getName(), SolrIndexSink.write(input, sinkConfig, wait));
                     break;

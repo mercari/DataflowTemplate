@@ -151,6 +151,6 @@ https://www.mercari.com/cla/
 
 ## License
 
-Copyright 2020 Mercari, Inc.
+Copyright 2021 Mercari, Inc.
 
 Licensed under the MIT License.
