@@ -8,7 +8,7 @@ import java.nio.channels.WritableByteChannel;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class TextSink<ElementT> implements FileIO.Sink<ElementT> {
+public class TextFileSink<ElementT> implements FileIO.Sink<ElementT> {
 
     private final List<String> fields;
     private final Boolean header;
@@ -16,23 +16,23 @@ public class TextSink<ElementT> implements FileIO.Sink<ElementT> {
     private final Boolean bom;
     private transient PrintWriter writer;
 
-    private TextSink(final List<String> fields, final Boolean header, final Boolean bom, final RecordFormatter formatter) {
+    private TextFileSink(final List<String> fields, final Boolean header, final Boolean bom, final RecordFormatter formatter) {
         this.fields = fields;
         this.header = header;
         this.bom = bom;
         this.formatter = formatter;
     }
 
-    public static <ElementT> TextSink<ElementT> of(final List<String> fields, final RecordFormatter<ElementT> formatter) {
-        return new TextSink(fields, false, false, formatter);
+    public static <ElementT> TextFileSink<ElementT> of(final List<String> fields, final RecordFormatter<ElementT> formatter) {
+        return new TextFileSink(fields, false, false, formatter);
     }
 
-    public static <ElementT> TextSink<ElementT> of(final List<String> fields, final Boolean header, final RecordFormatter<ElementT> formatter) {
-        return new TextSink(fields, header, false, formatter);
+    public static <ElementT> TextFileSink<ElementT> of(final List<String> fields, final Boolean header, final RecordFormatter<ElementT> formatter) {
+        return new TextFileSink(fields, header, false, formatter);
     }
 
-    public static <ElementT> TextSink<ElementT> of(final List<String> fields, final Boolean header, final Boolean bom, final RecordFormatter<ElementT> formatter) {
-        return new TextSink(fields, header, bom, formatter);
+    public static <ElementT> TextFileSink<ElementT> of(final List<String> fields, final Boolean header, final Boolean bom, final RecordFormatter<ElementT> formatter) {
+        return new TextFileSink(fields, header, bom, formatter);
     }
 
     @Override

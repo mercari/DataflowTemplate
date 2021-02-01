@@ -18,6 +18,7 @@ public class SinkConfig implements Serializable {
         datastore,
         jdbc,
         pubsub,
+        text,
         solrindex
     }
 

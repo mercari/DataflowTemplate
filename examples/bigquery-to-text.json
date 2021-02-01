@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT S.SingerId, ARRAY_AGG(STRUCT(S.SingerId, A.AlbumId, S.TrackId, SongName, SongGenre, AlbumTitle, FirstName, LastName)) AS Songs FROM mydataset.Songs S LEFT JOIN mydataset.Albums A ON S.SingerId = A.SingerId AND S.AlbumId = A.AlbumId LEFT JOIN mydataset.Singers I ON S.SingerId = I.SingerId GROUP BY S.SingerId",
+        "queryLocation": "US",
+        "queryTempDataset": "temp"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "csvOutput",
+      "module": "text",
+      "input": "bigqueryInput",
+      "parameters": {
+        "output": "gs://example-bucket/Singers/${SingerId}.csv",
+        "template": "gs://example-bucket/template/bigquery-to-text.ftl",
+        "charset": "UTF-8",
+        "bom": true,
+        "contentType": "text/csv",
+        "cacheControl": "no-cache",
+        "contentDisposition": "attachment",
+        "contentLanguage": "ja",
+        "metadata": {
+          "hoge": "fuga"
+        }
+      }
+    }
+  ]
+}

@@ -30,8 +30,26 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 
 public class StorageUtil {
+
+    public static Storage storage() {
+        final HttpTransport transport = new NetHttpTransport();
+        final JsonFactory jsonFactory = new JacksonFactory();
+        try {
+            final Credentials credential = GoogleCredentials.getApplicationDefault();
+            final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(
+                    new HttpCredentialsAdapter(credential),
+                    // Do not log 404. It clutters the output and is possibly even required by the caller.
+                    new RetryHttpRequestInitializer(ImmutableList.of(404)));
+            return new Storage.Builder(transport, jsonFactory, initializer)
+                    .setApplicationName("StorageClient")
+                    .build();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     public static String readString(final String gcsPath) {
         final String[] paths = parseGcsPath(gcsPath);
@@ -48,6 +66,61 @@ public class StorageUtil {
         storage().objects()
                 .insert(paths[0], new StorageObject().setName(paths[1]),
                         new ByteArrayContent("application/octet-stream", content.getBytes()))
+                .execute();
+    }
+
+    public static void writeString(
+            final String gcsPath,
+            final String content,
+            final Map<String, Object> fields) throws IOException {
+
+        writeString(gcsPath, content, "application/octet-stream", fields, null);
+    }
+
+    public static void writeString(
+            final String gcsPath,
+            final String content,
+            final String type,
+            final Map<String, Object> fields,
+            final Map<String, String> metadata) throws IOException {
+
+        writeBytes(gcsPath, content.getBytes(), type, fields, metadata);
+    }
+
+    public static void writeBytes(
+            final String gcsPath,
+            final byte[] bytes,
+            final String contentType,
+            final Map<String, Object> fields,
+            final Map<String, String> metadata) throws IOException {
+
+        writeBytes(storage(), gcsPath, bytes, contentType, fields, metadata);
+    }
+
+    public static void writeBytes(
+            Storage storage,
+            final String gcsPath,
+            final byte[] bytes,
+            final String contentType,
+            final Map<String, Object> fields,
+            final Map<String, String> metadata) throws IOException {
+
+        final String[] paths = parseGcsPath(gcsPath);
+
+        final StorageObject storageObject = new StorageObject()
+                .setName(paths[1])
+                .setContentType(contentType);
+        fields.forEach(storageObject::set);
+
+        if(metadata != null) {
+            storageObject.setMetadata(metadata);
+        }
+
+        if(storage == null) {
+            storage = storage();
+        }
+        storage.objects()
+                .insert(paths[0], storageObject, new ByteArrayContent(contentType, bytes))
                 .execute();
     }
 
@@ -87,12 +160,40 @@ public class StorageUtil {
         }
     }
 
-    private static InputStream readStream(final String bucket, final String object) {
-        try {
-            return storage().objects().get(bucket, object).executeMediaAsInputStream();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+    public static Boolean exists(final String gcsPath) {
+        return exists(storage(), gcsPath);
+    }
+
+    public static Boolean exists(final Storage storage, final String gcsPath) {
+        if(gcsPath == null || !gcsPath.startsWith("gs://")) {
+            return null;
         }
+        final String[] paths = parseGcsPath(gcsPath);
+        try {
+            return !storage.objects().get(paths[0], paths[1]).isEmpty();
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    public static String addFilePrefix(String output, String prefix) {
+        final String[] paths = output.replaceAll("gs://", "").split("/", -1);
+        if(paths.length > 1) {
+            return paths[paths.length-1] + prefix;
+        }
+        return prefix;
+    }
+
+    public static String removeDirSuffix(String output) {
+        final boolean isgcs = output.startsWith("gs://");
+        final String[] paths = output.replaceAll("gs://", "").split("/", -1);
+        final StringBuilder sb = new StringBuilder(isgcs ? "gs://" : "");
+        final int end = Math.max(paths.length-1, 1);
+        for(int i=0; i<end; i++) {
+            sb.append(paths[i]);
+            sb.append("/");
+        }
+        return sb.toString();
     }
 
     public static Schema getAvroSchema(final String gcsPath) {
@@ -132,50 +233,9 @@ public class StorageUtil {
         }
     }
 
-    public static String addFilePrefix(String output, String prefix) {
-        final String[] paths = output.replaceAll("gs://", "").split("/", -1);
-        if(paths.length > 1) {
-            return paths[paths.length-1] + prefix;
-        }
-        return prefix;
-    }
-
-    public static String removeDirSuffix(String output) {
-        final boolean isgcs = output.startsWith("gs://");
-        final String[] paths = output.replaceAll("gs://", "").split("/", -1);
-        final StringBuilder sb = new StringBuilder(isgcs ? "gs://" : "");
-        final int end = Math.max(paths.length-1, 1);
-        for(int i=0; i<end; i++) {
-            sb.append(paths[i]);
-            sb.append("/");
-        }
-        return sb.toString();
-    }
-
-    public static Boolean exists(final String gcsPath) {
-        if(gcsPath == null || !gcsPath.startsWith("gs://")) {
-            return null;
-        }
-        final String[] paths = parseGcsPath(gcsPath);
+    private static InputStream readStream(final String bucket, final String object) {
         try {
-            return !storage().objects().get(paths[0], paths[1]).isEmpty();
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    private static Storage storage() {
-        final HttpTransport transport = new NetHttpTransport();
-        final JsonFactory jsonFactory = new JacksonFactory();
-        try {
-            final Credentials credential = GoogleCredentials.getApplicationDefault();
-            final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(
-                    new HttpCredentialsAdapter(credential),
-                    // Do not log 404. It clutters the output and is possibly even required by the caller.
-                    new RetryHttpRequestInitializer(ImmutableList.of(404)));
-            return new Storage.Builder(transport, jsonFactory, initializer)
-                    .setApplicationName("StorageClient")
-                    .build();
+            return storage().objects().get(bucket, object).executeMediaAsInputStream();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
