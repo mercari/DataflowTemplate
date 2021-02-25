@@ -36,6 +36,10 @@ public class FlexPipeline {
         String getConfig();
         void setConfig(String config);
 
+        @Description("Dataflow tempLocation")
+        String getTempLocation();
+        void setTempLocation(String tempLocation);
+
     }
 
     public interface FlexDataflowPipelineOptions extends FlexPipelineOptions, DataflowPipelineOptions { }
@@ -355,6 +359,12 @@ public class FlexPipeline {
                     break;
                 case pdfextract:
                     outputs.putAll(PDFExtractTransform.transform(inputs, transformConfig));
+                    break;
+                case crypto:
+                    outputs.putAll(CryptoTransform.transform(inputs, transformConfig));
+                    break;
+                case protobuf:
+                    outputs.putAll(ProtobufTransform.transform(inputs, transformConfig));
                     break;
                 case feature:
                     outputs.put(transformConfig.getName(), FeatureTransform.transform(inputs, transformConfig));

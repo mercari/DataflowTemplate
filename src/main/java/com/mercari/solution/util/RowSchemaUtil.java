@@ -6,6 +6,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
+import org.apache.poi.ss.formula.functions.T;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
@@ -13,8 +14,10 @@ import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 
 import java.time.LocalDate;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 public class RowSchemaUtil {
 
@@ -27,6 +30,22 @@ public class RowSchemaUtil {
             builder.addField(field);
         }
         builder.addFields(fields);
+        return builder.build();
+    }
+
+    public static Row merge(final Row row, final Map<String, ? extends Object> values) {
+        return merge(row.getSchema(), row, values);
+    }
+
+    public static Row merge(final Schema schema, final Row row, final Map<String, ? extends Object> values) {
+        final Row.Builder builder = Row.withSchema(schema);
+        for(Schema.Field field : schema.getFields()) {
+            if(values.containsKey(field.getName())) {
+                builder.addValue(values.get(field.getName()));
+            } else {
+                builder.addValue(row.getValue(field.getName()));
+            }
+        }
         return builder.build();
     }
 
@@ -86,6 +105,26 @@ public class RowSchemaUtil {
             return null;
         }
         return row.getValue(field).toString();
+    }
+
+    public static byte[] getBytes(final Row row, final String fieldName) {
+        if(row == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        if(row.getValue(fieldName) == null) {
+            return null;
+        }
+        switch (row.getSchema().getField(fieldName).getType().getTypeName()) {
+            case STRING:
+                return Base64.getDecoder().decode(row.getString(fieldName));
+            case BYTES:
+                return row.getBytes(fieldName);
+            default:
+                return null;
+        }
     }
 
     public static Instant getTimestamp(final Row row, final String fieldName, final Instant defaultTimestamp) {

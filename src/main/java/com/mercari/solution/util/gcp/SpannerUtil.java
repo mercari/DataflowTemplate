@@ -154,6 +154,24 @@ public class SpannerUtil {
         }
     }
 
+    public static byte[] getBytes(final Struct struct, final String fieldName) {
+        final Type.StructField field = struct.getType().getStructFields().stream()
+                .filter(f -> f.getName().equals(fieldName))
+                .findAny().orElse(null);
+        if(field == null) {
+            return null;
+        }
+        switch(field.getType().getCode()) {
+            case BYTES:
+                return struct.getBytes(field.getName()).toByteArray();
+            case STRING:
+                return Base64.getDecoder().decode(struct.getString(fieldName));
+            default:
+                return null;
+                //throw new IllegalStateException();
+        }
+    }
+
     public static Instant getTimestamp(final Struct struct, final String field, final Instant timestampDefault) {
         if(struct.isNull(field)) {
             return timestampDefault;
@@ -223,8 +241,21 @@ public class SpannerUtil {
     }
 
     public static Struct.Builder toBuilder(final Struct struct) {
+        return toBuilder(struct, null, null);
+    }
+
+    public static Struct.Builder toBuilder(final Struct struct,
+                                           final Collection<String> includeFields,
+                                           final Collection<String> excludeFields) {
+
         final Struct.Builder builder = Struct.newBuilder();
         for(final Type.StructField field : struct.getType().getStructFields()) {
+            if(includeFields != null && !includeFields.contains(field.getName())) {
+                continue;
+            }
+            if(excludeFields != null && excludeFields.contains(field.getName())) {
+                continue;
+            }
             switch (field.getType().getCode()) {
                 case BOOL:
                     builder.set(field.getName()).to(struct.getBoolean(field.getName()));
@@ -280,7 +311,7 @@ public class SpannerUtil {
                             builder.set(field.getName()).toNumericArray(struct.getBigDecimalList(field.getName()));
                             break;
                         case STRUCT:
-                            builder.set(field.getName()).toStructArray(struct.getType(), struct.getStructList(field.getName()));
+                            builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), struct.getStructList(field.getName()));
                             break;
                         case ARRAY:
                             throw new IllegalStateException("Array in Array not supported for spanner struct: " + struct.getType());

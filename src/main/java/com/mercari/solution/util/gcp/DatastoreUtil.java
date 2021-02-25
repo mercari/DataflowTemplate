@@ -158,6 +158,42 @@ public class DatastoreUtil {
         return Entity.newBuilder(entity);
     }
 
+    public static Entity.Builder toBuilder(final Entity entity,
+                                           final Collection<String> includeFields,
+                                           final Collection<String> excludeFields) {
+
+        final Entity.Builder builder = Entity.newBuilder();
+        for(var entry : entity.getPropertiesMap().entrySet()) {
+            if(includeFields != null && !includeFields.contains(entry.getKey())) {
+                continue;
+            }
+            if(excludeFields != null && excludeFields.contains(entry.getKey())) {
+                continue;
+            }
+            builder.putProperties(entry.getKey(), entry.getValue());
+        }
+        return builder;
+    }
+
+    public static byte[] getBytes(final Entity entity, final String fieldName) {
+        if(entity == null) {
+            return null;
+        }
+        final Value value = entity.getPropertiesMap().getOrDefault(fieldName, null);
+        if(value == null) {
+            return null;
+        }
+        switch (value.getValueTypeCase()) {
+            case STRING_VALUE:
+                return Base64.getDecoder().decode(value.getStringValue());
+            case BLOB_VALUE:
+                return value.getBlobValue().toByteArray();
+            case NULL_VALUE:
+            default:
+                return null;
+        }
+    }
+
     public static Instant getTimestamp(final Entity entity, final String fieldName) {
         return getTimestamp(entity, fieldName, Instant.ofEpochSecond(0L));
     }

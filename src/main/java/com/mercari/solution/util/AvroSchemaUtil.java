@@ -28,6 +28,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
@@ -254,6 +255,18 @@ public class AvroSchemaUtil {
         return schema;
     }
 
+    public static GenericRecordBuilder copy(final GenericRecord record, Schema targetSchema) {
+        final Schema sourceSchema = record.getSchema();
+        final GenericRecordBuilder builder = new GenericRecordBuilder(targetSchema);
+        for(final Schema.Field field : targetSchema.getFields()) {
+            if(sourceSchema.getField(field.name()) == null) {
+                continue;
+            }
+            builder.set(field.name(), record.get(field.name()));
+        }
+        return builder;
+    }
+
     public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema,  final String namespace, final Collection<String> fieldNames) {
         final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").namespace(namespace).fields();
         schema.getFields().forEach(f -> {
@@ -274,6 +287,58 @@ public class AvroSchemaUtil {
             builder.set(field, record.get(field.name()));
         }
         return builder;
+    }
+
+    public static SchemaBuilder.RecordBuilder<Schema> toSchemaBuilder(
+            final Schema schema,
+            final Collection<String> includeFields,
+            final Collection<String> excludeFields) {
+
+        SchemaBuilder.RecordBuilder<Schema> builder = SchemaBuilder.record(schema.getName());
+        final SchemaBuilder.FieldAssembler<Schema> schemaFields = builder.fields();
+        for(final Schema.Field field : schema.getFields()) {
+            if(includeFields != null && !includeFields.contains(field.name())) {
+                continue;
+            }
+            if(excludeFields != null && excludeFields.contains(field.name())) {
+                continue;
+            }
+            schemaFields.name(field.name()).type(field.schema()).noDefault();
+        }
+        return builder;
+    }
+
+    public static Schema createMapRecordSchema(final String name, final Schema keySchema, final Schema valueSchema) {
+
+        final Schema.Field keyField = new Schema.Field("key", keySchema, null, (Object)null);
+        final Schema.Field valueField = new Schema.Field("value", valueSchema, null, (Object)null);
+        return Schema.createRecord(name, null, null, false, List.of(keyField, valueField));
+    }
+
+    public static Schema createMapRecordsSchema(final String name, final Schema keySchema, final Schema valueSchema) {
+        return SchemaBuilder.builder().array().items(
+                SchemaBuilder.builder().record("map")
+                        .fields()
+                        .name("key").type(Schema.create(Schema.Type.STRING)).noDefault()
+                        .endRecord());
+    }
+
+    public static byte[] getBytes(final GenericRecord record, final String fieldName) {
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return null;
+        }
+        final Schema schema = unnestUnion(field.schema());
+        switch (schema.getType()) {
+            case BYTES:
+                return ((ByteBuffer)value).array();
+            default:
+                return null;
+        }
     }
 
     public static org.joda.time.Instant getTimestamp(final GenericRecord record, final String fieldName) {
