@@ -9,8 +9,10 @@ package com.mercari.solution.util.converter;
 
 import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
+import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
+import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.AvroSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -25,7 +27,6 @@ import org.joda.time.MutableDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -52,9 +53,6 @@ public class StructToRecordConverter {
      */
     public static GenericRecord convert(final Schema schema, Struct struct) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
-        //for(final Type.StructField field : struct.getType().getStructFields()) {
-        //    setFieldValue(builder, field, struct);
-        //}
         for(final Schema.Field field : schema.getFields()) {
             setFieldValue(builder, field, struct);
         }
@@ -66,12 +64,22 @@ public class StructToRecordConverter {
     }
 
     public static Schema convertSchema(final Type type) {
-        final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").fields();
-        type.getStructFields().forEach(field -> schemaFields
-                .name(field.getName())
-                .type(convertFieldType(field.getType(), true))
-                .noDefault());
-        return schemaFields.endRecord();
+        return convertSchema(type, "root");
+    }
+
+    public static Schema convertSchema(final Type type, final String recordName) {
+        try {
+            final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record(recordName).fields();
+            type.getStructFields().forEach(field -> schemaFields
+                    .name(field.getName())
+                    .type(convertFieldType(field.getType(), field.getName(), true))
+                    .noDefault());
+            return schemaFields.endRecord();
+        } catch (RuntimeException e) {
+            final String message = "Failed to convert schema from type: " + type;
+            LOG.error(message);
+            throw new IllegalStateException(message, e);
+        }
     }
 
     //
@@ -116,7 +124,7 @@ public class StructToRecordConverter {
                 break;
             case LONG:
                 if(Type.timestamp().equals(type)) {
-                    builder.set(fieldName, struct.getTimestamp(fieldName).getSeconds() * 1000 * 1000);
+                    builder.set(fieldName, Timestamps.toMicros(struct.getTimestamp(fieldName).toProto()));
                 } else {
                     builder.set(fieldName, struct.getLong(fieldName));
                 }
@@ -196,7 +204,8 @@ public class StructToRecordConverter {
             case LONG:
                 if(Type.array(Type.timestamp()).equals(type)) {
                     builder.set(fieldName, struct.getTimestampList(fieldName).stream()
-                            .map(timestamp -> timestamp.getSeconds() * 1000 * 1000)
+                            .map(Timestamp::toProto)
+                            .map(Timestamps::toMicros)
                             .collect(Collectors.toList()));
                 } else {
                     builder.set(fieldName, struct.getLongList(fieldName));
@@ -232,116 +241,7 @@ public class StructToRecordConverter {
         }
     }
 
-    // For simple usecase
-    private static void setFieldValue(final GenericRecordBuilder builder,
-                                      final Type.StructField field,
-                                      final Struct struct) {
-
-        if(struct.isNull(field.getName())) {
-            builder.set(field.getName(), null);
-            return;
-        }
-        switch (field.getType().getCode()) {
-            case BOOL:
-                builder.set(field.getName(), struct.getBoolean(field.getName()));
-                return;
-            case BYTES:
-                builder.set(field.getName(), struct.getBytes(field.getName()).asReadOnlyByteBuffer());
-                return;
-            case STRING:
-                builder.set(field.getName(), struct.getString(field.getName()));
-                return;
-            case INT64:
-                builder.set(field.getName(), struct.getLong(field.getName()));
-                return;
-            case FLOAT64:
-                builder.set(field.getName(), struct.getDouble(field.getName()));
-                return;
-            case DATE: {
-                final Date date = struct.getDate(field.getName());
-                final DateTime datetime = new DateTime(
-                        date.getYear(), date.getMonth(), date.getDayOfMonth(), 0, 0, DateTimeZone.UTC);
-                final Days days = Days.daysBetween(EPOCH_DATETIME, datetime);
-                builder.set(field.getName(), days.getDays());
-                return;
-            }
-            case TIMESTAMP:
-                builder.set(field.getName(), struct.getTimestamp(field.getName()).getSeconds() * 1000 * 1000);
-                return;
-            case STRUCT: {
-                final Schema schema = convertSchema(field.getType());
-                final GenericRecord chileRecord = convert(schema, struct.getStruct(field.getName()));
-                builder.set(field.getName(), chileRecord);
-                return;
-            }
-            case ARRAY: {
-                setArrayFieldValue(builder, field.getName(), field.getType().getArrayElementType(), struct);
-                return;
-            }
-            default:
-        }
-    }
-
-    private static void setArrayFieldValue(final GenericRecordBuilder builder,
-                                           final String fieldName,
-                                           final Type type,
-                                           final Struct struct) {
-
-        if(struct.isNull(fieldName)) {
-            builder.set(fieldName, null);
-            return;
-        }
-        switch (type.getCode()) {
-            case BOOL:
-                builder.set(fieldName, struct.getBooleanList(fieldName));
-                return;
-            case BYTES:
-                builder.set(fieldName, struct.getBytesList(fieldName).stream()
-                        .filter(Objects::nonNull)
-                        .map(ByteArray::asReadOnlyByteBuffer)
-                        .collect(Collectors.toList()));
-                return;
-            case STRING:
-                builder.set(fieldName, struct.getStringList(fieldName));
-                return;
-            case INT64:
-                builder.set(fieldName, struct.getLongList(fieldName));
-                return;
-            case FLOAT64:
-                builder.set(fieldName, struct.getDoubleList(fieldName));
-                return;
-            case DATE:
-                builder.set(fieldName, struct.getDateList(fieldName).stream()
-                        .filter(Objects::nonNull)
-                        .map(date -> new DateTime(
-                                date.getYear(), date.getMonth(), date.getDayOfMonth(), 0, 0, DateTimeZone.UTC))
-                        .map(datetime -> Days.daysBetween(EPOCH_DATETIME, datetime).getDays())
-                        .collect(Collectors.toList()));
-                return;
-            case TIMESTAMP:
-                builder.set(fieldName, struct.getTimestampList(fieldName).stream()
-                        .filter(Objects::nonNull)
-                        .map(timestamp -> timestamp.getSeconds() * 1000 * 1000)
-                        .collect(Collectors.toList()));
-                return;
-            case STRUCT: {
-                final Schema schema = convertSchema(type);
-                builder.set(fieldName, struct.getStructList(fieldName).stream()
-                        .filter(Objects::nonNull)
-                        .map(s -> convert(schema, s))
-                        .collect(Collectors.toList()));
-                return;
-            }
-            case ARRAY: {
-                setArrayFieldValue(builder, fieldName, type, struct);
-                return;
-            }
-            default:
-                throw new IllegalArgumentException();
-        }
-    }
-
-    private static Schema convertFieldType(final Type type, final boolean nullable) {
+    private static Schema convertFieldType(final Type type, final String name, final boolean nullable) {
         switch (type.getCode()) {
             case BYTES:
                 return nullable ? AvroSchemaUtil.NULLABLE_BYTES : AvroSchemaUtil.REQUIRED_BYTES;
@@ -358,10 +258,10 @@ public class StructToRecordConverter {
             case TIMESTAMP:
                 return nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
             case STRUCT:
-                final Schema structSchema = convertSchema(type);
+                final Schema structSchema = convertSchema(type, name);
                 return nullable ? Schema.createUnion(Schema.create(Schema.Type.NULL), structSchema) : structSchema;
             case ARRAY:
-                final Schema arraySchema = Schema.createArray(convertFieldType(type.getArrayElementType(), false));
+                final Schema arraySchema = Schema.createArray(convertFieldType(type.getArrayElementType(), name, false));
                 //return nullable ? Schema.createUnion(Schema.create(Schema.Type.NULL), arraySchema) : arraySchema;
                 return arraySchema;
             default:

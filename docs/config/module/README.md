@@ -13,13 +13,14 @@
 | [jdbc](source/jdbc.md) | ○ | ○(TBA) | Import data from RDB using JDBC connector with a specified query |
 | [pubsub](source/pubsub.md) | - | ○ | Import data from Cloud PubSub |
 
-
 ## Transform Modules
 
 | module | batch | streaming | description|
 | --- | --- | --- | --- |
 | [beamsql](transform/beamsql.md) | ○ | ○ | Process the data in a given SQL |
 | [window](transform/window.md) | ○ | ○ | Assign to the specified type of Window from the time of the specified field |
+| [protobuf](transform/protobuf.md) | ○ | ○ | Deserialize a value serialized in ProtocolBuffer format. |
+| [crypto](transform/crypto.md) | ○ | ○ | Encrypts or decrypts the value of a specified field.(Currently, only decryption is supported) |
 | [pdfextract](transform/pdfextract.md) | ○ | ○ | Extract text and metadata from PDF files |
 
 ## Sink Modules

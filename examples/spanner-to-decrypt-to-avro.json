@@ -1,0 +1,57 @@
+{
+  "sources": [
+    {
+      "name": "spannerInput",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "example-project",
+        "instanceId": "example-instance",
+        "databaseId": "example-database",
+        "query": "SELECT ID, SecretData, CreatedAt FROM Examples"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "decryptOutput",
+      "module": "crypto",
+      "inputs": ["spannerInput"],
+      "parameters": {
+        "mode": "decrypt",
+        "fields": ["SecretData"],
+        "algorithm": "AES256",
+        "failFast": false,
+        "keyProvider": {
+          "vault": {
+            "kvPath": "/v1/kv/secret/data/MyCryptoKey"
+          }
+        },
+        "keyDecryptor": {
+          "jsonPath": "$.MetaData.CryptoKey",
+          "vault": {
+            "transitPath": "/v1/transit/decrypt/MyData"
+          }
+        },
+        "keyExtractor": {
+          "jsonPath": "$.MetaData.CryptoKey"
+        },
+        "vault": {
+          "host": "https://127.0.0.1:8200",
+          "role": "example-role"
+        }
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "storageOutput",
+      "module": "storage",
+      "input": "decryptOutput",
+      "parameters": {
+        "output": "gs://example-bucket/DecryptedRecords.avro",
+        "format": "avro",
+        "withoutSharding": true
+      }
+    }
+  ]
+}

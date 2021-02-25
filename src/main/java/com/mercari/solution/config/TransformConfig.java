@@ -15,6 +15,8 @@ public class TransformConfig implements Serializable {
         window,
         setoperation,
         pdfextract,
+        crypto,
+        protobuf,
         feature,
         javascript,
         onnx,

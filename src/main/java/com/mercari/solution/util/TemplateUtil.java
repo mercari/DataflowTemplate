@@ -6,21 +6,47 @@ import org.apache.commons.csv.CSVRecord;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.io.StringWriter;
+import java.util.Map;
 
 public class TemplateUtil {
 
-    public static Template createSafeTemplate(final String name, final String template) throws IOException {
+    public static Template createSafeTemplate(final String name, final String template) {
         final Configuration templateConfig = new Configuration(Configuration.VERSION_2_3_30);
         templateConfig.setNumberFormat("computer");
         templateConfig.setTemplateExceptionHandler(new ImputeSameVariablesTemplateExceptionHandler());
-        return new Template(name, new StringReader(template), templateConfig);
+        try {
+            return new Template(name, new StringReader(template), templateConfig);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
-    public static Template createStrictTemplate(final String name, final String template) throws IOException {
+    public static Template createStrictTemplate(final String name, final String template) {
         final Configuration templateConfig = new Configuration(Configuration.VERSION_2_3_30);
         templateConfig.setNumberFormat("computer");
         //templateConfig.setObjectWrapper(new CSVWrapper(Configuration.VERSION_2_3_30));
-        return new Template(name, new StringReader(template), templateConfig);
+        try {
+            return new Template(name, new StringReader(template), templateConfig);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    public static String executeStrictTemplate(final String templateText, final Map<String, Object> data) {
+        final Template template = createStrictTemplate("template", templateText);
+        return executeStrictTemplate(template, data);
+    }
+
+    public static String executeStrictTemplate(final Template template, final Map<String, Object> data) {
+        try(final StringWriter writer = new StringWriter()) {
+            template.process(data, writer);
+            return writer.toString();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (TemplateException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     static class ImputeSameVariablesTemplateExceptionHandler implements TemplateExceptionHandler {

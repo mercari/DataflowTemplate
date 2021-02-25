@@ -2,15 +2,14 @@ package com.mercari.solution.config;
 
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.aws.S3Util;
 import com.mercari.solution.util.converter.RecordToRowConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
-import org.apache.beam.sdk.transforms.SerializableFunction;
 
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.List;
 
 public class SourceConfig implements Serializable {
@@ -147,7 +146,7 @@ public class SourceConfig implements Serializable {
     }
 
     private static Schema.FieldType convertFieldType(final InputSchemaField field, final String mode) {
-        if("repeated".equals(mode.trim().toLowerCase())) {
+        if(mode != null && "repeated".equals(mode.trim().toLowerCase())) {
             return Schema.FieldType.array(convertFieldType(field, "nullable"));
         }
         final boolean nullable;
@@ -161,11 +160,12 @@ public class SourceConfig implements Serializable {
                 return Schema.FieldType.BYTES.withNullable(nullable);
             case "string":
                 return Schema.FieldType.STRING.withNullable(nullable);
-            case "int32":
+            case "int":
             case "integer":
+            case "int32":
                 return Schema.FieldType.INT32.withNullable(nullable);
-            case "int64":
             case "long":
+            case "int64":
                 return Schema.FieldType.INT64.withNullable(nullable);
             case "float32":
             case "float":
@@ -177,24 +177,46 @@ public class SourceConfig implements Serializable {
             case "boolean":
                 return Schema.FieldType.BOOLEAN.withNullable(nullable);
             case "datetime":
+            case "timestamp":
                 return Schema.FieldType.DATETIME.withNullable(nullable);
             case "struct":
             case "record":
                 return Schema.FieldType.row(convertSchema(field.getFields())).withNullable(nullable);
+            case "map": {
+                final InputSchemaField keyField = field.getFields().stream()
+                        .filter(f -> "key".equals(f.getName()))
+                        .findAny().orElse(new InputSchemaField("key", "string", "required"));
+                final InputSchemaField valueField = field.getFields().stream()
+                        .filter(f -> "value".equals(f.getName()))
+                        .findAny().orElseThrow(() -> new IllegalArgumentException("Map schema must contain value field."));
+                return Schema.FieldType.map(convertFieldType(keyField), convertFieldType(valueField)).withNullable(nullable);
+            }
+            case "maprecord": {
+                final InputSchemaField keyField = field.getFields().stream()
+                        .filter(f -> "key".equals(f.getName()))
+                        .findAny().orElse(new InputSchemaField("key", "string", "required"));
+                final InputSchemaField valueField = field.getFields().stream()
+                        .filter(f -> "value".equals(f.getName()))
+                        .findAny().orElseThrow(() -> new IllegalArgumentException("Maprecord schema must contain value field."));
+                final Schema mapSchema = convertSchema(Arrays.asList(keyField, valueField))
+                        .withOptions(Schema.Options.builder()
+                                .setOption("extension", Schema.FieldType.STRING, "maprecord")
+                                .build());
+                final Schema.FieldType mapField = Schema.FieldType.row(mapSchema).withNullable(nullable);
+                return Schema.FieldType.array(mapField);
+            }
             case "decimal":
                 return Schema.FieldType.DECIMAL.withNullable(nullable);
             case "date":
-                return CalciteUtils.DATE.withNullable(nullable);
+                return nullable ? CalciteUtils.NULLABLE_DATE : CalciteUtils.DATE;
             case "time":
-                return CalciteUtils.TIME.withNullable(nullable);
-            case "timestamp":
-                return CalciteUtils.TIMESTAMP.withNullable(nullable);
+                return nullable ? CalciteUtils.NULLABLE_TIME : CalciteUtils.TIME;
             default:
                 throw new IllegalArgumentException("Field[" + field.getName() + "] type " + field.getType() + " is not supported !");
         }
     }
 
-    public class InputSchema implements Serializable {
+    public static class InputSchema implements Serializable {
 
         private String avroSchema;
         private List<InputSchemaField> fields;
@@ -217,12 +239,22 @@ public class SourceConfig implements Serializable {
 
     }
 
-    public class InputSchemaField implements Serializable {
+    public static class InputSchemaField implements Serializable {
 
         private String name;
         private String type;
         private String mode;
         private List<InputSchemaField> fields;
+
+        InputSchemaField() {
+
+        }
+
+        InputSchemaField(String name, String type, String mode) {
+            this.name = name;
+            this.type = type;
+            this.mode = mode;
+        }
 
         public String getName() {
             return name;

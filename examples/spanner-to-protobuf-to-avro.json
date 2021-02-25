@@ -1,0 +1,40 @@
+{
+  "sources": [
+    {
+      "name": "spannerInput",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "example-project",
+        "instanceId": "example-instance",
+        "databaseId": "example-database",
+        "query": "SELECT ID, Message, CreatedAt FROM Examples"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "protobufOutput",
+      "module": "protobuf",
+      "inputs": ["spannerInput"],
+      "parameters": {
+        "descriptorFilePath": "gs://example-bucket/descriptors.desc",
+        "fields": [
+          { "field": "Message", "messageName": "com.mercari.example.ExampleMessage" }
+        ],
+        "failFast": false
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "storageOutput",
+      "module": "storage",
+      "input": "protobufOutput",
+      "parameters": {
+        "output": "gs://example-bucket/ExampleMessage.avro",
+        "format": "avro",
+        "withoutSharding": true
+      }
+    }
+  ]
+}
