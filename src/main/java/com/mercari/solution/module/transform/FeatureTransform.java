@@ -7,13 +7,17 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.converter.RecordToFeatureRecordConverter;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.AvroCoder;
-import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.transforms.Combine;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
 
@@ -21,11 +25,11 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class FeatureTransform {
+public class FeatureTransform implements TransformModule {
 
     private class FeatureTransformParameters {
 
@@ -38,6 +42,12 @@ public class FeatureTransform {
         public void setSql(String sql) {
             this.sql = sql;
         }
+    }
+
+    public String getName() { return "feature"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return Collections.singletonMap(config.getName(), FeatureTransform.transform(inputs, config));
     }
 
     public static FCollection<GenericRecord> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

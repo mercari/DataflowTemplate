@@ -7,7 +7,8 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
-import com.mercari.solution.module.sink.fileio.*;
+import com.mercari.solution.module.SinkModule;
+import com.mercari.solution.module.sink.fileio.TextFileSink;
 import com.mercari.solution.util.FixedFileNaming;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.DatastoreUtil;
@@ -16,19 +17,28 @@ import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.io.*;
+import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.io.Compression;
+import org.apache.beam.sdk.io.FileIO;
+import org.apache.beam.sdk.io.WriteFilesResult;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
-import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.Wait;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.Row;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-public class StorageSink {
+public class StorageSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(StorageSink.class);
 
@@ -164,6 +174,12 @@ public class StorageSink {
             this.bom = bom;
         }
 
+    }
+
+    public String getName() { return "storage"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), StorageSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

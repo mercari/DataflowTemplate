@@ -4,6 +4,7 @@ import com.google.common.base.Functions;
 import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -19,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class SetOperationTransform {
+public class SetOperationTransform implements TransformModule {
 
     private class SetOperationTransformParameters {
 
@@ -42,6 +43,12 @@ public class SetOperationTransform {
             this.keys = keys;
         }
 
+    }
+
+    public String getName() { return "setoperation"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return SetOperationTransform.transform(inputs, config);
     }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

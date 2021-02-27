@@ -14,18 +14,8 @@ import java.util.List;
 
 public class SourceConfig implements Serializable {
 
-    public enum Module {
-        storage,
-        bigquery,
-        spanner,
-        datastore,
-        jdbc,
-        pubsub,
-        spannerBackup
-    }
-
     private String name;
-    private Module module;
+    private String module;
     private Boolean microbatch;
     private InputSchema schema;
     private JsonObject parameters;
@@ -41,11 +31,11 @@ public class SourceConfig implements Serializable {
         this.name = name;
     }
 
-    public Module getModule() {
+    public String getModule() {
         return module;
     }
 
-    public void setModule(Module module) {
+    public void setModule(String module) {
         this.module = module;
     }
 

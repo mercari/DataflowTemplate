@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
@@ -18,10 +19,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-public class DatastoreSource {
+public class DatastoreSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(DatastoreSource.class);
 
@@ -80,6 +83,17 @@ public class DatastoreSource {
 
         public void setEmulator(Boolean emulator) {
             this.emulator = emulator;
+        }
+    }
+
+    public String getName() { return "datastore"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        if (config.getMicrobatch() != null && config.getMicrobatch()) {
+            //inputs.put(config.getName(), beats.apply(config.getName(), SpannerSource.microbatch(config)));
+            return Collections.emptyMap();
+        } else {
+            return Collections.singletonMap(config.getName(), DatastoreSource.batch(begin, config));
         }
     }
 

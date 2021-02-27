@@ -10,20 +10,8 @@ import java.util.List;
 
 public class SinkConfig implements Serializable {
 
-    public enum Module {
-        storage,
-        bigquery,
-        spanner,
-        bigtable,
-        datastore,
-        jdbc,
-        pubsub,
-        text,
-        solrindex
-    }
-
     private String name;
-    private Module module;
+    private String module;
     private String input;
     private List<String> wait;
     private String outputAvroSchema;
@@ -37,11 +25,11 @@ public class SinkConfig implements Serializable {
         this.name = name;
     }
 
-    public Module getModule() {
+    public String getModule() {
         return module;
     }
 
-    public void setModule(Module module) {
+    public void setModule(String module) {
         this.module = module;
     }
 

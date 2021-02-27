@@ -2,6 +2,7 @@ package com.mercari.solution.module.transform;
 
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.Reshuffle;
@@ -13,9 +14,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ReshuffleTransform {
+public class ReshuffleTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(ReshuffleTransform.class);
+
+    public String getName() { return "reshuffle"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return ReshuffleTransform.transform(inputs, config);
+    }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 

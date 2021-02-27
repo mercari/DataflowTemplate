@@ -6,9 +6,10 @@ import com.google.protobuf.ListValue;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
 import com.mercari.solution.config.TransformConfig;
+import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.RowSchemaUtil;
 import com.mercari.solution.util.converter.RowToAutoMLRowConverter;
-//import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -21,11 +22,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 
-public class AutoMLTablesTransform {
+public class AutoMLTablesTransform implements TransformModule {
 
     private class AutoMLTablesTransformParameters {
 
@@ -56,6 +59,16 @@ public class AutoMLTablesTransform {
         public void setModelId(String modelId) {
             this.modelId = modelId;
         }
+    }
+
+    public String getName() { return "automl"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        if(config.getInputs().size() != 1) {
+            throw new IllegalArgumentException("module mlengine must not be multi input !");
+        }
+        //rows.put(transformName, rows.get(config.getInputs().get(0)).apply(AutoMLTablesTransform.process(config)));
+        return Collections.emptyMap();
     }
 
     public static AutoMLPredictProcess process(final TransformConfig config) {

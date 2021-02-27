@@ -10,6 +10,7 @@ import com.google.protobuf.ByteString;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.*;
 import com.mercari.solution.util.converter.JsonToMapConverter;
 import com.mercari.solution.util.gcp.DatastoreUtil;
@@ -31,7 +32,7 @@ import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-public class CryptoTransform {
+public class CryptoTransform implements TransformModule {
 
 
     private static final Logger LOG = LoggerFactory.getLogger(CryptoTransform.class);
@@ -249,6 +250,12 @@ public class CryptoTransform {
             }
         }
 
+    }
+
+    public String getName() { return "crypto"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return CryptoTransform.transform(inputs, config);
     }
 
     public static Map<String, FCollection<?>> transform(

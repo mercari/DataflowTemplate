@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
@@ -20,10 +21,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-public class SpannerBackupSource {
+public class SpannerBackupSource implements SourceModule {
 
     private class SpannerBackupSourceParameters implements Serializable {
 
@@ -45,6 +49,15 @@ public class SpannerBackupSource {
         public void setTables(List<String> tables) {
             this.tables = tables;
         }
+    }
+
+    public String getName() { return "spannerBackup"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        if (config.getMicrobatch() != null && config.getMicrobatch()) {
+            throw new IllegalArgumentException("SpannerBackupSource does not support microbatch mode.");
+        }
+        return new HashMap<>(SpannerBackupSource.batch(begin, config));
     }
 
     public static Map<String, FCollection<GenericRecord>> batch(final PBegin begin, final SourceConfig config) {

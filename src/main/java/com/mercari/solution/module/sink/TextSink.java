@@ -8,6 +8,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.TemplateFileNaming;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.aws.S3Util;
@@ -32,13 +33,14 @@ import java.io.*;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 
-public class TextSink {
+public class TextSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(StorageSink.class);
 
@@ -145,6 +147,12 @@ public class TextSink {
         public void setMetadata(Map<String, String> metadata) {
             this.metadata = metadata;
         }
+    }
+
+    public String getName() { return "text"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), TextSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

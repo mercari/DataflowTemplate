@@ -10,6 +10,7 @@ import com.google.protobuf.util.JsonFormat;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.ProtoUtil;
 import com.mercari.solution.util.RowSchemaUtil;
@@ -35,7 +36,7 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class ProtobufTransform {
+public class ProtobufTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(ProtobufTransform.class);
     private static final String OUTPUT_SUFFIX_FAILURES = ".failures";
@@ -101,6 +102,12 @@ public class ProtobufTransform {
             }
         }
 
+    }
+
+    public String getName() { return "protobuf"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return ProtobufTransform.transform(inputs, config);
     }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

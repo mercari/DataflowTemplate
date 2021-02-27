@@ -3,6 +3,7 @@ package com.mercari.solution.module.sink;
 import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.converter.ToStatementConverter;
 import com.mercari.solution.util.gcp.JdbcUtil;
 import org.apache.beam.sdk.coders.ListCoder;
@@ -17,12 +18,10 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
-public class JdbcSink {
+public class JdbcSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcSink.class);
 
@@ -127,6 +126,12 @@ public class JdbcSink {
         public void setOp(String op) {
             this.op = op;
         }
+    }
+
+    public String getName() { return "jdbc"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), JdbcSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

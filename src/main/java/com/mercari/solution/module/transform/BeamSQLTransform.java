@@ -5,20 +5,25 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.sql.udf.JsonFunctions;
 import org.apache.beam.sdk.extensions.sql.SqlTransform;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionTuple;
+import org.apache.beam.sdk.values.Row;
+import org.apache.beam.sdk.values.TupleTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class BeamSQLTransform {
+public class BeamSQLTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BeamSQLTransform.class);
 
@@ -33,6 +38,12 @@ public class BeamSQLTransform {
         public void setSql(String sql) {
             this.sql = sql;
         }
+    }
+
+    public String getName() { return "beamsql"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return Collections.singletonMap(config.getName(), BeamSQLTransform.transform(inputs, config));
     }
 
     public static FCollection<Row> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

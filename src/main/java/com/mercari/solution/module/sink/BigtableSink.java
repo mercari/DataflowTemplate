@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.converter.RowToBigtableConverter;
@@ -23,7 +24,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 
-public class BigtableSink {
+public class BigtableSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BigtableSink.class);
 
@@ -104,6 +105,12 @@ public class BigtableSink {
             this.exclude = exclude;
         }
 
+    }
+
+    public String getName() { return "bigtable"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), BigtableSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

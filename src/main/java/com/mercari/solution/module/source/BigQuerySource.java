@@ -10,6 +10,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
@@ -26,7 +27,8 @@ import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.gcp.util.BackOffAdapter;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
-import org.apache.beam.sdk.io.gcp.bigquery.*;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
+import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.util.FluentBackoff;
 import org.apache.beam.sdk.values.*;
@@ -36,12 +38,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
-public class BigQuerySource {
+public class BigQuerySource implements SourceModule {
 
     private class BigQuerySourceParameters {
 
@@ -182,6 +182,16 @@ public class BigQuerySource {
 
         public void setUseCheckpointAsStartDatetime(Boolean useCheckpointAsStartDatetime) {
             this.useCheckpointAsStartDatetime = useCheckpointAsStartDatetime;
+        }
+    }
+
+    public String getName() { return "bigquery"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        if (config.getMicrobatch() != null && config.getMicrobatch()) {
+            return Collections.singletonMap(config.getName(), BigQuerySource.microbatch(beats, config));
+        } else {
+            return Collections.singletonMap(config.getName(), BigQuerySource.batch(begin, config, waits));
         }
     }
 

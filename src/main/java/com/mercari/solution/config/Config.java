@@ -1,6 +1,7 @@
 package com.mercari.solution.config;
 
 import com.google.gson.*;
+import com.mercari.solution.module.transform.BeamSQLTransform;
 import com.mercari.solution.util.TemplateUtil;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
@@ -11,7 +12,9 @@ import org.joda.time.format.DateTimeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.Serializable;
+import java.io.StringWriter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -79,8 +82,9 @@ public class Config implements Serializable {
         if(this.transforms == null) {
             return false;
         }
+        final String beamSQLTransformName = new BeamSQLTransform().getName();
         final Optional<TransformConfig> tc = this.transforms.stream()
-                .filter(c -> TransformConfig.Module.beamsql.equals(c.getModule()))
+                .filter(c -> beamSQLTransformName.equals(c.getModule()))
                 .findFirst();
         if(!tc.isPresent()) {
             return false;
