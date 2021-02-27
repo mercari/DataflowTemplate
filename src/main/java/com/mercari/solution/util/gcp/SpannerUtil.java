@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.threeten.bp.Duration;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -124,6 +125,7 @@ public class SpannerUtil {
             case TIMESTAMP:
                 return struct.getTimestamp(field).toString();
             case STRUCT:
+                return struct.getStruct(field);
             case ARRAY:
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
@@ -170,6 +172,10 @@ public class SpannerUtil {
                 return null;
                 //throw new IllegalStateException();
         }
+    }
+
+    public static long getEpochDay(final Date date) {
+        return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()).toEpochDay();
     }
 
     public static Instant getTimestamp(final Struct struct, final String field, final Instant timestampDefault) {
