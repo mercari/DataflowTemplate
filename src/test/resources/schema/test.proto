@@ -1,0 +1,231 @@
+syntax = "proto3";
+
+package com.mercari.solution.entity;
+
+import "google/type/date.proto";
+import "google/type/datetime.proto";
+import "google/type/timeofday.proto";
+import "google/type/latlng.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+option java_outer_classname = "ProtobufEntity";
+
+message TestMessage {
+
+  bool boolValue = 1;
+  string stringValue = 2;
+  bytes bytesValue = 3;
+  int32 intValue = 4;
+  int64 longValue = 5;
+  float floatValue = 6;
+  double doubleValue = 7;
+  uint32 uintValue = 8;
+  uint64 ulongValue = 9;
+  google.type.Date dateValue = 10;
+  google.type.TimeOfDay timeValue = 11;
+  google.type.DateTime datetimeValue = 12;
+  google.type.LatLng latlngValue = 13;
+  google.protobuf.Timestamp timestampValue = 14;
+  google.protobuf.BoolValue wrappedBoolValue = 15;
+  google.protobuf.StringValue wrappedStringValue = 16;
+  google.protobuf.BytesValue wrappedBytesValue = 17;
+  google.protobuf.Int32Value wrappedInt32Value = 18;
+  google.protobuf.Int64Value wrappedInt64Value = 19;
+  google.protobuf.UInt32Value wrappedUInt32Value = 20;
+  google.protobuf.UInt64Value wrappedUInt64Value = 21;
+  google.protobuf.FloatValue wrappedFloatValue = 22;
+  google.protobuf.DoubleValue wrappedDoubleValue = 23;
+  google.protobuf.Any anyValue = 24;
+
+  TestEnum enumValue = 25;
+
+  oneof entity {
+    string entityName = 26;
+    int32 entityAge = 27;
+  }
+
+  TestChildMessage child = 28;
+
+  map<string, int32> strIntMapValue = 29;
+  map<int64, double> longDoubleMapValue = 30;
+  map<int32, TestChildMessage> intChildMapValue = 31;
+
+  repeated bool boolValues = 32;
+  repeated string stringValues = 33;
+  repeated bytes bytesValues = 34;
+  repeated int32 intValues = 35;
+  repeated int64 longValues = 36;
+  repeated float floatValues = 37;
+  repeated double doubleValues = 38;
+  repeated uint32 uintValues = 39;
+  repeated uint64 ulongValues = 40;
+  repeated google.type.Date dateValues = 41;
+  repeated google.type.TimeOfDay timeValues = 42;
+  repeated google.type.DateTime datetimeValues = 43;
+  repeated google.type.LatLng latlngValues = 44;
+  repeated google.protobuf.Timestamp timestampValues = 45;
+  repeated google.protobuf.BoolValue wrappedBoolValues = 46;
+  repeated google.protobuf.StringValue wrappedStringValues = 47;
+  repeated google.protobuf.BytesValue wrappedBytesValues = 48;
+  repeated google.protobuf.Int32Value wrappedInt32Values = 49;
+  repeated google.protobuf.Int64Value wrappedInt64Values = 50;
+  repeated google.protobuf.UInt32Value wrappedUInt32Values = 51;
+  repeated google.protobuf.UInt64Value wrappedUInt64Values = 52;
+  repeated google.protobuf.FloatValue wrappedFloatValues = 53;
+  repeated google.protobuf.DoubleValue wrappedDoubleValues = 54;
+  repeated google.protobuf.Any anyValues = 55;
+
+  repeated TestEnum enumValues = 56;
+
+  repeated TestChildMessage children = 57;
+
+
+  enum TestEnum {
+    UNKNOWN = 0;
+    SPRING = 1;
+    SUMMER = 2;
+    AUTUMN = 3;
+    WINTER = 4;
+  }
+
+  message TestChildMessage {
+
+    bool boolValue = 1;
+    string stringValue = 2;
+    bytes bytesValue = 3;
+    int32 intValue = 4;
+    int64 longValue = 5;
+    float floatValue = 6;
+    double doubleValue = 7;
+    uint32 uintValue = 8;
+    uint64 ulongValue = 9;
+    google.type.Date dateValue = 10;
+    google.type.TimeOfDay timeValue = 11;
+    google.type.DateTime datetimeValue = 12;
+    google.type.LatLng latlngValue = 13;
+    google.protobuf.Timestamp timestampValue = 14;
+    google.protobuf.BoolValue wrappedBoolValue = 15;
+    google.protobuf.StringValue wrappedStringValue = 16;
+    google.protobuf.BytesValue wrappedBytesValue = 17;
+    google.protobuf.Int32Value wrappedInt32Value = 18;
+    google.protobuf.Int64Value wrappedInt64Value = 19;
+    google.protobuf.UInt32Value wrappedUInt32Value = 20;
+    google.protobuf.UInt64Value wrappedUInt64Value = 21;
+    google.protobuf.FloatValue wrappedFloatValue = 22;
+    google.protobuf.DoubleValue wrappedDoubleValue = 23;
+    google.protobuf.Any anyValue = 24;
+
+    TestEnum enumValue = 25;
+
+    oneof entity {
+      string entityName = 26;
+      int32 entityAge = 27;
+    }
+
+    TestGrandchildMessage grandchild = 28;
+
+    map<string, int32> strIntMapValue = 29;
+    map<int64, double> longDoubleMapValue = 30;
+    map<int32, TestGrandchildMessage> intGrandchildMapValue = 31;
+
+    repeated bool boolValues = 32;
+    repeated string stringValues = 33;
+    repeated bytes bytesValues = 34;
+    repeated int32 intValues = 35;
+    repeated int64 longValues = 36;
+    repeated float floatValues = 37;
+    repeated double doubleValues = 38;
+    repeated uint32 uintValues = 39;
+    repeated uint64 ulongValues = 40;
+    repeated google.type.Date dateValues = 41;
+    repeated google.type.TimeOfDay timeValues = 42;
+    repeated google.type.DateTime datetimeValues = 43;
+    repeated google.type.LatLng latlngValues = 44;
+    repeated google.protobuf.Timestamp timestampValues = 45;
+    repeated google.protobuf.BoolValue wrappedBoolValues = 46;
+    repeated google.protobuf.StringValue wrappedStringValues = 47;
+    repeated google.protobuf.BytesValue wrappedBytesValues = 48;
+    repeated google.protobuf.Int32Value wrappedInt32Values = 49;
+    repeated google.protobuf.Int64Value wrappedInt64Values = 50;
+    repeated google.protobuf.UInt32Value wrappedUInt32Values = 51;
+    repeated google.protobuf.UInt64Value wrappedUInt64Values = 52;
+    repeated google.protobuf.FloatValue wrappedFloatValues = 53;
+    repeated google.protobuf.DoubleValue wrappedDoubleValues = 54;
+    repeated google.protobuf.Any anyValues = 55;
+
+    repeated TestEnum enumValues = 56;
+
+    repeated TestGrandchildMessage grandchildren = 57;
+
+    message TestGrandchildMessage {
+
+      bool boolValue = 1;
+      string stringValue = 2;
+      bytes bytesValue = 3;
+      int32 intValue = 4;
+      int64 longValue = 5;
+      float floatValue = 6;
+      double doubleValue = 7;
+      uint32 uintValue = 8;
+      uint64 ulongValue = 9;
+      google.type.Date dateValue = 10;
+      google.type.TimeOfDay timeValue = 11;
+      google.type.DateTime datetimeValue = 12;
+      google.type.LatLng latlngValue = 13;
+      google.protobuf.Timestamp timestampValue = 14;
+      google.protobuf.BoolValue wrappedBoolValue = 15;
+      google.protobuf.StringValue wrappedStringValue = 16;
+      google.protobuf.BytesValue wrappedBytesValue = 17;
+      google.protobuf.Int32Value wrappedInt32Value = 18;
+      google.protobuf.Int64Value wrappedInt64Value = 19;
+      google.protobuf.UInt32Value wrappedUInt32Value = 20;
+      google.protobuf.UInt64Value wrappedUInt64Value = 21;
+      google.protobuf.FloatValue wrappedFloatValue = 22;
+      google.protobuf.DoubleValue wrappedDoubleValue = 23;
+      google.protobuf.Any anyValue = 24;
+
+      TestEnum enumValue = 25;
+
+      oneof entity {
+        string entityName = 26;
+        int32 entityAge = 27;
+      }
+
+      map<string, int32> strIntMapValue = 28;
+      map<int64, double> longDoubleMapValue = 29;
+
+      repeated bool boolValues = 30;
+      repeated string stringValues = 31;
+      repeated bytes bytesValues = 32;
+      repeated int32 intValues = 33;
+      repeated int64 longValues = 34;
+      repeated float floatValues = 35;
+      repeated double doubleValues = 36;
+      repeated uint32 uintValues = 37;
+      repeated uint64 ulongValues = 38;
+      repeated google.type.Date dateValues = 39;
+      repeated google.type.TimeOfDay timeValues = 40;
+      repeated google.type.DateTime datetimeValues = 41;
+      repeated google.type.LatLng latlngValues = 42;
+      repeated google.protobuf.Timestamp timestampValues = 43;
+      repeated google.protobuf.BoolValue wrappedBoolValues = 44;
+      repeated google.protobuf.StringValue wrappedStringValues = 45;
+      repeated google.protobuf.BytesValue wrappedBytesValues = 46;
+      repeated google.protobuf.Int32Value wrappedInt32Values = 47;
+      repeated google.protobuf.Int64Value wrappedInt64Values = 48;
+      repeated google.protobuf.UInt32Value wrappedUInt32Values = 49;
+      repeated google.protobuf.UInt64Value wrappedUInt64Values = 50;
+      repeated google.protobuf.FloatValue wrappedFloatValues = 51;
+      repeated google.protobuf.DoubleValue wrappedDoubleValues = 52;
+      repeated google.protobuf.Any anyValues = 53;
+
+      repeated TestEnum enumValues = 54;
+
+    }
+
+  }
+
+
+}

@@ -1,11 +1,16 @@
 package com.mercari.solution.util;
 
+import com.google.cloud.ByteArray;
 import com.google.protobuf.*;
+import com.google.protobuf.Duration;
 import com.google.protobuf.util.JsonFormat;
+import com.google.protobuf.util.Timestamps;
 import com.google.type.*;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -74,13 +79,140 @@ public class ProtoUtil {
         }
     }
 
+    public static DynamicMessage convert(final Descriptors.Descriptor messageDescriptor,
+                                         final byte[] bytes) {
+        try {
+            return DynamicMessage
+                    .newBuilder(messageDescriptor)
+                    .mergeFrom(bytes)
+                    .build();
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     public static JsonFormat.Printer createJsonPrinter(final Map<String, Descriptors.Descriptor> descriptors) {
         final JsonFormat.TypeRegistry.Builder builder = JsonFormat.TypeRegistry.newBuilder();
         descriptors.values().forEach(builder::add);
         return JsonFormat.printer().usingTypeRegistry(builder.build());
     }
 
+    public static Object getValue(final DynamicMessage message,
+                                  final String fieldName,
+                                  final JsonFormat.Printer printer) {
+
+        final Descriptors.FieldDescriptor field = getField(message, fieldName);
+        final Object value = message.getField(field);
+
+        boolean isNull = value == null;
+
+        switch (field.getJavaType()) {
+            case BOOLEAN:
+                return isNull ? false : (Boolean)value;
+            case STRING:
+                return isNull ? "" : (String)value;
+            case INT:
+                return isNull ? 0 : (Integer)value;
+            case LONG:
+                return isNull ? 0 : (Long)value;
+            case FLOAT:
+                return isNull ? 0f : (Float)value;
+            case DOUBLE:
+                return isNull ? 0d : (Double)value;
+            case ENUM: {
+                return isNull ? new EnumerationType.Value(0) : new EnumerationType.Value(((Descriptors.EnumValueDescriptor)value).getIndex());
+            }
+            case BYTE_STRING:
+                return isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray();
+            case MESSAGE: {
+                final Object object = convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
+                isNull = object == null;
+                switch (ProtoType.of(field.getMessageType().getFullName())) {
+                    case BOOL_VALUE:
+                        return !isNull && ((BoolValue) object).getValue();
+                    case BYTES_VALUE:
+                        return isNull ? ByteArray.copyFrom ("").toByteArray() : ((BytesValue) object).getValue().toByteArray();
+                    case STRING_VALUE:
+                        return isNull ? "" : ((StringValue) object).getValue();
+                    case INT32_VALUE:
+                        return isNull ? 0 : ((Int32Value) object).getValue();
+                    case INT64_VALUE:
+                        return isNull ? 0 : ((Int64Value) object).getValue();
+                    case UINT32_VALUE:
+                        return isNull ? 0 : ((UInt32Value) object).getValue();
+                    case UINT64_VALUE:
+                        return isNull ? 0 : ((UInt64Value) object).getValue();
+                    case FLOAT_VALUE:
+                        return isNull ? 0f : ((FloatValue) object).getValue();
+                    case DOUBLE_VALUE:
+                        return isNull ? 0d : ((DoubleValue) object).getValue();
+                    case DATE: {
+                        if(isNull) {
+                            return null;
+                        }
+                        final Date date = (Date) object;
+                        return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
+                    }
+                    case TIME: {
+                        if(isNull) {
+                            return null;
+                        }
+                        final TimeOfDay timeOfDay = (TimeOfDay) object;
+                        return LocalTime.of(timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos());
+                    }
+                    case DATETIME: {
+                        if(isNull) {
+                            return null;
+                        }
+                        final DateTime dt = (DateTime) object;
+                        long epochMilli = LocalDateTime.of(
+                                dt.getYear(), dt.getMonth(), dt.getDay(),
+                                dt.getHours(), dt.getMinutes(), dt.getSeconds(), dt.getNanos())
+                                .atOffset(ZoneOffset.ofTotalSeconds((int)dt.getUtcOffset().getSeconds()))
+                                .toInstant()
+                                .toEpochMilli();
+                        return org.joda.time.Instant.ofEpochMilli(epochMilli);
+                    }
+                    case TIMESTAMP:
+                        if(isNull) {
+                            return null;
+                        }
+                        return org.joda.time.Instant.ofEpochMilli(Timestamps.toMillis((Timestamp) object));
+                    case ANY: {
+                        if(isNull) {
+                            return "";
+                        }
+                        final Any any = (Any) object;
+                        try {
+                            return printer.print(any);
+                        } catch (InvalidProtocolBufferException e) {
+                            return any.getValue().toStringUtf8();
+                        }
+                    }
+                    case LATLNG: {
+                        if(isNull) {
+                            return null;
+                        }
+                        final LatLng ll = (LatLng) object;
+                        return String.format("%f,%f", ll.getLatitude(), ll.getLongitude());
+                    }
+                    case EMPTY:
+                    case NULL_VALUE:
+                        return null;
+                    case CUSTOM:
+                    default:
+                        return object;
+                }
+            }
+            default:
+                return null;
+        }
+    }
+
     public static Object convertBuildInValue(final String typeFullName, final DynamicMessage value) {
+        if(value.getAllFields().size() == 0) {
+            return null;
+        }
         switch (ProtoType.of(typeFullName)) {
             case DATE: {
                 Integer year = 0;
@@ -199,6 +331,9 @@ public class ProtoUtil {
                         anyValue = (ByteString) entry.getValue();
                     }
                 }
+                if(typeUrl == null && anyValue == null) {
+                    return null;
+                }
                 return Any.newBuilder().setTypeUrl(typeUrl).setValue(anyValue).build();
             }
             /*
@@ -218,7 +353,7 @@ public class ProtoUtil {
             case BOOL_VALUE: {
                 for (final Map.Entry<Descriptors.FieldDescriptor, Object> entry : value.getAllFields().entrySet()) {
                     if ("value".equals(entry.getKey().getName())) {
-                        return BoolValue.newBuilder().setValue((Boolean) entry.getValue()).build();
+                        return BoolValue.newBuilder().setValue((Boolean)entry.getValue()).build();
                     }
                 }
                 return BoolValue.newBuilder().build();
@@ -296,7 +431,11 @@ public class ProtoUtil {
                         continue;
                     }
                     if("seconds".equals(entry.getKey().getName())) {
-                        seconds = (Long) entry.getValue();
+                        if(entry.getValue() instanceof Integer) {
+                            seconds = ((Integer) entry.getValue()).longValue();
+                        } else {
+                            seconds = (Long) entry.getValue();
+                        }
                     } else if("nanos".equals(entry.getKey().getName())) {
                         nanos = (Integer) entry.getValue();
                     }
@@ -312,6 +451,54 @@ public class ProtoUtil {
             default:
                 return value;
         }
+    }
+
+    public static Descriptors.FieldDescriptor getFieldDescriptor(final Descriptors.Descriptor descriptor, final String field) {
+        return descriptor.getFields().stream()
+                .filter(f -> f.getName().equals(field))
+                .findAny()
+                .orElse(null);
+    }
+
+    public static Descriptors.FieldDescriptor getField(final DynamicMessage message, final String field) {
+        return message.getDescriptorForType().getFields().stream()
+                .filter(e -> e.getName().equals(field))
+                .findAny()
+                .orElse(null);
+    }
+
+    public static Object getFieldValue(final DynamicMessage message, final String field) {
+        return message.getAllFields().entrySet().stream()
+                .filter(e -> e.getKey().getName().equals(field))
+                .map(Map.Entry::getValue)
+                .findAny()
+                .orElse(null);
+    }
+
+    public static long getSecondOfDay(final TimeOfDay time) {
+        return LocalTime.of(time.getHours(), time.getMinutes(), time.getSeconds(), time.getNanos()).toSecondOfDay();
+    }
+
+    public static long getEpochDay(final Date date) {
+        return LocalDate.of(date.getYear(), date.getMonth(), date.getDay()).toEpochDay();
+    }
+
+    public static long getEpochMillis(final DateTime dateTime) {
+        final LocalDateTime ldt =  LocalDateTime.of(
+                dateTime.getYear(), dateTime.getMonth(), dateTime.getDay(),
+                dateTime.getHours(), dateTime.getMinutes(), dateTime.getSeconds(), dateTime.getNanos());
+
+        if(dateTime.getTimeZone() == null || dateTime.getTimeZone().getId() == null || dateTime.getTimeZone().getId().trim().length() == 0) {
+            return ldt.atOffset(ZoneOffset.UTC).toInstant().toEpochMilli();
+        }
+        return ldt.atZone(ZoneId.of(dateTime.getTimeZone().getId()))
+                .toInstant()
+                .toEpochMilli();
+    }
+
+    public static boolean hasField(final DynamicMessage message, final String field) {
+        return message.getAllFields().entrySet().stream()
+                .anyMatch(f -> f.getKey().getName().equals(field));
     }
 
     private static Map<String, Descriptors.Descriptor> getDescriptors(final DescriptorProtos.FileDescriptorSet set) {

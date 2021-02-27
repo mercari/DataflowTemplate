@@ -1,5 +1,6 @@
 package com.mercari.solution.util.converter;
 
+import com.google.cloud.ByteArray;
 import com.google.protobuf.*;
 import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.Timestamps;
@@ -13,10 +14,12 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 
+import java.nio.ByteBuffer;
 import java.time.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class ProtoToRowConverter {
@@ -53,11 +56,12 @@ public class ProtoToRowConverter {
         final Row.Builder builder = Row.withSchema(schema);
         for (final Schema.Field field : schema.getFields()) {
             final Descriptors.FieldDescriptor fieldDescriptor = messageDescriptor.findFieldByName(field.getName());
-            if(fieldDescriptor == null || (!fieldDescriptor.isRepeated() && !message.hasField(fieldDescriptor))) {
-                builder.addValue(null);
-            } else {
-                builder.addValue(convertValue(fieldDescriptor, message.getField(fieldDescriptor), printer));
-            }
+            boolean isNull = fieldDescriptor == null || (!fieldDescriptor.isRepeated() && !message.hasField(fieldDescriptor));
+            //if(fieldDescriptor == null || (!fieldDescriptor.isRepeated() && !message.hasField(fieldDescriptor))) {
+            //    builder.addValue(null);
+            //} else {
+                builder.addValue(convertValue(fieldDescriptor, message.getField(fieldDescriptor), printer, isNull));
+            //}
         }
         return builder.build();
     }
@@ -167,7 +171,7 @@ public class ProtoToRowConverter {
                 break;
             }
             default:
-                throw new IllegalArgumentException(field.getName() + " is not supported for bigquery.");
+                throw new IllegalArgumentException(field.getName() + " is not supported for beam row type.");
         }
 
         if(field.isRepeated() && !field.isMapField()) {
@@ -180,76 +184,108 @@ public class ProtoToRowConverter {
 
     private static Object convertValue(final Descriptors.FieldDescriptor field,
                                        final Object value,
-                                       final JsonFormat.Printer printer) {
+                                       final JsonFormat.Printer printer,
+                                       final boolean isNull) {
 
         if(field.isRepeated()) {
             if(field.isMapField()) {
                 if(value == null) {
                     return new HashMap<>();
                 }
+                final Descriptors.FieldDescriptor keyFieldDescriptor = field.getMessageType().findFieldByName("key");
+                final Descriptors.FieldDescriptor valueFieldDescriptor = field.getMessageType().getFields().stream()
+                        .filter(f -> f.getName().equals("value"))
+                        .findAny()
+                        .orElseThrow(() -> new IllegalStateException("Map value not found for field: " + field));
                 return ((List<DynamicMessage>) value).stream()
                         .collect(Collectors.toMap(
-                                e -> e.getField(field.getMessageType().findFieldByName("key")),
-                                e -> e.getField(field.getMessageType().findFieldByName("value"))));
+                                e -> e.getField(keyFieldDescriptor),
+                                e -> convertValue(valueFieldDescriptor, e.getField(field.getMessageType().findFieldByName("value")), printer, isNull)));
             }
             if(value == null) {
                 return new ArrayList<>();
             }
             return ((List<Object>) value).stream()
-                    .map(v -> getValue(field, v, printer))
+                    .map(v -> getValue(field, v, printer, isNull))
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
-        return getValue(field, value, printer);
+        return getValue(field, value, printer, isNull);
     }
 
-    private static Object getValue(final Descriptors.FieldDescriptor field,
-                                   final Object value,
-                                   final JsonFormat.Printer printer) {
+    public static Object getValue(final Descriptors.FieldDescriptor field,
+                                  final Object value,
+                                  final JsonFormat.Printer printer) {
+        return getValue(field, value, printer, false);
+    }
+
+    public static Object getValue(final Descriptors.FieldDescriptor field,
+                                  final Object value,
+                                  final JsonFormat.Printer printer,
+                                  boolean isNull) {
 
         switch (field.getJavaType()) {
             case BOOLEAN:
-            case LONG:
+                return !isNull && (Boolean)value;
             case INT:
+                return isNull ? 0 : value;
+            case LONG:
+                return isNull ? 0l : value;
             case FLOAT:
+                return isNull ? 0f : value;
             case DOUBLE:
+                return isNull ? 0d : value;
             case STRING:
-                return value;
+                return isNull ? "" : value;
             case ENUM: {
+                if(isNull) {
+                    return new EnumerationType.Value(0);
+                }
                 return new EnumerationType.Value(((Descriptors.EnumValueDescriptor)value).getIndex());
             }
             case BYTE_STRING:
-                return ((ByteString) value).toByteArray();
+                return isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray();
             case MESSAGE: {
                 final Object object = ProtoUtil
                         .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
+                isNull = object == null;
                 switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
-                        return ((BoolValue) object).getValue();
+                        return !isNull && ((BoolValue) object).getValue();
                     case BYTES_VALUE:
-                        return ((BytesValue) object).getValue().asReadOnlyByteBuffer();
+                        return isNull ? ByteArray.copyFrom("").toByteArray() : ByteBuffer.wrap(((BytesValue) object).getValue().toByteArray());
                     case STRING_VALUE:
-                        return ((StringValue) object).getValue();
+                        return isNull ? "" : ((StringValue) object).getValue();
                     case INT32_VALUE:
-                        return ((Int32Value) object).getValue();
+                        return isNull ? 0 : ((Int32Value) object).getValue();
                     case INT64_VALUE:
-                        return ((Int64Value) object).getValue();
+                        return isNull ? 0 :((Int64Value) object).getValue();
                     case UINT32_VALUE:
-                        return ((UInt32Value) object).getValue();
+                        return isNull ? 0 :((UInt32Value) object).getValue();
                     case UINT64_VALUE:
-                        return ((UInt64Value) object).getValue();
+                        return isNull ? 0 :((UInt64Value) object).getValue();
                     case FLOAT_VALUE:
-                        return ((FloatValue) object).getValue();
+                        return isNull ? 0f :((FloatValue) object).getValue();
                     case DOUBLE_VALUE:
-                        return ((DoubleValue) object).getValue();
+                        return isNull ? 0d :((DoubleValue) object).getValue();
                     case DATE: {
+                        if(isNull) {
+                            return null;
+                        }
                         final Date date = (Date) object;
                         return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
                     }
                     case TIME: {
+                        if(isNull) {
+                            return null;
+                        }
                         final TimeOfDay timeOfDay = (TimeOfDay) object;
                         return LocalTime.of(timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos());
                     }
                     case DATETIME: {
+                        if(isNull) {
+                            return null;
+                        }
                         final DateTime dt = (DateTime) object;
                         long epochMilli = LocalDateTime.of(
                                 dt.getYear(), dt.getMonth(), dt.getDay(),
@@ -260,8 +296,14 @@ public class ProtoToRowConverter {
                         return org.joda.time.Instant.ofEpochMilli(epochMilli);
                     }
                     case TIMESTAMP:
+                        if(isNull) {
+                            return null;
+                        }
                         return org.joda.time.Instant.ofEpochMilli(Timestamps.toMillis((Timestamp) object));
                     case ANY: {
+                        if(isNull) {
+                            return "";
+                        }
                         final Any any = (Any) object;
                         try {
                             return printer.print(any);
@@ -270,6 +312,9 @@ public class ProtoToRowConverter {
                         }
                     }
                     case LATLNG: {
+                        if(isNull) {
+                            return "";
+                        }
                         final LatLng ll = (LatLng) object;
                         return String.format("%f,%f", ll.getLatitude(), ll.getLongitude());
                     }
