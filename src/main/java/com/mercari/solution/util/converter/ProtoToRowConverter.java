@@ -6,7 +6,6 @@ import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.Timestamps;
 import com.google.type.Date;
 import com.google.type.DateTime;
-import com.google.type.LatLng;
 import com.google.type.TimeOfDay;
 import com.mercari.solution.util.ProtoUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
@@ -55,48 +54,43 @@ public class ProtoToRowConverter {
 
         final Row.Builder builder = Row.withSchema(schema);
         for (final Schema.Field field : schema.getFields()) {
-            final Descriptors.FieldDescriptor fieldDescriptor = messageDescriptor.findFieldByName(field.getName());
-            boolean isNull = fieldDescriptor == null || (!fieldDescriptor.isRepeated() && !message.hasField(fieldDescriptor));
-            //if(fieldDescriptor == null || (!fieldDescriptor.isRepeated() && !message.hasField(fieldDescriptor))) {
-            //    builder.addValue(null);
-            //} else {
-                builder.addValue(convertValue(fieldDescriptor, message.getField(fieldDescriptor), printer, isNull));
-            //}
+            final Descriptors.FieldDescriptor fieldDescriptor = ProtoUtil.getField(messageDescriptor, field.getName());
+            builder.addValue(convertValue(fieldDescriptor, message.getField(fieldDescriptor), printer));
         }
         return builder.build();
     }
 
     private static Schema.FieldType convertFieldType(Descriptors.FieldDescriptor field) {
-        final boolean nullable = !field.isRequired() && (field.hasDefaultValue() || field.isOptional());
+        //final boolean nullable = !field.isRequired() && (field.hasDefaultValue() || field.isOptional());
         final Schema.FieldType elementFieldType;
         switch (field.getJavaType()) {
             case BOOLEAN:
-                elementFieldType = Schema.FieldType.BOOLEAN.withNullable(nullable);
+                elementFieldType = Schema.FieldType.BOOLEAN.withNullable(false);
                 break;
             case ENUM: {
                 final List<String> enumNames = field.getEnumType().getValues().stream()
                         .map(Descriptors.EnumValueDescriptor::getName)
                         .collect(Collectors.toList());
-                elementFieldType = Schema.FieldType.logicalType(EnumerationType.create(enumNames)).withNullable(nullable);
+                elementFieldType = Schema.FieldType.logicalType(EnumerationType.create(enumNames)).withNullable(false);
                 break;
             }
             case STRING:
-                elementFieldType = Schema.FieldType.STRING.withNullable(nullable);
+                elementFieldType = Schema.FieldType.STRING.withNullable(!field.isRepeated());
                 break;
             case BYTE_STRING:
-                elementFieldType = Schema.FieldType.BYTES.withNullable(nullable);
+                elementFieldType = Schema.FieldType.BYTES.withNullable(false);
                 break;
             case INT:
-                elementFieldType = Schema.FieldType.INT32.withNullable(nullable);
+                elementFieldType = Schema.FieldType.INT32.withNullable(false);
                 break;
             case LONG:
-                elementFieldType = Schema.FieldType.INT64.withNullable(nullable);
+                elementFieldType = Schema.FieldType.INT64.withNullable(false);
                 break;
             case FLOAT:
-                elementFieldType = Schema.FieldType.FLOAT.withNullable(nullable);
+                elementFieldType = Schema.FieldType.FLOAT.withNullable(false);
                 break;
             case DOUBLE:
-                elementFieldType = Schema.FieldType.DOUBLE.withNullable(nullable);
+                elementFieldType = Schema.FieldType.DOUBLE.withNullable(false);
                 break;
             case MESSAGE: {
                 if(field.isMapField()) {
@@ -112,60 +106,57 @@ public class ProtoToRowConverter {
                     elementFieldType = Schema.FieldType.map(
                             convertFieldType(keyField),
                             convertFieldType(valueField))
-                            .withNullable(nullable);
+                            .withNullable(false);
                     break;
                 }
                 switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
-                        elementFieldType = Schema.FieldType.BOOLEAN.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.BOOLEAN.withNullable(false);
                         break;
                     case STRING_VALUE:
-                        elementFieldType = Schema.FieldType.STRING.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.STRING.withNullable(false);
                         break;
                     case BYTES_VALUE:
-                        elementFieldType = Schema.FieldType.BYTES.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.BYTES.withNullable(false);
                         break;
                     case INT32_VALUE:
-                        elementFieldType = Schema.FieldType.INT32.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.INT32.withNullable(false);
                         break;
                     case INT64_VALUE:
-                        elementFieldType = Schema.FieldType.INT64.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.INT64.withNullable(false);
                         break;
                     case FLOAT_VALUE:
-                        elementFieldType = Schema.FieldType.FLOAT.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.FLOAT.withNullable(false);
                         break;
                     case DOUBLE_VALUE:
-                        elementFieldType = Schema.FieldType.DOUBLE.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.DOUBLE.withNullable(false);
                         break;
                     case UINT32_VALUE:
-                        elementFieldType = Schema.FieldType.INT32.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.INT32.withNullable(false);
                         break;
                     case UINT64_VALUE:
-                        elementFieldType = Schema.FieldType.INT64.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.INT64.withNullable(false);
                         break;
                     case DATE:
-                        elementFieldType = nullable ? CalciteUtils.NULLABLE_DATE : CalciteUtils.DATE;
+                        elementFieldType = CalciteUtils.DATE;
                         break;
                     case TIME:
-                        elementFieldType = nullable ? CalciteUtils.NULLABLE_TIME : CalciteUtils.TIME;
+                        elementFieldType = CalciteUtils.TIME;
                         break;
                     case DATETIME:
                     case TIMESTAMP:
-                        elementFieldType = Schema.FieldType.DATETIME.withNullable(nullable);
-                        break;
-                    case LATLNG:
-                        elementFieldType = Schema.FieldType.STRING.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.DATETIME.withNullable(false);
                         break;
                     case ANY:
-                        elementFieldType = Schema.FieldType.STRING.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.STRING.withNullable(false);
                         break;
                     case NULL_VALUE:
                     case EMPTY:
-                        elementFieldType = Schema.FieldType.STRING.withNullable(nullable);
+                        elementFieldType = Schema.FieldType.STRING.withNullable(true);
                         break;
                     case CUSTOM:
                     default:
-                        elementFieldType = Schema.FieldType.row(convertSchema(field.getMessageType())).withNullable(nullable);
+                        elementFieldType = Schema.FieldType.row(convertSchema(field.getMessageType())).withNullable(true);
                         break;
                 }
                 break;
@@ -175,7 +166,7 @@ public class ProtoToRowConverter {
         }
 
         if(field.isRepeated() && !field.isMapField()) {
-            return Schema.FieldType.array(elementFieldType).withNullable(nullable);
+            return Schema.FieldType.array(elementFieldType).withNullable(false);
         } else {
             return elementFieldType;
         }
@@ -184,8 +175,7 @@ public class ProtoToRowConverter {
 
     private static Object convertValue(final Descriptors.FieldDescriptor field,
                                        final Object value,
-                                       final JsonFormat.Printer printer,
-                                       final boolean isNull) {
+                                       final JsonFormat.Printer printer) {
 
         if(field.isRepeated()) {
             if(field.isMapField()) {
@@ -200,29 +190,24 @@ public class ProtoToRowConverter {
                 return ((List<DynamicMessage>) value).stream()
                         .collect(Collectors.toMap(
                                 e -> e.getField(keyFieldDescriptor),
-                                e -> convertValue(valueFieldDescriptor, e.getField(field.getMessageType().findFieldByName("value")), printer, isNull)));
+                                e -> convertValue(valueFieldDescriptor, e.getField(field.getMessageType().findFieldByName("value")), printer)));
             }
             if(value == null) {
                 return new ArrayList<>();
             }
             return ((List<Object>) value).stream()
-                    .map(v -> getValue(field, v, printer, isNull))
+                    .map(v -> getValue(field, v, printer))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
-        return getValue(field, value, printer, isNull);
+        return getValue(field, value, printer);
     }
 
     public static Object getValue(final Descriptors.FieldDescriptor field,
                                   final Object value,
                                   final JsonFormat.Printer printer) {
-        return getValue(field, value, printer, false);
-    }
 
-    public static Object getValue(final Descriptors.FieldDescriptor field,
-                                  final Object value,
-                                  final JsonFormat.Printer printer,
-                                  boolean isNull) {
+        boolean isNull = value == null;
 
         switch (field.getJavaType()) {
             case BOOLEAN:
@@ -270,21 +255,27 @@ public class ProtoToRowConverter {
                         return isNull ? 0d :((DoubleValue) object).getValue();
                     case DATE: {
                         if(isNull) {
-                            return null;
+                            return LocalDate.of(1, 1, 1);
                         }
                         final Date date = (Date) object;
                         return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
                     }
                     case TIME: {
                         if(isNull) {
-                            return null;
+                            return LocalTime.of(0, 0, 0, 0);
                         }
                         final TimeOfDay timeOfDay = (TimeOfDay) object;
                         return LocalTime.of(timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos());
                     }
                     case DATETIME: {
                         if(isNull) {
-                            return null;
+                            long epochMilli = LocalDateTime.of(
+                                    1, 1, 1,
+                                    0, 0, 0, 0)
+                                    .atOffset(ZoneOffset.UTC)
+                                    .toInstant()
+                                    .toEpochMilli();
+                            return org.joda.time.Instant.ofEpochMilli(epochMilli);
                         }
                         final DateTime dt = (DateTime) object;
                         long epochMilli = LocalDateTime.of(
@@ -297,7 +288,13 @@ public class ProtoToRowConverter {
                     }
                     case TIMESTAMP:
                         if(isNull) {
-                            return null;
+                            long epochMilli = LocalDateTime.of(
+                                    1, 1, 1,
+                                    0, 0, 0, 0)
+                                    .atOffset(ZoneOffset.UTC)
+                                    .toInstant()
+                                    .toEpochMilli();
+                            return org.joda.time.Instant.ofEpochMilli(epochMilli);
                         }
                         return org.joda.time.Instant.ofEpochMilli(Timestamps.toMillis((Timestamp) object));
                     case ANY: {
@@ -311,13 +308,6 @@ public class ProtoToRowConverter {
                             return any.getValue().toStringUtf8();
                         }
                     }
-                    case LATLNG: {
-                        if(isNull) {
-                            return "";
-                        }
-                        final LatLng ll = (LatLng) object;
-                        return String.format("%f,%f", ll.getLatitude(), ll.getLongitude());
-                    }
                     case EMPTY:
                     case NULL_VALUE:
                         return null;
@@ -329,7 +319,7 @@ public class ProtoToRowConverter {
                 }
             }
             default:
-                return null;
+                throw new IllegalStateException("Not support data type: " + field);
         }
     }
 

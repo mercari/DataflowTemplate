@@ -121,9 +121,6 @@ public class ProtoToStructConverter {
                     case TIMESTAMP:
                         elementType = Type.timestamp();
                         break;
-                    case LATLNG:
-                        elementType = Type.string();
-                        break;
                     case ANY:
                         elementType = Type.string();
                         break;
@@ -337,11 +334,6 @@ public class ProtoToStructConverter {
                                     .collect(Collectors.toList()));
                             return;
                         }
-                        case LATLNG:
-                            builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
-                                    .map(l -> l == null ? "" : ((LatLng)l).toString())
-                                    .collect(Collectors.toList()));
-                            return;
                         case EMPTY:
                         case NULL_VALUE:
                             builder.set(field.getName()).toStringArray(new ArrayList<>());
@@ -476,9 +468,6 @@ public class ProtoToStructConverter {
                             }
                             return;
                         }
-                        case LATLNG:
-                            builder.set(field.getName()).to(isNull ? "" : object.toString());
-                            return;
                         case EMPTY:
                         case NULL_VALUE:
                             builder.set(field.getName()).to("");
@@ -493,7 +482,7 @@ public class ProtoToStructConverter {
                     }
                 }
                 default:
-                    builder.set(field.getName()).to("");
+                    throw new IllegalStateException("Not support data type: " + field);
             }
         }
 

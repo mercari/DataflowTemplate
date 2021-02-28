@@ -17,10 +17,7 @@ import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class ProtoToStructConverterTest {
@@ -73,11 +70,27 @@ public class ProtoToStructConverterTest {
             final DynamicMessage childMessage = (DynamicMessage) ProtoUtil.getFieldValue(message, "child");
             assertStructValues(childMessage, child, printer);
 
+            final List<Struct> grandchildren = child.getStructList("grandchildren");
+            final List<DynamicMessage> grandchildrenMessages = (List<DynamicMessage>)ProtoUtil.getFieldValue(childMessage, "grandchildren");
+            int i = 0;
+            for(final Struct s : grandchildren) {
+                assertStructValues(grandchildrenMessages.get(i), s, printer);
+                i++;
+            }
+
             if(ProtoUtil.hasField(childMessage, "grandchild")) {
                 final Struct grandchild = (Struct)SpannerUtil.getValue(child, "grandchild");
                 final DynamicMessage grandchildMessage = (DynamicMessage) ProtoUtil.getFieldValue(childMessage, "grandchild");
                 assertStructValues(grandchildMessage, grandchild, printer);
             }
+        }
+
+        final List<Struct> children = struct.getStructList("children");
+        final List<DynamicMessage> childrenMessages = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "children");
+        int i = 0;
+        for(final Struct s : children) {
+            assertStructValues(childrenMessages.get(i), s, printer);
+            i++;
         }
 
     }
@@ -100,7 +113,6 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.STRING, getField(type, "timeValue").getType().getCode());
         Assert.assertEquals(Type.Code.TIMESTAMP, getField(type, "datetimeValue").getType().getCode());
         Assert.assertEquals(Type.Code.TIMESTAMP, getField(type, "timestampValue").getType().getCode());
-        Assert.assertEquals(Type.Code.STRING, getField(type, "latlngValue").getType().getCode());
 
         // Google provided types wrappedValues
         Assert.assertEquals(Type.Code.BOOL, getField(type, "wrappedBoolValue").getType().getCode());
@@ -152,7 +164,6 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.ARRAY, getField(type, "dateValues").getType().getCode());
         Assert.assertEquals(Type.Code.ARRAY, getField(type, "timeValues").getType().getCode());
         Assert.assertEquals(Type.Code.ARRAY, getField(type, "datetimeValues").getType().getCode());
-        Assert.assertEquals(Type.Code.ARRAY, getField(type, "latlngValues").getType().getCode());
         Assert.assertEquals(Type.Code.ARRAY, getField(type, "timestampValues").getType().getCode());
         Assert.assertEquals(Type.Code.ARRAY, getField(type, "wrappedBoolValues").getType().getCode());
         Assert.assertEquals(Type.Code.ARRAY, getField(type, "wrappedStringValues").getType().getCode());
@@ -178,7 +189,6 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.DATE, getField(type, "dateValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.STRING, getField(type, "timeValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.TIMESTAMP, getField(type, "datetimeValues").getType().getArrayElementType().getCode());
-        Assert.assertEquals(Type.Code.STRING, getField(type, "latlngValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.BOOL, getField(type, "wrappedBoolValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.STRING, getField(type, "wrappedStringValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.BYTES, getField(type, "wrappedBytesValues").getType().getArrayElementType().getCode());

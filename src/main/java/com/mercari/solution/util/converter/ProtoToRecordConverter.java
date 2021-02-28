@@ -1,24 +1,23 @@
 package com.mercari.solution.util.converter;
 
+import com.google.cloud.ByteArray;
 import com.google.protobuf.*;
 import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.Timestamps;
 import com.google.type.Date;
 import com.google.type.DateTime;
-import com.google.type.LatLng;
 import com.google.type.TimeOfDay;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.ProtoUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.nio.ByteBuffer;
+import java.time.*;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -56,48 +55,47 @@ public class ProtoToRecordConverter {
                                         final JsonFormat.Printer printer) {
 
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
-        for (final Descriptors.FieldDescriptor field : messageDescriptor.getFields()) {
-            if (!field.isRepeated() && !message.hasField(field)) {
-                builder.set(field.getName(), null);
-            } else {
-                builder.set(field.getName(), convertValue(field, message.getField(field), printer));
-            }
+        for(final Schema.Field field : schema.getFields()) {
+            final Descriptors.FieldDescriptor fieldDescriptor = messageDescriptor.findFieldByName(field.name());
+            boolean isNull = fieldDescriptor == null;
+            builder.set(field.name(), convertValue(field.schema(), fieldDescriptor, message.getField(fieldDescriptor), printer, isNull));
         }
         return builder.build();
     }
 
     private static Schema convertSchema(Descriptors.FieldDescriptor field) {
-        final boolean nullable = !field.isRequired() && (field.hasDefaultValue() || field.isOptional());
+        //final boolean nullable = !field.isRequired() && (field.hasDefaultValue() || field.isOptional());
         final Schema elementSchema;
         switch (field.getJavaType()) {
             case BOOLEAN:
-                elementSchema = nullable ? AvroSchemaUtil.NULLABLE_BOOLEAN : AvroSchemaUtil.REQUIRED_BOOLEAN;
+                elementSchema = AvroSchemaUtil.REQUIRED_BOOLEAN;
                 break;
             case ENUM: {
                 final List<String> enumNames = field.getEnumType().getValues().stream()
                         .map(Descriptors.EnumValueDescriptor::getName)
                         .collect(Collectors.toList());
                 final Schema enumSchema = Schema.createEnum(field.getName(), "", "", enumNames);
-                elementSchema = nullable ? Schema.createUnion(Schema.create(Schema.Type.NULL), enumSchema) : enumSchema;
+                elementSchema = enumSchema;
                 break;
             }
             case STRING:
-                elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                // TODO Fix when handle NULL schema for all avro converter
+                elementSchema = field.isRepeated() ? AvroSchemaUtil.REQUIRED_STRING : AvroSchemaUtil.NULLABLE_STRING;
                 break;
             case BYTE_STRING:
-                elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_BYTES : AvroSchemaUtil.REQUIRED_BYTES;
+                elementSchema = AvroSchemaUtil.REQUIRED_BYTES;
                 break;
             case INT:
-                elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_INT : AvroSchemaUtil.REQUIRED_INT;
+                elementSchema = AvroSchemaUtil.REQUIRED_INT;
                 break;
             case LONG:
-                elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_LONG : AvroSchemaUtil.REQUIRED_LONG;
+                elementSchema = AvroSchemaUtil.REQUIRED_LONG;
                 break;
             case FLOAT:
-                elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_FLOAT : AvroSchemaUtil.REQUIRED_FLOAT;
+                elementSchema = AvroSchemaUtil.REQUIRED_FLOAT;
                 break;
             case DOUBLE:
-                elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_DOUBLE : AvroSchemaUtil.REQUIRED_DOUBLE;
+                elementSchema = AvroSchemaUtil.REQUIRED_DOUBLE;
                 break;
             case MESSAGE: {
                 if(field.isMapField()) {
@@ -118,56 +116,53 @@ public class ProtoToRecordConverter {
                 }
                 switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_BOOLEAN : AvroSchemaUtil.REQUIRED_BOOLEAN;
+                        elementSchema = AvroSchemaUtil.REQUIRED_BOOLEAN;
                         break;
                     case STRING_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                        elementSchema = AvroSchemaUtil.REQUIRED_STRING;
                         break;
                     case BYTES_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_BYTES : AvroSchemaUtil.REQUIRED_BYTES;
+                        elementSchema = AvroSchemaUtil.REQUIRED_BYTES;
                         break;
                     case INT32_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_INT : AvroSchemaUtil.REQUIRED_INT;
+                        elementSchema = AvroSchemaUtil.REQUIRED_INT;
                         break;
                     case INT64_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_LONG : AvroSchemaUtil.REQUIRED_LONG;
+                        elementSchema = AvroSchemaUtil.REQUIRED_LONG;
                         break;
                     case FLOAT_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_FLOAT : AvroSchemaUtil.REQUIRED_FLOAT;
+                        elementSchema = AvroSchemaUtil.REQUIRED_FLOAT;
                         break;
                     case DOUBLE_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_DOUBLE : AvroSchemaUtil.REQUIRED_DOUBLE;
+                        elementSchema = AvroSchemaUtil.REQUIRED_DOUBLE;
                         break;
                     case UINT32_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_INT : AvroSchemaUtil.REQUIRED_INT;
+                        elementSchema = AvroSchemaUtil.REQUIRED_INT;
                         break;
                     case UINT64_VALUE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_LONG : AvroSchemaUtil.REQUIRED_LONG;
+                        elementSchema = AvroSchemaUtil.REQUIRED_LONG;
                         break;
                     case DATE:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_DATE_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_DATE_TYPE;
+                        elementSchema = AvroSchemaUtil.REQUIRED_LOGICAL_DATE_TYPE;
                         break;
                     case TIME:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_TIME_MICRO_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_TIME_MICRO_TYPE;
+                        elementSchema = AvroSchemaUtil.REQUIRED_LOGICAL_TIME_MICRO_TYPE;
                         break;
                     case DATETIME:
                     case TIMESTAMP:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_TIME_MICRO_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_TIME_MICRO_TYPE;
-                        break;
-                    case LATLNG:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                        elementSchema = AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
                         break;
                     case ANY:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                        elementSchema = AvroSchemaUtil.REQUIRED_STRING;
                         break;
                     case NULL_VALUE:
                     case EMPTY:
-                        elementSchema =  nullable ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                        elementSchema = AvroSchemaUtil.NULLABLE_STRING;
                         break;
                     case CUSTOM:
                     default:
                         final Schema customSchema = convertSchema(field.getMessageType());
-                        elementSchema =  nullable ? Schema.createUnion(customSchema, Schema.create(Schema.Type.NULL)) : customSchema;
+                        elementSchema = Schema.createUnion(customSchema, Schema.create(Schema.Type.NULL));
                         break;
                 }
                 break;
@@ -176,98 +171,143 @@ public class ProtoToRecordConverter {
                 throw new IllegalArgumentException(field.getName() + " is not supported for bigquery.");
         }
 
-        if(field.isRepeated() && !field.isMapField()) {
-            final Schema arraySchema = Schema.createArray(elementSchema);
-            return nullable ? Schema.createUnion(arraySchema, Schema.create(Schema.Type.NULL)) : arraySchema;
+        if(field.isRepeated()) {
+            return Schema.createArray(elementSchema);
         } else {
             return elementSchema;
         }
 
     }
 
-    private static Object convertValue(final Descriptors.FieldDescriptor field,
+    private static Object convertValue(final Schema schema,
+                                       final Descriptors.FieldDescriptor field,
                                        final Object value,
-                                       final JsonFormat.Printer printer) {
+                                       final JsonFormat.Printer printer,
+                                       final boolean isNull) {
 
         if(field.isRepeated()) {
-            if(field.isMapField()) {
-                if(value == null) {
-                    return new HashMap<>();
-                }
-                return ((List<DynamicMessage>) value).stream()
-                        .collect(Collectors.toMap(
-                                e -> e.getField(field.getMessageType().findFieldByName("key")),
-                                e -> e.getField(field.getMessageType().findFieldByName("value"))));
-            }
             if(value == null) {
                 return new ArrayList<>();
             }
+            if(field.isMapField()) {
+                return ((List<DynamicMessage>) value).stream()
+                        .map(e -> {
+                            final GenericRecordBuilder builder = new GenericRecordBuilder(schema.getElementType());
+                            builder.set("key", ProtoUtil.getValue(e, "key", printer));
+                            builder.set("value", ProtoUtil.getValue(e, "value", printer));
+                            return builder.build();
+                        })
+                        .collect(Collectors.toList());
+            }
             return ((List<Object>) value).stream()
-                    .map(v -> getValue(field, v, printer))
+                    .map(v -> getValue(schema.getElementType(), field, v, printer, isNull))
                     .collect(Collectors.toList());
         }
-        return getValue(field, value, printer);
+        return getValue(schema, field, value, printer, isNull);
     }
 
-    private static Object getValue(final Descriptors.FieldDescriptor field,
+    private static Object getValue(final Schema schema,
+                                   final Descriptors.FieldDescriptor field,
                                    final Object value,
-                                   final JsonFormat.Printer printer) {
+                                   final JsonFormat.Printer printer,
+                                   boolean isNull) {
 
         switch (field.getJavaType()) {
             case BOOLEAN:
+                return !isNull && (Boolean)value;
             case LONG:
             case INT:
+                return isNull ? 0 : value;
             case FLOAT:
+                return isNull ? 0f : value;
             case DOUBLE:
+                return isNull ? 0d : value;
             case STRING:
-                return value;
+                return isNull ? "" : value;
             case ENUM: {
-                return ((Descriptors.EnumValueDescriptor)value).getName();
+                final Schema enumSchema = AvroSchemaUtil.unnestUnion(schema);
+                if(isNull) {
+                    return new GenericData.EnumSymbol(
+                            enumSchema,
+                            enumSchema.getEnumSymbols().get(0));
+                } else {
+                    return new GenericData.EnumSymbol(
+                            AvroSchemaUtil.unnestUnion(schema),
+                            ((Descriptors.EnumValueDescriptor) value).getName());
+                }
             }
             case BYTE_STRING:
-                return ((ByteString) value).asReadOnlyByteBuffer();
+                return ByteBuffer.wrap(isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray());
             case MESSAGE: {
                 final Object object = ProtoUtil
                         .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
+                isNull = object == null;
                 switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
-                        return ((BoolValue) object).getValue();
+                        return !isNull && ((BoolValue) object).getValue();
                     case BYTES_VALUE:
-                        return ((BytesValue) object).getValue().asReadOnlyByteBuffer();
+                        return ByteBuffer.wrap(isNull ? ByteArray.copyFrom ("").toByteArray() : ((BytesValue) object).getValue().toByteArray());
                     case STRING_VALUE:
-                        return ((StringValue) object).getValue();
+                        return isNull ? "" : ((StringValue) object).getValue();
                     case INT32_VALUE:
-                        return ((Int32Value) object).getValue();
+                        return isNull ? 0 : ((Int32Value) object).getValue();
                     case INT64_VALUE:
-                        return ((Int64Value) object).getValue();
+                        return isNull ? 0 : ((Int64Value) object).getValue();
                     case UINT32_VALUE:
-                        return ((UInt32Value) object).getValue();
+                        return isNull ? 0 : ((UInt32Value) object).getValue();
                     case UINT64_VALUE:
-                        return ((UInt64Value) object).getValue();
+                        return isNull ? 0 : ((UInt64Value) object).getValue();
                     case FLOAT_VALUE:
-                        return ((FloatValue) object).getValue();
+                        return isNull ? 0f : ((FloatValue) object).getValue();
                     case DOUBLE_VALUE:
-                        return ((DoubleValue) object).getValue();
+                        return isNull ? 0d : ((DoubleValue) object).getValue();
                     case DATE: {
+                        if(isNull) {
+                            return (int)(LocalDate.of(1, 1, 1).toEpochDay());
+                        }
                         final Date date = (Date) object;
-                        return (int) (LocalDate.of(date.getYear(), date.getMonth(), date.getDay()).toEpochDay());
+                        return (int)(LocalDate.of(date.getYear(), date.getMonth(), date.getDay()).toEpochDay());
                     }
                     case TIME: {
+                        if(isNull) {
+                            return LocalTime.of(0, 0, 0, 0).toSecondOfDay() * 1000_000L;
+                        }
                         final TimeOfDay timeOfDay = (TimeOfDay) object;
-                        return timeOfDay.getHours() * 60 * 60 + timeOfDay.getMinutes() * 60 + timeOfDay.getSeconds();
+                        return LocalTime.of(
+                                timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos())
+                                .toSecondOfDay() * 1000_000L;
                     }
                     case DATETIME: {
+                        if(isNull) {
+                            return LocalDateTime.of(
+                                    1, 1, 1,
+                                    0, 0, 0, 0)
+                                    .atOffset(ZoneOffset.UTC)
+                                    .toInstant()
+                                    .toEpochMilli() * 1000L;
+                        }
                         final DateTime dt = (DateTime) object;
                         return LocalDateTime.of(
                                 dt.getYear(), dt.getMonth(), dt.getDay(),
                                 dt.getHours(), dt.getMinutes(), dt.getSeconds(), dt.getNanos())
                                 .atOffset(ZoneOffset.ofTotalSeconds((int)dt.getUtcOffset().getSeconds()))
                                 .toInstant()
-                                .toEpochMilli() * 1000;
+                                .toEpochMilli() * 1000L;
                     }
                     case TIMESTAMP:
+                        if(isNull) {
+                            return LocalDateTime.of(
+                                    1, 1, 1,
+                                    0, 0, 0, 0)
+                                    .atOffset(ZoneOffset.UTC)
+                                    .toInstant()
+                                    .toEpochMilli() * 1000;
+                        }
                         return Timestamps.toMicros((Timestamp) object);
                     case ANY: {
+                        if(isNull) {
+                            return "";
+                        }
                         final Any any = (Any) object;
                         try {
                             return printer.print(any);
@@ -275,22 +315,17 @@ public class ProtoToRecordConverter {
                             return any.getValue().toStringUtf8();
                         }
                     }
-                    case LATLNG: {
-                        final LatLng ll = (LatLng) object;
-                        return String.format("%f,%f", ll.getLatitude(), ll.getLongitude());
-                    }
                     case EMPTY:
                     case NULL_VALUE:
                         return null;
                     case CUSTOM:
                     default: {
-                        final Schema schema = convertSchema(field.getMessageType());
-                        return convert(schema, field.getMessageType(), (DynamicMessage) value, printer);
+                        return convert(AvroSchemaUtil.unnestUnion(schema), field.getMessageType(), (DynamicMessage) value, printer);
                     }
                 }
             }
             default:
-                return null;
+                throw new IllegalStateException("Not support data type: " + field);
         }
     }
 
