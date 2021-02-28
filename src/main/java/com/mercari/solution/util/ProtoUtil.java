@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class ProtoUtil {
 
@@ -26,7 +27,7 @@ public class ProtoUtil {
         DATE("google.type.Date"),
         TIME("google.type.TimeOfDay"),
         DATETIME("google.type.DateTime"),
-        LATLNG("google.type.LatLng"),
+        //LATLNG("google.type.LatLng"),
         ANY("google.protobuf.Any"),
         TIMESTAMP("google.protobuf.Timestamp"),
         //DURATION("google.protobuf.Duration"),
@@ -101,8 +102,23 @@ public class ProtoUtil {
                                   final String fieldName,
                                   final JsonFormat.Printer printer) {
 
-        final Descriptors.FieldDescriptor field = getField(message, fieldName);
-        final Object value = message.getField(field);
+        final Object value = getFieldValue(message, fieldName);
+        final Descriptors.FieldDescriptor descriptor = getField(message.getDescriptorForType(), fieldName);
+        if(descriptor.isRepeated()) {
+            if(value == null) {
+                return new ArrayList<>();
+            }
+            return ((List<Object>)value).stream()
+                    .map(o -> getValue(descriptor, o, printer))
+                    .collect(Collectors.toList());
+        } else {
+            return getValue(descriptor, value, printer);
+        }
+    }
+
+    public static Object getValue(final Descriptors.FieldDescriptor field,
+                                  final Object value,
+                                  final JsonFormat.Printer printer) {
 
         boolean isNull = value == null;
 
@@ -125,7 +141,7 @@ public class ProtoUtil {
             case BYTE_STRING:
                 return isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray();
             case MESSAGE: {
-                final Object object = convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
+                final Object object  = convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                 isNull = object == null;
                 switch (ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
@@ -148,21 +164,27 @@ public class ProtoUtil {
                         return isNull ? 0d : ((DoubleValue) object).getValue();
                     case DATE: {
                         if(isNull) {
-                            return null;
+                            return LocalDate.of(1, 1, 1);
                         }
                         final Date date = (Date) object;
                         return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
                     }
                     case TIME: {
                         if(isNull) {
-                            return null;
+                            return LocalTime.of(0, 0, 0, 0);
                         }
                         final TimeOfDay timeOfDay = (TimeOfDay) object;
                         return LocalTime.of(timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos());
                     }
                     case DATETIME: {
                         if(isNull) {
-                            return null;
+                            long epochMilli = LocalDateTime.of(
+                                    1, 1, 1,
+                                    0, 0, 0, 0)
+                                    .atOffset(ZoneOffset.UTC)
+                                    .toInstant()
+                                    .toEpochMilli();
+                            return org.joda.time.Instant.ofEpochMilli(epochMilli);
                         }
                         final DateTime dt = (DateTime) object;
                         long epochMilli = LocalDateTime.of(
@@ -175,7 +197,13 @@ public class ProtoUtil {
                     }
                     case TIMESTAMP:
                         if(isNull) {
-                            return null;
+                            long epochMilli = LocalDateTime.of(
+                                    1, 1, 1,
+                                    0, 0, 0, 0)
+                                    .atOffset(ZoneOffset.UTC)
+                                    .toInstant()
+                                    .toEpochMilli();
+                            return org.joda.time.Instant.ofEpochMilli(epochMilli);
                         }
                         return org.joda.time.Instant.ofEpochMilli(Timestamps.toMillis((Timestamp) object));
                     case ANY: {
@@ -188,13 +216,6 @@ public class ProtoUtil {
                         } catch (InvalidProtocolBufferException e) {
                             return any.getValue().toStringUtf8();
                         }
-                    }
-                    case LATLNG: {
-                        if(isNull) {
-                            return null;
-                        }
-                        final LatLng ll = (LatLng) object;
-                        return String.format("%f,%f", ll.getLatitude(), ll.getLongitude());
                     }
                     case EMPTY:
                     case NULL_VALUE:
@@ -210,7 +231,7 @@ public class ProtoUtil {
     }
 
     public static Object convertBuildInValue(final String typeFullName, final DynamicMessage value) {
-        if(value.getAllFields().size() == 0) {
+        if(value == null || value.getAllFields().size() == 0) {
             return null;
         }
         switch (ProtoType.of(typeFullName)) {
@@ -308,19 +329,6 @@ public class ProtoUtil {
                     return builder.build();
                 }
             }
-            case LATLNG: {
-                double latitude = 0D;
-                double longitude = 0d;
-                for (final Map.Entry<Descriptors.FieldDescriptor, Object> entry : value.getAllFields().entrySet()) {
-                    if ("latitude".equals(entry.getKey().getName())) {
-                        latitude = (Double) entry.getValue();
-                    } else if ("longitude".equals(entry.getKey().getName())) {
-                        longitude = (Double) entry.getValue();
-
-                    }
-                }
-                return LatLng.newBuilder().setLatitude(latitude).setLongitude(longitude).build();
-            }
             case ANY: {
                 String typeUrl = null;
                 ByteString anyValue = null;
@@ -332,7 +340,7 @@ public class ProtoUtil {
                     }
                 }
                 if(typeUrl == null && anyValue == null) {
-                    return null;
+                    return Any.newBuilder().build();
                 }
                 return Any.newBuilder().setTypeUrl(typeUrl).setValue(anyValue).build();
             }
@@ -348,6 +356,19 @@ public class ProtoUtil {
                     }
                 }
                 return Duration.newBuilder().setSeconds(seconds).setNanos(nanos).build();
+            }
+            case LATLNG: {
+                double latitude = 0D;
+                double longitude = 0d;
+                for (final Map.Entry<Descriptors.FieldDescriptor, Object> entry : value.getAllFields().entrySet()) {
+                    if ("latitude".equals(entry.getKey().getName())) {
+                        latitude = (Double) entry.getValue();
+                    } else if ("longitude".equals(entry.getKey().getName())) {
+                        longitude = (Double) entry.getValue();
+
+                    }
+                }
+                return LatLng.newBuilder().setLatitude(latitude).setLongitude(longitude).build();
             }
             */
             case BOOL_VALUE: {
@@ -453,7 +474,7 @@ public class ProtoUtil {
         }
     }
 
-    public static Descriptors.FieldDescriptor getFieldDescriptor(final Descriptors.Descriptor descriptor, final String field) {
+    public static Descriptors.FieldDescriptor getField(final Descriptors.Descriptor descriptor, final String field) {
         return descriptor.getFields().stream()
                 .filter(f -> f.getName().equals(field))
                 .findAny()

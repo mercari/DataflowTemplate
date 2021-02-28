@@ -22,8 +22,6 @@ import java.util.stream.Collectors;
 
 public class ProtoToRowConverterTest {
 
-    private static final double DELTA = 1e-15;
-
     @Test
     public void testToSchema() {
         final byte[] descBytes = ResourceUtil.getResourceFileAsBytes("schema/test.desc");
@@ -165,7 +163,6 @@ public class ProtoToRowConverterTest {
         Assert.assertEquals(Schema.TypeName.LOGICAL_TYPE, schema.getField("timeValue").getType().getTypeName());
         Assert.assertTrue(schema.getField("timeValue").getType().getLogicalType() instanceof Time);
         Assert.assertEquals(Schema.TypeName.DATETIME, schema.getField("datetimeValue").getType().getTypeName());
-        Assert.assertEquals(Schema.TypeName.STRING, schema.getField("latlngValue").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.DATETIME, schema.getField("timestampValue").getType().getTypeName());
 
         // Google provided types wrappedValues
@@ -220,7 +217,6 @@ public class ProtoToRowConverterTest {
         Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("dateValues").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("timeValues").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("datetimeValues").getType().getTypeName());
-        Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("latlngValues").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("timestampValues").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("wrappedBoolValues").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("wrappedStringValues").getType().getTypeName());
@@ -248,7 +244,6 @@ public class ProtoToRowConverterTest {
         Assert.assertEquals(Schema.TypeName.LOGICAL_TYPE, schema.getField("timeValues").getType().getCollectionElementType().getTypeName());
         Assert.assertTrue(schema.getField("timeValues").getType().getCollectionElementType().getLogicalType() instanceof Time);
         Assert.assertEquals(Schema.TypeName.DATETIME, schema.getField("datetimeValues").getType().getCollectionElementType().getTypeName());
-        Assert.assertEquals(Schema.TypeName.STRING, schema.getField("latlngValues").getType().getCollectionElementType().getTypeName());
         Assert.assertEquals(Schema.TypeName.DATETIME, schema.getField("timestampValues").getType().getCollectionElementType().getTypeName());
         Assert.assertEquals(Schema.TypeName.BOOLEAN, schema.getField("wrappedBoolValues").getType().getCollectionElementType().getTypeName());
         Assert.assertEquals(Schema.TypeName.STRING, schema.getField("wrappedStringValues").getType().getCollectionElementType().getTypeName());
@@ -283,27 +278,21 @@ public class ProtoToRowConverterTest {
         Assert.assertEquals(ProtoUtil.getValue(message, "ulongValue", printer), row.getInt64("ulongValue"));
 
         // Google-provided type
-        if(row.getValue("dateValue") == null) {
-            Assert.assertNull(ProtoUtil.getValue(message, "dateValue", printer));
-        } else {
+        if(ProtoUtil.hasField(message,"dateValue")) {
             Assert.assertEquals(
                     ProtoUtil.getEpochDay(
                             (com.google.type.Date)(ProtoUtil.convertBuildInValue("google.type.Date",
                                     (DynamicMessage)ProtoUtil.getFieldValue(message, "dateValue")))),
                     ((LocalDate)row.getValue("dateValue")).toEpochDay());
         }
-        if(row.getValue("timeValue") == null) {
-            Assert.assertNull(ProtoUtil.getValue(message, "timeValue", printer));
-        } else {
+        if(ProtoUtil.hasField(message,"timeValue")) {
             Assert.assertEquals(
                     ProtoUtil.getSecondOfDay((com.google.type.TimeOfDay)(ProtoUtil.convertBuildInValue("google.type.TimeOfDay",
                             (DynamicMessage)ProtoUtil.getFieldValue(message, "timeValue")))),
                     ((LocalTime)row.getValue("timeValue")).toSecondOfDay());
         }
 
-        if(row.getValue("datetimeValue") == null) {
-            Assert.assertNull(ProtoUtil.getValue(message, "datetimeValue", printer));
-        } else {
+        if(ProtoUtil.hasField(message,"datetimeValue")) {
             Assert.assertEquals(
                     ProtoUtil.getEpochMillis((com.google.type.DateTime)(ProtoUtil.convertBuildInValue("google.type.DateTime",
                             (DynamicMessage)ProtoUtil.getFieldValue(message, "datetimeValue")))),
@@ -339,11 +328,7 @@ public class ProtoToRowConverterTest {
                 row.getInt64("wrappedUInt64Value"));
 
         // Any
-        if(ProtoUtil.getFieldValue(message, "anyValue") != null && row.getString("anyValue") != null) {
-            Assert.assertEquals(printer.print((DynamicMessage)ProtoUtil.getFieldValue(message, "anyValue")), row.getString("anyValue"));
-        } else {
-            Assert.assertTrue(ProtoUtil.getValue(message, "anyValue", printer).equals(row.getString("anyValue")));
-        }
+        Assert.assertTrue(ProtoUtil.getValue(message, "anyValue", printer).equals(row.getString("anyValue")));
 
         // Enum
         if(ProtoUtil.hasField(message, "enumValue")) {
@@ -382,14 +367,14 @@ public class ProtoToRowConverterTest {
         }
 
         // Repeated
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "boolValues")).orElse(new ArrayList<>()), row.getArray("boolValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "stringValues")).orElse(new ArrayList<>()), row.getArray("stringValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "intValues")).orElse(new ArrayList<>()), row.getArray("intValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "longValues")).orElse(new ArrayList<>()), row.getArray("longValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "floatValues")).orElse(new ArrayList<>()), row.getArray("floatValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "doubleValues")).orElse(new ArrayList<>()), row.getArray("doubleValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "uintValues")).orElse(new ArrayList<>()), row.getArray("uintValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoUtil.getFieldValue(message, "ulongValues")).orElse(new ArrayList<>()), row.getArray("ulongValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "boolValues", printer), row.getArray("boolValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "stringValues", printer), row.getArray("stringValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "intValues", printer), row.getArray("intValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "longValues", printer), row.getArray("longValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "floatValues", printer), row.getArray("floatValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "doubleValues", printer), row.getArray("doubleValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "uintValues", printer), row.getArray("uintValues"));
+        Assert.assertEquals(ProtoUtil.getValue(message, "ulongValues", printer), row.getArray("ulongValues"));
 
         List<DynamicMessage> list = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "dateValues");
         int i = 0;
