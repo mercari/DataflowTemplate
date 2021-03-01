@@ -21,11 +21,15 @@ Sink module to write the input data to a specified Spanner table.
 | databaseId | required | String | The Database ID of the Spanner you want to write |
 | table | required | String | The table name of the Spanner you want to write |
 | mutationOp | optional | String | One of `INSERT`, `UPDATE`, `INSERT_OR_UPDATE`, `REPLACE`, or `DELETE`. The default is `INSERT_OR_UPDATE`. |
+| failFast | optional | Boolean | Specify whether to fail the job immediately when the insert fails. Default is true. (Specify false if you don't want to insert a record if there is an existing record with the same key) |
 | createTable | optional | Boolean | Specifies whether the specified table should be created automatically if it does not exist. The default is false. |
 | keyFields | optional | Array<String\> | The name of the fields to be the primary key for the table. If `createTable` is true, or if `mutationOp` is DELETE, it is required. |
 | fields | optional | String | Specified if you want to limit the columns to be written. The default is all columns. If the following `exclude` is set to true, the field specified here will be removed. |
 | exclude | optional | Boolean | Set to true if you want to remove the fields specified in fields. The default is false. |
 | maskFields | optional | String | If the schema of the table is fixed and the fields cannot be restricted, the value of the field specified here will be replaced by NULL or a fixed value per type (e.g. 0 for an integer). |
+| nodeCount | optional | Integer | Specify the number of instances if you want to change the number of instances before inserting a record into Spanner. After insertion, the number of instances will revert to the number before the change. |
+| revertNodeCount | optional | Integer | Specify if you want the number of Spanner instances to be the specified number after the insertion is finished. (Effective only when `nodeCount` is specified) |
+| rebalancingMinite | optional | Integer | When you specify `nodeCount`, specify the minutes to wait after the number of instances change. default is zero. |
 | emulator | optional | Boolean | If you want to destination the local Spanner Emulator, you must run it in DirectRunner. |
 
 ## Related example config files
