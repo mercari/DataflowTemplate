@@ -39,6 +39,7 @@ public class SpannerSink {
         private String table;
         private String mutationOp;
         private List<String> keyFields;
+        private Boolean failFast;
 
         private Boolean emulator;
 
@@ -58,7 +59,8 @@ public class SpannerSink {
         private Integer groupingFactor;
 
         private Integer nodeCount;
-        private Integer originalNodeCount;
+        private Integer revertNodeCount;
+        private Integer rebalancingMinite;
 
         private Boolean isDirectRunner;
 
@@ -103,6 +105,14 @@ public class SpannerSink {
 
         public void setMutationOp(String mutationOp) {
             this.mutationOp = mutationOp;
+        }
+
+        public Boolean getFailFast() {
+            return failFast;
+        }
+
+        public void setFailFast(Boolean failFast) {
+            this.failFast = failFast;
         }
 
         public Boolean getEmulator() {
@@ -225,12 +235,20 @@ public class SpannerSink {
             this.nodeCount = nodeCount;
         }
 
-        public Integer getOriginalNodeCount() {
-            return originalNodeCount;
+        public Integer getRevertNodeCount() {
+            return revertNodeCount;
         }
 
-        public void setOriginalNodeCount(Integer originalNodeCount) {
-            this.originalNodeCount = originalNodeCount;
+        public void setRevertNodeCount(Integer revertNodeCount) {
+            this.revertNodeCount = revertNodeCount;
+        }
+
+        public Integer getRebalancingMinite() {
+            return rebalancingMinite;
+        }
+
+        public void setRebalancingMinite(Integer rebalancingMinite) {
+            this.rebalancingMinite = rebalancingMinite;
         }
 
         public Boolean getDirectRunner() {
@@ -327,7 +345,7 @@ public class SpannerSink {
 
 
             // SpannerWrite
-            final SpannerIO.Write write = SpannerIO.write()
+            SpannerIO.Write write = SpannerIO.write()
                     //.withHost(SpannerUtil.SPANNER_HOST_BATCH)
                     .withProjectId(projectId)
                     .withInstanceId(instanceId)
@@ -335,8 +353,13 @@ public class SpannerSink {
                     .withMaxNumRows(parameters.getMaxNumRows())
                     .withMaxNumMutations(parameters.getMaxNumMutations())
                     .withBatchSizeBytes(parameters.getBatchSizeBytes())
-                    .withGroupingFactor(parameters.getGroupingFactor())
-                    .withFailureMode(SpannerIO.FailureMode.FAIL_FAST);
+                    .withGroupingFactor(parameters.getGroupingFactor());
+
+            if(parameters.getFailFast()) {
+                write = write.withFailureMode(SpannerIO.FailureMode.FAIL_FAST);
+            } else {
+                write = write.withFailureMode(SpannerIO.FailureMode.REPORT_FAILURES);
+            }
 
             // For Mutation
             final PCollection<Mutation> mutations = input
@@ -390,7 +413,7 @@ public class SpannerSink {
                     nodeCount = input.getPipeline()
                             .apply("SupplyNodeCount", Create.of(parameters.getNodeCount()))
                             .apply("ScaleUpSpanner", ParDo.of(new SpannerScaleDoFn(
-                                    parameters.getProjectId(), parameters.getInstanceId())));
+                                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getRebalancingMinite())));
                     wait.add(nodeCount);
                 } else {
                     // Never required this value.
@@ -404,16 +427,16 @@ public class SpannerSink {
 
                 if(parameters.getNodeCount() > 0) {
                     final PCollection<Integer> targetNodeCount;
-                    if(parameters.getOriginalNodeCount() != null) {
+                    if(parameters.getRevertNodeCount() != null) {
                         targetNodeCount = input.getPipeline()
-                                .apply("SupplyOriginalNodeCount", Create.of(parameters.getOriginalNodeCount()));
+                                .apply("SupplyRevertNodeCount", Create.of(parameters.getRevertNodeCount()));
                     } else {
                         targetNodeCount = nodeCount;
                     }
                     targetNodeCount
                             .apply("WaitForWriteSpanner", Wait.on(writeResult.getOutput()))
                             .apply("ScaleDownSpanner", ParDo.of(new SpannerScaleDoFn(
-                                    parameters.getProjectId(), parameters.getInstanceId())));
+                                    parameters.getProjectId(), parameters.getInstanceId(), 0)));
                 }
             } else {
                 writeResult = mutationTableReady.apply("WriteSpanner", write);
@@ -469,6 +492,12 @@ public class SpannerSink {
             if(parameters.getMutationOp() == null) {
                 parameters.setMutationOp(Mutation.Op.INSERT_OR_UPDATE.name());
             }
+            if(parameters.getFailFast() == null) {
+                parameters.setFailFast(true);
+            }
+            if(parameters.getRebalancingMinite() == null) {
+                parameters.setRebalancingMinite(0);
+            }
             if(parameters.getEmulator() == null) {
                 parameters.setEmulator(false);
             }
@@ -489,19 +518,19 @@ public class SpannerSink {
             }
 
             if(parameters.getMaxNumRows() == null) {
-                // https://github.com/apache/beam/blob/v2.23.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L328
+                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L335
                 parameters.setMaxNumRows(500L);
             }
             if(parameters.getMaxNumMutations() == null) {
-                // https://github.com/apache/beam/blob/v2.23.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L326
+                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L333
                 parameters.setMaxNumMutations(5000L);
             }
             if(parameters.getBatchSizeBytes() == null) {
-                // https://github.com/apache/beam/blob/v2.23.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L324
+                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L331
                 parameters.setBatchSizeBytes(1024L * 1024L);
             }
             if(parameters.getGroupingFactor() == null) {
-                // https://github.com/apache/beam/blob/v2.23.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L330
+                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L337
                 parameters.setGroupingFactor(1000);
             }
             if(parameters.getNodeCount() == null) {
@@ -648,12 +677,16 @@ public class SpannerSink {
 
         private final String projectId;
         private final String instanceId;
+        private final Integer rebalancingMinite;
 
         public SpannerScaleDoFn(
                 final String projectId,
-                final String instanceId) {
+                final String instanceId,
+                final Integer rebalancingMinite) {
+
             this.projectId = projectId;
             this.instanceId = instanceId;
+            this.rebalancingMinite = rebalancingMinite;
         }
 
         @ProcessElement
@@ -700,6 +733,13 @@ public class SpannerSink {
                 }
                 LOG.info("Scale spanner instance: " + instanceId.getInstance() + " nodeCount: " + nodeCount);
 
+                int waitingMinutes = 0;
+                while(waitingMinutes < rebalancingMinite) {
+                    Thread.sleep(60 * 1000L);
+                    LOG.info("waiting rebalancing minute: " + waitingMinutes + "/" + rebalancingMinite);
+                    waitingMinutes += 1;
+                }
+                LOG.info("finished waiting.");
                 c.output(currentNodeCount);
             }
         }
