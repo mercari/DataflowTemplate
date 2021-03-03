@@ -22,9 +22,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class FlattenTransform implements TransformModule {
+public class ConcatTransform implements TransformModule {
 
-    private static final Logger LOG = LoggerFactory.getLogger(FlattenTransform.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ConcatTransform.class);
 
     private class FlattenTransformParameters {
 
@@ -39,10 +39,10 @@ public class FlattenTransform implements TransformModule {
         }
     }
 
-    public String getName() { return "flatten"; }
+    public String getName() { return "concat"; }
 
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
-        return Collections.singletonMap(config.getName(), FlattenTransform.transform(inputs, config));
+        return Collections.singletonMap(config.getName(), ConcatTransform.transform(inputs, config));
     }
 
     public static FCollection<?> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
