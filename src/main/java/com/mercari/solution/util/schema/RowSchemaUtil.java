@@ -10,15 +10,51 @@ import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 
 import java.time.LocalDate;
-import java.util.Base64;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class RowSchemaUtil {
 
     private static final DateTimeFormatter FORMATTER_YYYY_MM_DD = DateTimeFormat.forPattern("yyyy-MM-dd");
     private static final DateTimeFormatter FORMATTER_TIMESTAMP = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+
+
+    public static Schema.Builder toBuilder(final Schema schema) {
+        return toBuilder(schema, null, false);
+    }
+
+    public static Schema.Builder toBuilder(final Schema schema, final List<String> filter) {
+        return toBuilder(schema, filter, false);
+    }
+
+    public static Schema.Builder toBuilder(final Schema schema, final List<String> filter, final boolean exclude) {
+        final Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : schema.getFields()) {
+            if(exclude) {
+                if(filter == null || !filter.contains(field.getName())) {
+                    builder.addField(field);
+                }
+            } else {
+                if(filter == null || filter.contains(field.getName())) {
+                    builder.addField(field);
+                }
+            }
+        }
+        return builder;
+    }
+
+    public static Row.FieldValueBuilder toBuilder(final Row row) {
+        return toBuilder(row.getSchema(), row);
+    }
+
+    public static Row.FieldValueBuilder toBuilder(final Schema schema, final Row row) {
+        final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
+        for(final Schema.Field field : row.getSchema().getFields()) {
+            builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+        }
+        return builder;
+    }
 
     public static Schema addSchema(final Schema schema, final List<Schema.Field> fields) {
         Schema.Builder builder = Schema.builder();
@@ -26,6 +62,28 @@ public class RowSchemaUtil {
             builder.addField(field);
         }
         builder.addFields(fields);
+        return builder.build();
+    }
+
+    public static Schema removeFields(final Schema schema, final Collection<String> excludeFields) {
+        if(excludeFields == null || excludeFields.size() == 0) {
+            return schema;
+        }
+
+        final Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : schema.getFields()) {
+            if(excludeFields.contains(field.getName())) {
+                continue;
+            }
+            builder.addField(field);
+        }
+
+        final Schema.Options.Builder optionBuilder = Schema.Options.builder();
+        for(final String optionName : schema.getOptions().getOptionNames()) {
+            optionBuilder.setOption(optionName, schema.getOptions().getType(optionName), schema.getOptions().getValue(optionName));
+        }
+        builder.setOptions(optionBuilder);
+
         return builder.build();
     }
 
@@ -43,6 +101,104 @@ public class RowSchemaUtil {
             }
         }
         return builder.build();
+    }
+
+    public static Schema flatten(final Schema schema, final String path, final boolean addPrefix) {
+        final List<String> paths = Arrays.asList(path.split("\\."));
+        final List<Schema.Field> fields = flattenFields(schema, paths, null, addPrefix);
+        return Schema.builder().addFields(fields).build();
+    }
+
+    public static List<Row> flatten(final Schema schema, final Row row, final String path, final boolean addPrefix) {
+        final List<String> paths = Arrays.asList(path.split("\\."));
+        final List<Object> values = flattenValues(row, paths, null, addPrefix);
+        return values.stream()
+                .map(v -> Row.withSchema(schema).withFieldValues((Map<String, Object>)v).build())
+                .collect(Collectors.toList());
+    }
+
+    private static List<Schema.Field> flattenFields(final Schema schema, final List<String> paths, final String prefix, final boolean addPrefix) {
+        return schema.getFields().stream()
+                .flatMap(f -> {
+                    final String name;
+                    if(addPrefix) {
+                        name = (prefix == null ? "" : prefix + "_") + f.getName();
+                    } else {
+                        name = f.getName();
+                    }
+
+                    if(paths.size() == 0 || !f.getName().equals(paths.get(0))) {
+                        return Stream.of(Schema.Field.of(name, f.getType()).withNullable(true));
+                    }
+
+                    if(Schema.TypeName.ARRAY.equals(f.getType().getTypeName())) {
+                        final Schema.FieldType elementType = f.getType().getCollectionElementType();
+                        if(Schema.TypeName.ROW.equals(elementType.getTypeName())) {
+                            return flattenFields(
+                                    elementType.getRowSchema(),
+                                    paths.subList(1, paths.size()), name, addPrefix)
+                                    .stream();
+                        } else {
+                            return Stream.of(Schema.Field.of(f.getName(), elementType).withNullable(true));
+                        }
+                    } else {
+                        return Stream.of(Schema.Field.of(name + f.getName(), f.getType()).withNullable(true));
+                    }
+                })
+                .collect(Collectors.toList());
+    }
+
+    private static List<Object> flattenValues(final Row row, final List<String> paths, final String prefix, final boolean addPrefix) {
+        final Map<String, Object> values = new HashMap<>();
+        Schema.Field pathField = null;
+        String pathName = null;
+        for(final Schema.Field field : row.getSchema().getFields()) {
+            final String name;
+            if(addPrefix) {
+                name = (prefix == null ? "" : prefix + "_") + field.getName();
+            } else {
+                name = field.getName();
+            }
+            if(paths.size() == 0 || !field.getName().equals(paths.get(0))) {
+                values.put(name, row.getValue(field.getName()));
+            } else {
+                pathName = name;
+                pathField = field;
+            }
+        }
+
+        if(pathField == null) {
+            return Arrays.asList(values);
+        }
+
+        if(row.getValue(pathField.getName()) == null) {
+            return Arrays.asList(values);
+        }
+
+        if(Schema.TypeName.ARRAY.equals(pathField.getType().getTypeName())) {
+            final List<Object> arrayValues = new ArrayList<>();
+            final Collection<Object> array = row.getArray(pathField.getName());
+            for(final Object value : array) {
+                if(Schema.TypeName.ROW.equals(pathField.getType().getCollectionElementType().getTypeName())) {
+                    final List<Object> list = flattenValues(
+                            (Row)value,
+                            paths.subList(1, paths.size()), pathName, addPrefix);
+                    for(Object obj : list) {
+                        if(obj instanceof Map) {
+                            ((Map<String, Object>)obj).putAll(values);
+                        }
+                        arrayValues.add(obj);
+                    }
+                } else {
+                    arrayValues.add(value);
+                }
+            }
+            return arrayValues;
+        } else {
+            values.put(pathName, row.getValue(pathField.getName()));
+        }
+
+        return Arrays.asList(values);
     }
 
     public static boolean isLogicalTypeDate(final Schema.FieldType fieldType) {
@@ -72,28 +228,6 @@ public class RowSchemaUtil {
                 }
         }
         return null;
-    }
-
-    public static Schema removeFields(final Schema schema, final Collection<String> excludeFields) {
-        if(excludeFields == null || excludeFields.size() == 0) {
-            return schema;
-        }
-
-        final Schema.Builder builder = Schema.builder();
-        for(final Schema.Field field : schema.getFields()) {
-            if(excludeFields.contains(field.getName())) {
-                continue;
-            }
-            builder.addField(field);
-        }
-
-        final Schema.Options.Builder optionBuilder = Schema.Options.builder();
-        for(final String optionName : schema.getOptions().getOptionNames()) {
-            optionBuilder.setOption(optionName, schema.getOptions().getType(optionName), schema.getOptions().getValue(optionName));
-        }
-        builder.setOptions(optionBuilder);
-
-        return builder.build();
     }
 
     public static String getAsString(final Row row, final String field) {
