@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.converter.ResultSetToRecordConverter;
 import com.mercari.solution.util.gcp.JdbcUtil;
@@ -18,10 +19,12 @@ import org.apache.beam.sdk.values.PCollection;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-public class JdbcSource {
+public class JdbcSource implements SourceModule {
 
     private class JdbcSourceParameters implements Serializable {
 
@@ -78,6 +81,17 @@ public class JdbcSource {
 
         public void setKmsKey(String kmsKey) {
             this.kmsKey = kmsKey;
+        }
+    }
+
+    public String getName() { return "jdbc"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        if (config.getMicrobatch() != null && config.getMicrobatch()) {
+            //inputs.put(config.getName(), beats.apply(config.getName(), SpannerSource.microbatch(config)));
+            return Collections.emptyMap();
+        } else {
+            return Collections.singletonMap(config.getName(), JdbcSource.batch(begin, config));
         }
     }
 

@@ -6,11 +6,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.module.sink.fileio.SolrSink;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.FixedFileNaming;
 import com.mercari.solution.util.RowSchemaUtil;
-import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.converter.EntityToSolrDocumentConverter;
+import com.mercari.solution.util.converter.RecordToSolrDocumentConverter;
+import com.mercari.solution.util.converter.RowToSolrDocumentConverter;
+import com.mercari.solution.util.converter.StructToSolrDocumentConverter;
 import com.mercari.solution.util.gcp.DatastoreUtil;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
@@ -30,11 +34,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-public class SolrIndexSink {
+public class SolrIndexSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(SolrIndexSink.class);
 
@@ -126,6 +132,12 @@ public class SolrIndexSink {
             this.outputSchema = outputSchema;
         }
 
+    }
+
+    public String getName() { return "solrindex"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), SolrIndexSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

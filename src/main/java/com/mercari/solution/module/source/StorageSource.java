@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.aws.S3Util;
 import com.mercari.solution.util.converter.*;
@@ -18,15 +19,16 @@ import org.apache.beam.sdk.io.parquet.ParquetIO;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.PBegin;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.Row;
+import org.apache.beam.sdk.values.TypeDescriptor;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
-public class StorageSource {
+public class StorageSource implements SourceModule {
 
     private class StorageSourceParameters implements Serializable {
 
@@ -74,6 +76,17 @@ public class StorageSource {
 
         public void setTargetFormat(String targetFormat) {
             this.targetFormat = targetFormat;
+        }
+    }
+
+    public String getName() { return "storage"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        if (config.getMicrobatch() != null && config.getMicrobatch()) {
+            //inputs.put(config.getName(), beats.apply(config.getName(), StorageSource.microbatch(config)));
+            return Collections.emptyMap();
+        } else {
+            return Collections.singletonMap(config.getName(), StorageSource.batch(begin, config));
         }
     }
 

@@ -4,23 +4,23 @@ import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.gcp.datastore.DatastoreIO;
 import org.apache.beam.sdk.io.gcp.datastore.DatastoreV1;
-import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 
-public class DatastoreSink {
+public class DatastoreSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(DatastoreSink.class);
 
@@ -62,6 +62,12 @@ public class DatastoreSink {
         public void setDelete(Boolean delete) {
             this.delete = delete;
         }
+    }
+
+    public String getName() { return "datastore"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), DatastoreSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

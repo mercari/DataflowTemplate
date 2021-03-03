@@ -2,13 +2,14 @@ package com.mercari.solution.module.source;
 
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
-import com.google.cloud.spanner.*;
 import com.google.cloud.spanner.Partition;
+import com.google.cloud.spanner.*;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
@@ -25,7 +26,7 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class SpannerSource {
+public class SpannerSource implements SourceModule {
 
     private static final String SQL_SPLITTER = "--SPLITTER--";
 
@@ -221,6 +222,16 @@ public class SpannerSource {
             public void setEndKeyValues(JsonElement endKeys) {
                 this.endKeys = endKeys;
             }
+        }
+    }
+
+    public String getName() { return "spanner"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        if (config.getMicrobatch() != null && config.getMicrobatch()) {
+            return Collections.singletonMap(config.getName(), SpannerSource.microbatch(beats, config));
+        } else {
+            return Collections.singletonMap(config.getName(), SpannerSource.batch(begin, config));
         }
     }
 

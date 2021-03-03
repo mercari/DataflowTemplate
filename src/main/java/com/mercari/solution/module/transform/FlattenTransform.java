@@ -6,17 +6,23 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionList;
+import org.apache.beam.sdk.values.Row;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
-public class FlattenTransform {
+public class FlattenTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(FlattenTransform.class);
 
@@ -31,6 +37,12 @@ public class FlattenTransform {
         public void setDataType(String dataType) {
             this.dataType = dataType;
         }
+    }
+
+    public String getName() { return "flatten"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return Collections.singletonMap(config.getName(), FlattenTransform.transform(inputs, config));
     }
 
     public static FCollection<?> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

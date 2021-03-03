@@ -3,10 +3,8 @@ package com.mercari.solution;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.mercari.solution.config.*;
-import com.mercari.solution.module.FCollection;
-import com.mercari.solution.module.sink.*;
-import com.mercari.solution.module.source.*;
-import com.mercari.solution.module.transform.*;
+import com.mercari.solution.module.*;
+import com.mercari.solution.module.sink.SpannerSink;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
@@ -14,8 +12,12 @@ import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.sql.impl.BeamSqlPipelineOptions;
 import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.io.aws.options.AwsOptions;
-import org.apache.beam.sdk.options.*;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.options.Description;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.options.StreamingOptions;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PBegin;
+import org.apache.beam.sdk.values.PCollection;
 import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -226,64 +228,11 @@ public class FlexPipeline {
             if(!isStreaming && sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
                 throw new IllegalArgumentException("Config batch mode must be set batch mode for all inputs");
             }
-            switch (sourceConfig.getModule()) {
-                case storage: {
-                    if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        //inputs.put(sourceConfig.getName(), beats.apply(sourceConfig.getName(), StorageSource.microbatch(sourceConfig)));
-                    } else {
-                        outputs.put(sourceConfig.getName(), StorageSource.batch(begin, sourceConfig));
-                    }
-                    break;
-                }
-                case bigquery: {
-                    if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        outputs.put(sourceConfig.getName(), BigQuerySource.microbatch(beats, sourceConfig));
-                    } else {
-                        outputs.put(sourceConfig.getName(), BigQuerySource.batch(begin, sourceConfig, wait));
-                    }
-                    break;
-                }
-                case spanner: {
-                    if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        outputs.put(sourceConfig.getName(), SpannerSource.microbatch(beats, sourceConfig));
-                    } else {
-                        outputs.put(sourceConfig.getName(), SpannerSource.batch(begin, sourceConfig));
-                    }
-                    break;
-                }
-                case datastore: {
-                    if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        //inputs.put(sourceConfig.getName(), beats.apply(sourceConfig.getName(), SpannerSource.microbatch(sourceConfig)));
-                    } else {
-                        outputs.put(sourceConfig.getName(), DatastoreSource.batch(begin, sourceConfig));
-                    }
-                    break;
-                }
-                case jdbc: {
-                    if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        //inputs.put(sourceConfig.getName(), beats.apply(sourceConfig.getName(), SpannerSource.microbatch(sourceConfig)));
-                    } else {
-                        outputs.put(sourceConfig.getName(), JdbcSource.batch(begin, sourceConfig));
-                    }
-                    break;
-                }
-                case pubsub: {
-                    if (isStreaming) {
-                        outputs.put(sourceConfig.getName(), PubSubSource.stream(begin, sourceConfig));
-                    } else {
-                        throw new IllegalArgumentException("PubSubSource only support streaming mode.");
-                    }
-                    break;
-                }
-                case spannerBackup: {
-                    if (sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
-                        throw new IllegalArgumentException("SpannerBackupSource does not support microbatch mode.");
-                    }
-                    outputs.putAll(SpannerBackupSource.batch(begin, sourceConfig));
-                    break;
-                }
-                default:
-                    throw new IllegalArgumentException("module " + sourceConfig.getModule() + " not supported !");
+            SourceModule module = ModuleRegistry.getInstance().getSource(sourceConfig.getModule());
+            if (module != null) {
+                outputs.putAll(module.expand(begin, sourceConfig, beats, wait));
+            } else {
+                throw new IllegalArgumentException("module " + sourceConfig.getModule() + " not supported !");
             }
             executedModuleNames.add(sourceConfig.getName());
         }
@@ -338,47 +287,11 @@ public class FlexPipeline {
             final List<FCollection<?>> inputs = transformConfig.getInputs().stream()
                     .map(outputs::get)
                     .collect(Collectors.toList());
-            switch (transformConfig.getModule()) {
-                case flatten:
-                    outputs.put(transformConfig.getName(), FlattenTransform.transform(inputs, transformConfig));
-                    break;
-                case groupby:
-                    outputs.put(transformConfig.getName(), GroupByTransform.transform(inputs, transformConfig));
-                    break;
-                case beamsql:
-                    outputs.put(transformConfig.getName(), BeamSQLTransform.transform(inputs, transformConfig));
-                    break;
-                case window:
-                    outputs.putAll(WindowTransform.transform(inputs, transformConfig));
-                    break;
-                case reshuffle:
-                    outputs.putAll(ReshuffleTransform.transform(inputs, transformConfig));
-                    break;
-                case setoperation:
-                    outputs.putAll(SetOperationTransform.transform(inputs, transformConfig));
-                    break;
-                case pdfextract:
-                    outputs.putAll(PDFExtractTransform.transform(inputs, transformConfig));
-                    break;
-                case crypto:
-                    outputs.putAll(CryptoTransform.transform(inputs, transformConfig));
-                    break;
-                case protobuf:
-                    outputs.putAll(ProtobufTransform.transform(inputs, transformConfig));
-                    break;
-                case feature:
-                    outputs.put(transformConfig.getName(), FeatureTransform.transform(inputs, transformConfig));
-                    break;
-                case automl:
-                    if(transformConfig.getInputs().size() != 1) {
-                        throw new IllegalArgumentException("module mlengine must not be multi input !");
-                    }
-                    //rows.put(transformName, rows.get(transformConfig.getInputs().get(0)).apply(AutoMLTablesTransform.process(transformConfig)));
-                    break;
-                case onnx:
-                case javascript:
-                default:
-                    throw new UnsupportedOperationException("Module: " + transformConfig.getModule() + " is not supported !");
+            TransformModule module = ModuleRegistry.getInstance().getTransform(transformConfig.getModule());
+            if (module != null) {
+                outputs.putAll(module.expand(inputs, transformConfig));
+            } else {
+                throw new UnsupportedOperationException("Module: " + transformConfig.getModule() + " is not supported !");
             }
             executedModuleNames.add(transformConfig.getName());
         }
@@ -431,34 +344,11 @@ public class FlexPipeline {
             }
             final FCollection<?> input = outputs.get(sinkConfig.getInput());
 
-            switch (sinkConfig.getModule()) {
-                case bigquery:
-                    outputs.put(sinkConfig.getName(), BigQuerySink.write(input, sinkConfig, wait));
-                    break;
-                case spanner:
-                    outputs.put(sinkConfig.getName(), SpannerSink.write(input, sinkConfig, wait));
-                    break;
-                case storage:
-                    outputs.put(sinkConfig.getName(), StorageSink.write(input, sinkConfig, wait));
-                    break;
-                case bigtable:
-                    outputs.put(sinkConfig.getName(), BigtableSink.write(input, sinkConfig, wait));
-                    break;
-                case datastore:
-                    outputs.put(sinkConfig.getName(), DatastoreSink.write(input, sinkConfig, wait));
-                    break;
-                case jdbc:
-                    outputs.put(sinkConfig.getName(), JdbcSink.write(input, sinkConfig, wait));
-                    break;
-                case text:
-                    outputs.put(sinkConfig.getName(), TextSink.write(input, sinkConfig, wait));
-                    break;
-                case solrindex:
-                    outputs.put(sinkConfig.getName(), SolrIndexSink.write(input, sinkConfig, wait));
-                    break;
-                case pubsub:
-                default:
-                    throw new UnsupportedOperationException("Module: " + sinkConfig.getModule() + " is not supported !");
+            SinkModule module = ModuleRegistry.getInstance().getSink(sinkConfig.getModule());
+            if (module != null) {
+                outputs.putAll(module.expand(input, sinkConfig, wait));
+            } else {
+                throw new UnsupportedOperationException("Module: " + sinkConfig.getModule() + " is not supported !");
             }
             executedModuleNames.add(sinkConfig.getName());
         }
@@ -482,8 +372,9 @@ public class FlexPipeline {
     public static void mergeSpannerOutput(final List<SinkConfig> sinks) {
 
         //INTERLEAVE
+        final String spannerSinkName = new SpannerSink().getName();
         final List<KV<String, String>> interleaves = sinks.stream()
-                .filter(sink -> SinkConfig.Module.spanner.equals(sink.getModule()))
+                .filter(sink -> spannerSinkName.equals(sink.getModule()))
                 .filter(sink -> sink.getParameters() != null)
                 .filter(sink -> sink.getParameters().has("interleavedIn"))
                 .filter(sink -> sink.getParameters().get("interleavedIn").isJsonPrimitive())

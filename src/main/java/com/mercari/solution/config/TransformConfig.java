@@ -4,28 +4,11 @@ import com.google.gson.JsonObject;
 
 import java.io.Serializable;
 import java.util.List;
-import java.util.Map;
 
 public class TransformConfig implements Serializable {
 
-    public enum Module {
-        flatten,
-        groupby,
-        beamsql,
-        window,
-        setoperation,
-        pdfextract,
-        crypto,
-        protobuf,
-        feature,
-        javascript,
-        onnx,
-        reshuffle,
-        automl
-    }
-
     private String name;
-    private Module module;
+    private String module;
     private List<String> inputs;
     private JsonObject parameters;
     private List<String> wait;
@@ -38,11 +21,11 @@ public class TransformConfig implements Serializable {
         this.name = name;
     }
 
-    public Module getModule() {
+    public String getModule() {
         return module;
     }
 
-    public void setModule(Module module) {
+    public void setModule(String module) {
         this.module = module;
     }
 

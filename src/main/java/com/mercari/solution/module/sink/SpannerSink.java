@@ -6,6 +6,7 @@ import com.google.gson.Gson;
 import com.google.spanner.admin.instance.v1.UpdateInstanceMetadata;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.RowSchemaUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
@@ -19,7 +20,7 @@ import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.PCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +28,7 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class SpannerSink {
+public class SpannerSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(SpannerSink.class);
 
@@ -266,6 +267,12 @@ public class SpannerSink {
         public void setPrimaryKeyFields(String primaryKeyFields) {
             this.primaryKeyFields = primaryKeyFields;
         }
+    }
+
+    public String getName() { return "spanner"; }
+
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        return Collections.singletonMap(config.getName(), SpannerSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {

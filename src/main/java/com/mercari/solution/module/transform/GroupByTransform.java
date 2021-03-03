@@ -5,8 +5,9 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.converter.DataTypeTransform;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
@@ -18,14 +19,17 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
 import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionTuple;
+import org.apache.beam.sdk.values.TupleTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class GroupByTransform {
+public class GroupByTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(GroupByTransform.class);
 
@@ -41,6 +45,12 @@ public class GroupByTransform {
             this.keys = keys;
         }
 
+    }
+
+    public String getName() { return "groupby"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return Collections.singletonMap(config.getName(), GroupByTransform.transform(inputs, config));
     }
 
     public static FCollection<GenericRecord> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

@@ -9,6 +9,7 @@ import com.google.protobuf.NullValue;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.AvroSchemaUtil;
 import com.mercari.solution.util.RowSchemaUtil;
 import com.mercari.solution.util.gcp.DatastoreUtil;
@@ -36,7 +37,7 @@ import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-public class PDFExtractTransform {
+public class PDFExtractTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(PDFExtractTransform.class);
 
@@ -73,6 +74,12 @@ public class PDFExtractTransform {
         public void setPrefix(String prefix) {
             this.prefix = prefix;
         }
+    }
+
+    public String getName() { return "pdfextract"; }
+
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
+        return PDFExtractTransform.transform(inputs, config);
     }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {

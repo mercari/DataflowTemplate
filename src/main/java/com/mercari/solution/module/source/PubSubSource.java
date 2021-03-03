@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.converter.PubSubToRecordConverter;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
@@ -12,6 +13,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DatumReader;
 import org.apache.avro.io.DecoderFactory;
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
@@ -22,8 +24,11 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
-public class PubSubSource {
+public class PubSubSource implements SourceModule {
 
     private class PubSubSourceParameters {
 
@@ -64,6 +69,18 @@ public class PubSubSource {
             this.idAttribute = idAttribute;
         }
 
+    }
+
+    public String getName() { return "pubsub"; }
+
+    public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
+        boolean isStreaming = begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).isStreaming();
+
+        if (isStreaming) {
+            return Collections.singletonMap(config.getName(), PubSubSource.stream(begin, config));
+        } else {
+            throw new IllegalArgumentException("PubSubSource only support streaming mode.");
+        }
     }
 
     public static FCollection<GenericRecord> stream(final PBegin begin, final SourceConfig config) {
