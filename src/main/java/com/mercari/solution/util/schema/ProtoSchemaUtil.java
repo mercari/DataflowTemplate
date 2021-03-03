@@ -1,4 +1,4 @@
-package com.mercari.solution.util;
+package com.mercari.solution.util.schema;
 
 import com.google.cloud.ByteArray;
 import com.google.protobuf.*;
@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class ProtoUtil {
+public class ProtoSchemaUtil {
 
     public enum ProtoType {
 

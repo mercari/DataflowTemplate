@@ -7,8 +7,8 @@ import com.google.cloud.spanner.Type;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,10 +31,10 @@ public class EntityToMutationConverter {
         }
 
         if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
-            return SpannerUtil.createDeleteMutation(entity, table, keyFields, DatastoreUtil::getKeyFieldValue);
+            return StructSchemaUtil.createDeleteMutation(entity, table, keyFields, EntitySchemaUtil::getKeyFieldValue);
         }
 
-        final Mutation.WriteBuilder builder = SpannerUtil.createMutationWriteBuilder(table, mutationOp);
+        final Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
 
         final Key.PathElement pe = entity.getKey().getPath(entity.getKey().getPathCount()-1);
         if(pe.getName() == null) {
@@ -76,7 +76,7 @@ public class EntityToMutationConverter {
                 builder.set(fieldName).to(value.getDoubleValue());
                 return;
             case DATE:
-                builder.set(fieldName).to(DatastoreUtil.convertDate(value));
+                builder.set(fieldName).to(EntitySchemaUtil.convertDate(value));
                 return;
             case TIMESTAMP:
                 builder.set(fieldName).to(com.google.cloud.Timestamp.fromProto(value.getTimestampValue()));
@@ -107,7 +107,7 @@ public class EntityToMutationConverter {
                         return;
                     case DATE:
                         builder.set(fieldName).toDateArray(value.getArrayValue().getValuesList().stream()
-                                .map(DatastoreUtil::convertDate)
+                                .map(EntitySchemaUtil::convertDate)
                                 .collect(Collectors.toList()));
                         return;
                     case TIMESTAMP:

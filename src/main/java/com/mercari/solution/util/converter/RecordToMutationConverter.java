@@ -5,8 +5,8 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Type;
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
@@ -39,10 +39,10 @@ public class RecordToMutationConverter {
                                    final Set<String> excludeFields, final Set<String> hideFields) {
 
         if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
-            return SpannerUtil.createDeleteMutation(record, table, keyFields, GenericRecord::get);
+            return StructSchemaUtil.createDeleteMutation(record, table, keyFields, GenericRecord::get);
         }
 
-        final Mutation.WriteBuilder builder = SpannerUtil.createMutationWriteBuilder(table, mutationOp);
+        final Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
         for(final Schema.Field field : schema.getFields()) {
             if(excludeFields != null && excludeFields.contains(field.name())) {
                 continue;

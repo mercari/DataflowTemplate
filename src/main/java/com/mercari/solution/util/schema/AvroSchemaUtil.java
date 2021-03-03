@@ -1,4 +1,4 @@
-package com.mercari.solution.util;
+package com.mercari.solution.util.schema;
 
 import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableSchema;

@@ -11,12 +11,8 @@ import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.ProtoUtil;
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -116,7 +112,7 @@ public class ProtobufTransform implements TransformModule {
         validateParameters(parameters);
 
         final byte[] descriptorContentBytes = StorageUtil.readBytes(parameters.descriptorFilePath);
-        final Map<String, Descriptors.Descriptor> descriptors = ProtoUtil.getDescriptors(descriptorContentBytes);
+        final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descriptorContentBytes);
         validateDescriptors(parameters, descriptors);
 
         setDefaultParameters(parameters);
@@ -221,9 +217,9 @@ public class ProtobufTransform implements TransformModule {
                             messageTypes,
                             outputType,
                             s -> s,
-                            SpannerUtil::getBytes,
+                            StructSchemaUtil::getBytes,
                             (Type t, Struct struct, Map<String, Struct> messages) -> {
-                                    Struct.Builder builder = SpannerUtil.toBuilder(struct, null, messages.keySet());
+                                    Struct.Builder builder = StructSchemaUtil.toBuilder(struct, null, messages.keySet());
                                     for(var entry : messages.entrySet()) {
                                         builder.set(entry.getKey()).to(entry.getValue()).build();
                                     }
@@ -259,7 +255,7 @@ public class ProtobufTransform implements TransformModule {
                             messageTypes,
                             outputSchema,
                             s -> s,
-                            DatastoreUtil::getBytes,
+                            EntitySchemaUtil::getBytes,
                             (org.apache.beam.sdk.schemas.Schema s, Entity e, Map<String, Entity> messages) -> {
                                 Entity.Builder builder = Entity.newBuilder(e);
                                 for(var entry : messages.entrySet()) {
@@ -439,7 +435,7 @@ public class ProtobufTransform implements TransformModule {
             @Setup
             public void setup() {
                 final byte[] bytes = StorageUtil.readBytes(descriptorPath);
-                this.descriptors = ProtoUtil.getDescriptors(bytes);
+                this.descriptors = ProtoSchemaUtil.getDescriptors(bytes);
                 this.messageDescriptors = messageNames.entrySet().stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> this.descriptors.get(e.getValue())));
                 this.messageSchemas = inputMessageSchemas.entrySet().stream()

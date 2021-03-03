@@ -10,11 +10,11 @@ import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.RowSchemaUtil;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.AvroCoder;
@@ -269,7 +269,7 @@ public class PDFExtractTransform implements TransformModule {
                     break;
                 }
                 case STRUCT: {
-                    final Type outputSchema = SpannerUtil.addStructField(
+                    final Type outputSchema = StructSchemaUtil.addStructField(
                             input.getSpannerType(),
                             Arrays.asList(
                                     Type.StructField.of(contentFieldName, Type.string()),
@@ -330,7 +330,7 @@ public class PDFExtractTransform implements TransformModule {
                                     text = null;
                                 }
                                 final PDFDocumentInformation info = content.getInformation();
-                                return SpannerUtil.toBuilder(struct)
+                                return StructSchemaUtil.toBuilder(struct)
                                         .set(prefix + FIELD_NAME_CONTENT).to(text)
                                         .set(prefix + FIELD_NAME_PAGE).to(content.getPage())
                                         .set(prefix + FIELD_NAME_FILESIZE).to(content.getFileSize())
@@ -340,8 +340,8 @@ public class PDFExtractTransform implements TransformModule {
                                         .set(prefix + FIELD_NAME_KEYWORDS).to(info.getKeywords())
                                         .set(prefix + FIELD_NAME_CREATOR).to(info.getCreator())
                                         .set(prefix + FIELD_NAME_PRODUCER).to(info.getProducer())
-                                        .set(prefix + FIELD_NAME_CREATIONDATE).to(SpannerUtil.toCloudTimestamp(info.getCreationDate()))
-                                        .set(prefix + FIELD_NAME_MODIFICATIONDATE).to(SpannerUtil.toCloudTimestamp(info.getModificationDate()))
+                                        .set(prefix + FIELD_NAME_CREATIONDATE).to(StructSchemaUtil.toCloudTimestamp(info.getCreationDate()))
+                                        .set(prefix + FIELD_NAME_MODIFICATIONDATE).to(StructSchemaUtil.toCloudTimestamp(info.getModificationDate()))
                                         .set(prefix + FIELD_NAME_TRAPPED).to(info.getTrapped())
                                         .build();
                             },
@@ -409,8 +409,8 @@ public class PDFExtractTransform implements TransformModule {
                                         .putProperties(prefix + FIELD_NAME_KEYWORDS, info.getKeywords() == null ? nullValue : Value.newBuilder().setStringValue(info.getKeywords()).build())
                                         .putProperties(prefix + FIELD_NAME_CREATOR, info.getCreator() == null ? nullValue : Value.newBuilder().setStringValue(info.getCreator()).build())
                                         .putProperties(prefix + FIELD_NAME_PRODUCER, info.getProducer() == null ? nullValue : Value.newBuilder().setStringValue(info.getProducer()).build())
-                                        .putProperties(prefix + FIELD_NAME_CREATIONDATE, info.getCreationDate() == null ? nullValue : Value.newBuilder().setTimestampValue(DatastoreUtil.toProtoTimestamp(info.getCreationDate())).build())
-                                        .putProperties(prefix + FIELD_NAME_MODIFICATIONDATE, info.getModificationDate() == null ? nullValue : Value.newBuilder().setTimestampValue(DatastoreUtil.toProtoTimestamp(info.getModificationDate())).build())
+                                        .putProperties(prefix + FIELD_NAME_CREATIONDATE, info.getCreationDate() == null ? nullValue : Value.newBuilder().setTimestampValue(EntitySchemaUtil.toProtoTimestamp(info.getCreationDate())).build())
+                                        .putProperties(prefix + FIELD_NAME_MODIFICATIONDATE, info.getModificationDate() == null ? nullValue : Value.newBuilder().setTimestampValue(EntitySchemaUtil.toProtoTimestamp(info.getModificationDate())).build())
                                         .putProperties(prefix + FIELD_NAME_TRAPPED, info.getTrapped() == null ? nullValue : Value.newBuilder().setStringValue(info.getTrapped()).build())
                                         .build();
                             },

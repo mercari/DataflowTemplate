@@ -11,10 +11,10 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
-import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.gcp.DatastoreUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.*;
@@ -195,7 +195,7 @@ public class BigQuerySink implements SinkModule {
                         parameters,
                         EntityToRecordConverter::convert,
                         EntityToTableRowConverter::convert,
-                        s -> OptionUtil.ifnull(DatastoreUtil.getAsString(s.getPropertiesOrDefault(destinationField, null)), ""),
+                        s -> OptionUtil.ifnull(EntitySchemaUtil.getAsString(s.getPropertiesOrDefault(destinationField, null)), ""),
                         waitCollections);
                 final PCollection<Entity> input = (PCollection<Entity>) collection.getCollection();
                 final PCollection output = input.apply(config.getName(), write);

@@ -3,8 +3,8 @@ package com.mercari.solution.util.converter;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
-import com.mercari.solution.util.RowSchemaUtil;
-import com.mercari.solution.util.gcp.DatastoreUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 
@@ -71,7 +71,7 @@ public class EntityToRowConverter {
                 return value.getTimestampValue();
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return DatastoreUtil.convertDate(value);
+                    return EntitySchemaUtil.convertDate(value);
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return value.getStringValue();
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {

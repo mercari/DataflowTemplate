@@ -1,6 +1,6 @@
 package com.mercari.solution.util.converter;
 
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.apache.solr.common.SolrInputDocument;

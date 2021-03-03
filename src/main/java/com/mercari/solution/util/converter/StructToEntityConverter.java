@@ -10,6 +10,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.mercari.solution.util.gcp.DatastoreUtil;
 import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -24,7 +25,7 @@ public class StructToEntityConverter {
         if(keyFields != null) {
             final StringBuilder sb = new StringBuilder();
             for (final String keyField : keyFields) {
-                final String keyValue = SpannerUtil.getAsString(struct, keyField);
+                final String keyValue = StructSchemaUtil.getAsString(struct, keyField);
                 sb.append(keyValue);
                 sb.append(splitter);
             }

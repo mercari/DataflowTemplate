@@ -1,12 +1,8 @@
-package com.mercari.solution.util;
+package com.mercari.solution.util.schema;
 
-
-import org.apache.avro.LogicalTypes;
-import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
-import org.apache.poi.ss.formula.functions.T;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;

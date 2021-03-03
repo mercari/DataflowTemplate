@@ -8,7 +8,7 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import org.apache.beam.sdk.Pipeline;

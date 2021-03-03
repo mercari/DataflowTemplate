@@ -1,7 +1,7 @@
 package com.mercari.solution.util.converter;
 
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.SolrUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.SolrSchemaUtil;
 import com.mercari.solution.util.XmlUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -48,7 +48,7 @@ public class RecordToSolrDocumentConverter {
     }
 
     public static String convertSchema(final Schema schema) {
-        final Document document = SolrUtil.createSchemaXML("content");
+        final Document document = SolrSchemaUtil.createSchemaXML("content");
 
         // fields
         final Element fields = document.createElement("fields");
@@ -58,7 +58,7 @@ public class RecordToSolrDocumentConverter {
 
         // types
         final Element types = document.createElement("types");
-        SolrUtil.setDefaultSchemaTypes(document, types);
+        SolrSchemaUtil.setDefaultSchemaTypes(document, types);
 
         final Element root = document.getDocumentElement();
         root.appendChild(fields);

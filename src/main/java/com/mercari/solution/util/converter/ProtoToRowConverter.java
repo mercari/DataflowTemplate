@@ -7,7 +7,7 @@ import com.google.protobuf.util.Timestamps;
 import com.google.type.Date;
 import com.google.type.DateTime;
 import com.google.type.TimeOfDay;
-import com.mercari.solution.util.ProtoUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
@@ -54,7 +54,7 @@ public class ProtoToRowConverter {
 
         final Row.Builder builder = Row.withSchema(schema);
         for (final Schema.Field field : schema.getFields()) {
-            final Descriptors.FieldDescriptor fieldDescriptor = ProtoUtil.getField(messageDescriptor, field.getName());
+            final Descriptors.FieldDescriptor fieldDescriptor = ProtoSchemaUtil.getField(messageDescriptor, field.getName());
             builder.addValue(convertValue(fieldDescriptor, message.getField(fieldDescriptor), printer));
         }
         return builder.build();
@@ -109,7 +109,7 @@ public class ProtoToRowConverter {
                             .withNullable(false);
                     break;
                 }
-                switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
                         elementFieldType = Schema.FieldType.BOOLEAN.withNullable(false);
                         break;
@@ -231,10 +231,10 @@ public class ProtoToRowConverter {
             case BYTE_STRING:
                 return isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray();
             case MESSAGE: {
-                final Object object = ProtoUtil
+                final Object object = ProtoSchemaUtil
                         .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                 isNull = object == null;
-                switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
                         return !isNull && ((BoolValue) object).getValue();
                     case BYTES_VALUE:

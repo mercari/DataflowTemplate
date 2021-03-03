@@ -2,7 +2,7 @@ package com.mercari.solution.util.converter;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;

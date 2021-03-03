@@ -8,7 +8,7 @@ import com.google.protobuf.Value;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.RowToAutoMLRowConverter;
 import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.schemas.Schema;

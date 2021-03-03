@@ -1,7 +1,7 @@
 package com.mercari.solution.config;
 
 import com.google.gson.JsonObject;
-import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.RecordToRowConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
 import com.mercari.solution.util.gcp.StorageUtil;

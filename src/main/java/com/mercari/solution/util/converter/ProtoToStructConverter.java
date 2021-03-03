@@ -6,7 +6,7 @@ import com.google.cloud.spanner.Type;
 import com.google.protobuf.*;
 import com.google.protobuf.util.JsonFormat;
 import com.google.type.*;
-import com.mercari.solution.util.ProtoUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 
 import java.time.*;
 import java.util.ArrayList;
@@ -91,7 +91,7 @@ public class ProtoToStructConverter {
                             Type.StructField.of("value", convertSchema(valueField)));
                     break;
                 }
-                switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
                         elementType = Type.bool();
                         break;
@@ -215,9 +215,9 @@ public class ProtoToStructConverter {
                     }
                     List<Object> messageArray = array.stream()
                             .map(v -> (DynamicMessage) v)
-                            .map(v -> ProtoUtil.convertBuildInValue(field.getMessageType().getFullName(), v))
+                            .map(v -> ProtoSchemaUtil.convertBuildInValue(field.getMessageType().getFullName(), v))
                             .collect(Collectors.toList());
-                    switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                    switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                         case BOOL_VALUE:
                             builder.set(field.getName()).toBoolArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o != null && ((BoolValue)o).getValue())
@@ -380,10 +380,10 @@ public class ProtoToStructConverter {
                     builder.set(field.getName()).to(isNull ? ByteArray.copyFrom("") : ByteArray.copyFrom(((ByteString) value).toByteArray()));
                     return;
                 case MESSAGE: {
-                    final Object object = ProtoUtil
+                    final Object object = ProtoSchemaUtil
                             .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                     isNull = (object == null);
-                    switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                    switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                         case BOOL_VALUE:
                             builder.set(field.getName()).to(!isNull && ((BoolValue) object).getValue());
                             return;

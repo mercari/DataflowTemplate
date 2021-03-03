@@ -13,6 +13,7 @@ import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.Transaction;
@@ -738,7 +739,7 @@ public class SpannerSource implements SourceModule {
                                     if(timestampAttribute == null) {
                                         c.output(struct);
                                     } else {
-                                        c.outputWithTimestamp(struct, SpannerUtil.getTimestamp(struct, timestampAttribute, eventTimestamp));
+                                        c.outputWithTimestamp(struct, StructSchemaUtil.getTimestamp(struct, timestampAttribute, eventTimestamp));
                                     }
                                     count += 1;
                                 }
@@ -760,7 +761,7 @@ public class SpannerSource implements SourceModule {
                                 if(timestampAttribute == null) {
                                     c.output(struct);
                                 } else {
-                                    c.outputWithTimestamp(struct, SpannerUtil.getTimestamp(struct, timestampAttribute, eventTimestamp));
+                                    c.outputWithTimestamp(struct, StructSchemaUtil.getTimestamp(struct, timestampAttribute, eventTimestamp));
                                 }
                                 count += 1;
                             }

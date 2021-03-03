@@ -1,6 +1,5 @@
 package com.mercari.solution.util.converter;
 
-import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.datastore.v1.ArrayValue;
 import com.google.datastore.v1.Entity;
@@ -8,7 +7,7 @@ import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;

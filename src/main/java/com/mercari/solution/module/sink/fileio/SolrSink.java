@@ -1,6 +1,6 @@
 package com.mercari.solution.module.sink.fileio;
 
-import com.mercari.solution.util.SolrUtil;
+import com.mercari.solution.util.schema.SolrSchemaUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.lucene.document.Document;
@@ -103,7 +103,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         try (final FileWriter filewriter = new FileWriter(new File("/solr/" + this.coreName + "/schema.xml"))) {
             filewriter.write(schemaString);
         }
-        this.fieldNames = SolrUtil.getFieldNames(schemaString);
+        this.fieldNames = SolrSchemaUtil.getFieldNames(schemaString);
 
         final boolean create;
         if (container.getAllCoreNames().size() > 0) {

@@ -8,16 +8,16 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.module.sink.fileio.SolrSink;
-import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.FixedFileNaming;
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.EntityToSolrDocumentConverter;
 import com.mercari.solution.util.converter.RecordToSolrDocumentConverter;
 import com.mercari.solution.util.converter.RowToSolrDocumentConverter;
 import com.mercari.solution.util.converter.StructToSolrDocumentConverter;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
@@ -228,7 +228,7 @@ public class SolrIndexSink implements SinkModule {
                 }
                 case STRUCT: {
                     final FileIO.Write<String, Struct> write = createWrite(
-                            parameters, e -> SpannerUtil.getAsString(e, destinationField));
+                            parameters, e -> StructSchemaUtil.getAsString(e, destinationField));
                     if(parameters.getIndexSchema() == null) {
                         schemaString = RecordToSolrDocumentConverter.convertSchema(collection.getAvroSchema());
                     } else if(parameters.getIndexSchema().isJsonPrimitive() && parameters.getIndexSchema().getAsJsonPrimitive().isString()) {
@@ -245,7 +245,7 @@ public class SolrIndexSink implements SinkModule {
                 }
                 case ENTITY: {
                     final FileIO.Write<String, Entity> write = createWrite(
-                            parameters, e -> DatastoreUtil.getAsString(e.getPropertiesOrDefault(destinationField, null)));
+                            parameters, e -> EntitySchemaUtil.getAsString(e.getPropertiesOrDefault(destinationField, null)));
                     if(parameters.getIndexSchema() == null) {
                         schemaString = RecordToSolrDocumentConverter.convertSchema(collection.getAvroSchema());
                     } else if(parameters.getIndexSchema().isJsonPrimitive() && parameters.getIndexSchema().getAsJsonPrimitive().isString()) {

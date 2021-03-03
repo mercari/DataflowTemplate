@@ -7,8 +7,8 @@ import com.google.protobuf.util.Timestamps;
 import com.google.type.Date;
 import com.google.type.DateTime;
 import com.google.type.TimeOfDay;
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.ProtoUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericData;
@@ -114,7 +114,7 @@ public class ProtoToRecordConverter {
                             convertSchema(valueField));
                     break;
                 }
-                switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
                         elementSchema = AvroSchemaUtil.REQUIRED_BOOLEAN;
                         break;
@@ -193,8 +193,8 @@ public class ProtoToRecordConverter {
                 return ((List<DynamicMessage>) value).stream()
                         .map(e -> {
                             final GenericRecordBuilder builder = new GenericRecordBuilder(schema.getElementType());
-                            builder.set("key", ProtoUtil.getValue(e, "key", printer));
-                            builder.set("value", ProtoUtil.getValue(e, "value", printer));
+                            builder.set("key", ProtoSchemaUtil.getValue(e, "key", printer));
+                            builder.set("value", ProtoSchemaUtil.getValue(e, "value", printer));
                             return builder.build();
                         })
                         .collect(Collectors.toList());
@@ -239,10 +239,10 @@ public class ProtoToRecordConverter {
             case BYTE_STRING:
                 return ByteBuffer.wrap(isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray());
             case MESSAGE: {
-                final Object object = ProtoUtil
+                final Object object = ProtoSchemaUtil
                         .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                 isNull = object == null;
-                switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
                         return !isNull && ((BoolValue) object).getValue();
                     case BYTES_VALUE:

@@ -1,7 +1,8 @@
-package com.mercari.solution.util;
+package com.mercari.solution.util.schema;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mercari.solution.util.XmlUtil;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -15,7 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class SolrUtil {
+
+public class SolrSchemaUtil {
 
     public static Document parseSchema(final JsonObject jsonObject) {
         final Document document = createSchemaXML("content");

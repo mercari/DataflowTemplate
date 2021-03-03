@@ -1,7 +1,7 @@
 package com.mercari.solution.util.converter;
 
 import com.google.datastore.v1.Entity;
-import com.mercari.solution.util.gcp.DatastoreUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 
@@ -14,7 +14,7 @@ public class EntityToCsvConverter {
     public static String convert(final Entity entity, final List<String> fields) {
         final List<?> values = fields
                 .stream()
-                .map(f -> DatastoreUtil.getFieldValue(entity, f))
+                .map(f -> EntitySchemaUtil.getFieldValue(entity, f))
                 .collect(Collectors.toList());
         StringBuilder sb = new StringBuilder();
         try(CSVPrinter printer = new CSVPrinter(sb, CSVFormat.DEFAULT)) {
