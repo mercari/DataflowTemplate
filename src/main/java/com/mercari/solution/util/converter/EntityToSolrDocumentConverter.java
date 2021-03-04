@@ -3,7 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.datastore.v1.ArrayValue;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Value;
-import com.mercari.solution.util.gcp.DatastoreUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
 import org.apache.solr.common.SolrInputDocument;
 
 import java.time.LocalDate;
@@ -57,7 +57,7 @@ public class EntityToSolrDocumentConverter {
                 return;
             }
             case TIMESTAMP_VALUE: {
-                final com.google.cloud.Date date = DatastoreUtil.convertDate(value);
+                final com.google.cloud.Date date = EntitySchemaUtil.convertDate(value);
                 final LocalDate ld = LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
                 doc.addField(name, java.util.Date.from(ld.atStartOfDay().toInstant(ZoneOffset.UTC)));
                 return;
@@ -125,7 +125,7 @@ public class EntityToSolrDocumentConverter {
                             break;
                         }
                         case TIMESTAMP_VALUE: {
-                            final com.google.cloud.Date date = DatastoreUtil.convertDate(v);
+                            final com.google.cloud.Date date = EntitySchemaUtil.convertDate(v);
                             final LocalDate ld = LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
                             doc.addField(name, java.util.Date.from(ld.atStartOfDay().toInstant(ZoneOffset.UTC)));
                             break;

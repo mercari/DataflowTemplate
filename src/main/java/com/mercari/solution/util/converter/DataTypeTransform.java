@@ -6,10 +6,10 @@ import com.google.datastore.v1.Entity;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.RowSchemaUtil;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.schemas.Schema;
@@ -583,12 +583,12 @@ public class DataTypeTransform {
                 }
                 case STRUCT: {
                     final PCollection<Struct> structs = (PCollection<Struct>)input;
-                    output = structs.apply(ParDo.of(new WithKeyDoFn<>(keyFields, SpannerUtil::getAsString)));
+                    output = structs.apply(ParDo.of(new WithKeyDoFn<>(keyFields, StructSchemaUtil::getAsString)));
                     return output;
                 }
                 case ENTITY: {
                     final PCollection<Entity> structs = (PCollection<Entity>)input;
-                    output = structs.apply(ParDo.of(new WithKeyDoFn<>(keyFields, DatastoreUtil::getFieldValueAsString)));
+                    output = structs.apply(ParDo.of(new WithKeyDoFn<>(keyFields, EntitySchemaUtil::getFieldValueAsString)));
                     return output;
                 }
                 default:
@@ -627,12 +627,12 @@ public class DataTypeTransform {
                 }
                 case STRUCT: {
                     final PCollection<Struct> structs = (PCollection<Struct>)input;
-                    output = structs.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, SpannerUtil::getTimestamp, timestampDefault)));
+                    output = structs.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, StructSchemaUtil::getTimestamp, timestampDefault)));
                     return output;
                 }
                 case ENTITY: {
                     final PCollection<Entity> entities = (PCollection<Entity>)input;
-                    output = entities.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, DatastoreUtil::getTimestamp, timestampDefault)));
+                    output = entities.apply("WithTimestamp", ParDo.of(new WithTimestampDoFn<>(timestampAttribute, EntitySchemaUtil::getTimestamp, timestampDefault)));
                     return output;
                 }
                 default:

@@ -11,9 +11,9 @@ import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.module.sink.fileio.TextFileSink;
 import com.mercari.solution.util.FixedFileNaming;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
@@ -260,7 +260,7 @@ public class StorageSink implements SinkModule {
                         }
                         case STRUCT: {
                             final FileIO.Write<String, Struct> write = createWrite(
-                                    parameters, e -> SpannerUtil.getAsString(e, destinationField));
+                                    parameters, e -> StructSchemaUtil.getAsString(e, destinationField));
                             writeResult = ((PCollection<Struct>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
@@ -272,7 +272,7 @@ public class StorageSink implements SinkModule {
                         }
                         case ENTITY: {
                             final FileIO.Write<String, Entity> write = createWrite(
-                                    parameters, e -> DatastoreUtil.getFieldValueAsString(e, destinationField));
+                                    parameters, e -> EntitySchemaUtil.getFieldValueAsString(e, destinationField));
                             writeResult = ((PCollection<Entity>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
@@ -312,7 +312,7 @@ public class StorageSink implements SinkModule {
                         }
                         case STRUCT: {
                             final FileIO.Write<String, Struct> write = createWrite(
-                                    parameters, e -> SpannerUtil.getAsString(e, destinationField));
+                                    parameters, e -> StructSchemaUtil.getAsString(e, destinationField));
                             writeResult = ((PCollection<Struct>)input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
@@ -324,7 +324,7 @@ public class StorageSink implements SinkModule {
                         }
                         case ENTITY: {
                             final FileIO.Write<String, Entity> write = createWrite(
-                                    parameters, e -> DatastoreUtil.getFieldValueAsString(e, destinationField));
+                                    parameters, e -> EntitySchemaUtil.getFieldValueAsString(e, destinationField));
                             writeResult = ((PCollection<Entity>)input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),

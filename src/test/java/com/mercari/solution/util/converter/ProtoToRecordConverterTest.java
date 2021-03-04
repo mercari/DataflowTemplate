@@ -5,8 +5,8 @@ import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.Timestamps;
-import com.mercari.solution.util.AvroSchemaUtil;
-import com.mercari.solution.util.ProtoUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import com.mercari.solution.util.ResourceUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -30,18 +30,18 @@ public class ProtoToRecordConverterTest {
     @Test
     public void testToSchema() {
         final byte[] descBytes = ResourceUtil.getResourceFileAsBytes("schema/test.desc");
-        final Map<String, Descriptors.Descriptor> descriptors = ProtoUtil.getDescriptors(descBytes);
+        final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descBytes);
         final Descriptors.Descriptor descriptor = descriptors.get("com.mercari.solution.entity.TestMessage");
         final Schema schema = ProtoToRecordConverter.convertSchema(descriptor);
 
         assertSchemaFields(schema, descriptor);
 
         final Schema childSchema = getFieldSchema(schema, "child");
-        final Descriptors.Descriptor childDescriptor = ProtoUtil.getField(descriptor, "child").getMessageType();
+        final Descriptors.Descriptor childDescriptor = ProtoSchemaUtil.getField(descriptor, "child").getMessageType();
         assertSchemaFields(childSchema, childDescriptor);
 
         final Schema grandchildSchema = getFieldSchema(childSchema, "grandchild");
-        final Descriptors.Descriptor grandchildDescriptor = ProtoUtil.getField(childDescriptor, "grandchild").getMessageType();
+        final Descriptors.Descriptor grandchildDescriptor = ProtoSchemaUtil.getField(childDescriptor, "grandchild").getMessageType();
         assertSchemaFields(grandchildSchema, grandchildDescriptor);
     }
 
@@ -60,38 +60,38 @@ public class ProtoToRecordConverterTest {
         final byte[] descBytes = ResourceUtil.getResourceFileAsBytes("schema/test.desc");
         final byte[] protoBytes = ResourceUtil.getResourceFileAsBytes(protoPath);
 
-        final Map<String, Descriptors.Descriptor> descriptors = ProtoUtil.getDescriptors(descBytes);
+        final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descBytes);
         final Descriptors.Descriptor descriptor = descriptors.get("com.mercari.solution.entity.TestMessage");
         final Schema schema = ProtoToRecordConverter.convertSchema(descriptor);
-        final DynamicMessage message = ProtoUtil.convert(descriptor, protoBytes);
+        final DynamicMessage message = ProtoSchemaUtil.convert(descriptor, protoBytes);
 
-        final JsonFormat.Printer printer = ProtoUtil.createJsonPrinter(descriptors);
+        final JsonFormat.Printer printer = ProtoSchemaUtil.createJsonPrinter(descriptors);
 
         final GenericRecord record = ProtoToRecordConverter.convert(schema, descriptor, protoBytes, printer);
         assertRecordValues(message, record, printer);
 
-        if(ProtoUtil.hasField(message, "child")) {
+        if(ProtoSchemaUtil.hasField(message, "child")) {
             final GenericRecord child = (GenericRecord) record.get("child");
-            final DynamicMessage childMessage = (DynamicMessage) ProtoUtil.getFieldValue(message, "child");
+            final DynamicMessage childMessage = (DynamicMessage) ProtoSchemaUtil.getFieldValue(message, "child");
             assertRecordValues(childMessage, child, printer);
 
             final List<GenericRecord> grandchildren = (List<GenericRecord>)child.get("grandchildren");
-            final List<DynamicMessage> grandchildrenMessages = (List<DynamicMessage>)ProtoUtil.getFieldValue(childMessage, "grandchildren");
+            final List<DynamicMessage> grandchildrenMessages = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(childMessage, "grandchildren");
             int i = 0;
             for(final GenericRecord r : grandchildren) {
                 assertRecordValues(grandchildrenMessages.get(i), r, printer);
                 i++;
             }
 
-            if(ProtoUtil.hasField(childMessage, "grandchild")) {
+            if(ProtoSchemaUtil.hasField(childMessage, "grandchild")) {
                 final GenericRecord grandchild = (GenericRecord) child.get("grandchild");
-                final DynamicMessage grandchildMessage = (DynamicMessage) ProtoUtil.getFieldValue(childMessage, "grandchild");
+                final DynamicMessage grandchildMessage = (DynamicMessage) ProtoSchemaUtil.getFieldValue(childMessage, "grandchild");
                 assertRecordValues(grandchildMessage, grandchild, printer);
             }
         }
 
         final List<GenericRecord> children = (List<GenericRecord>)record.get("children");
-        final List<DynamicMessage> childrenMessages = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "children");
+        final List<DynamicMessage> childrenMessages = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(message, "children");
         int i = 0;
         for(final GenericRecord r : children) {
             assertRecordValues(childrenMessages.get(i), r, printer);
@@ -140,7 +140,7 @@ public class ProtoToRecordConverterTest {
         // Enum
         Assert.assertEquals(Schema.Type.ENUM, getFieldSchema(schema, "enumValue").getType());
         Assert.assertEquals(
-                ProtoUtil.getField(descriptor, "enumValue").getEnumType().getValues().stream()
+                ProtoSchemaUtil.getField(descriptor, "enumValue").getEnumType().getValues().stream()
                         .map(Descriptors.EnumValueDescriptor::getName)
                         .collect(Collectors.toList()),
                 getFieldSchema(schema, "enumValue").getEnumSymbols());
@@ -212,7 +212,7 @@ public class ProtoToRecordConverterTest {
         Assert.assertEquals(Schema.Type.ENUM, getFieldSchema(schema, "enumValues").getElementType().getType());
 
         Assert.assertEquals(
-                ProtoUtil.getField(descriptor, "enumValues").getEnumType().getValues().stream()
+                ProtoSchemaUtil.getField(descriptor, "enumValues").getEnumType().getValues().stream()
                         .map(Descriptors.EnumValueDescriptor::getName)
                         .collect(Collectors.toList()),
                 getFieldSchema(schema, "enumValues").getElementType().getEnumSymbols());
@@ -221,120 +221,120 @@ public class ProtoToRecordConverterTest {
     private void assertRecordValues(final DynamicMessage message, final GenericRecord record, final JsonFormat.Printer printer) throws InvalidProtocolBufferException {
 
         // Build-in type
-        Assert.assertEquals(ProtoUtil.getValue(message, "boolValue", printer), record.get("boolValue"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "stringValue", printer), record.get("stringValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "boolValue", printer), record.get("boolValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "stringValue", printer), record.get("stringValue"));
         Assert.assertEquals(
-                new String((byte[]) ProtoUtil.getValue(message, "bytesValue", printer), StandardCharsets.UTF_8),
+                new String((byte[]) ProtoSchemaUtil.getValue(message, "bytesValue", printer), StandardCharsets.UTF_8),
                 new String(((ByteBuffer)record.get("bytesValue")).array(), StandardCharsets.UTF_8));
-        Assert.assertEquals(ProtoUtil.getValue(message, "intValue", printer), record.get("intValue"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "longValue", printer), record.get("longValue"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "floatValue", printer), record.get("floatValue"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "doubleValue", printer), record.get("doubleValue"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "uintValue", printer), record.get("uintValue"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "ulongValue", printer), record.get("ulongValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "intValue", printer), record.get("intValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "longValue", printer), record.get("longValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "floatValue", printer), record.get("floatValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "doubleValue", printer), record.get("doubleValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "uintValue", printer), record.get("uintValue"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "ulongValue", printer), record.get("ulongValue"));
 
         // Google-provided type
         Assert.assertEquals(
-                (int)((LocalDate)ProtoUtil.getValue(message, "dateValue", printer)).toEpochDay(),
+                (int)((LocalDate) ProtoSchemaUtil.getValue(message, "dateValue", printer)).toEpochDay(),
                 record.get("dateValue"));
         Assert.assertEquals(
-                ((LocalTime)ProtoUtil.getValue(message, "timeValue", printer)).toSecondOfDay() * 1000_000L,
+                ((LocalTime) ProtoSchemaUtil.getValue(message, "timeValue", printer)).toSecondOfDay() * 1000_000L,
                 record.get("timeValue"));
         Assert.assertEquals(
-                ((Instant)ProtoUtil.getValue(message, "datetimeValue", printer)).getMillis() * 1000,
+                ((Instant) ProtoSchemaUtil.getValue(message, "datetimeValue", printer)).getMillis() * 1000,
                 record.get("datetimeValue"));
         Assert.assertEquals(
-                ((Instant)ProtoUtil.getValue(message, "timestampValue", printer)).getMillis() * 1000,
+                ((Instant) ProtoSchemaUtil.getValue(message, "timestampValue", printer)).getMillis() * 1000,
                 record.get("timestampValue"));
 
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedBoolValue", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedBoolValue", printer),
                 record.get("wrappedBoolValue"));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedStringValue", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedStringValue", printer),
                 record.get("wrappedStringValue"));
         Assert.assertEquals(
-                new String((byte[])ProtoUtil.getValue(message, "wrappedBytesValue", printer), StandardCharsets.UTF_8),
+                new String((byte[]) ProtoSchemaUtil.getValue(message, "wrappedBytesValue", printer), StandardCharsets.UTF_8),
                 new String(((ByteBuffer)record.get("wrappedBytesValue")).array(), StandardCharsets.UTF_8));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedInt32Value", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedInt32Value", printer),
                 record.get("wrappedInt32Value"));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedInt64Value", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedInt64Value", printer),
                 record.get("wrappedInt64Value"));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedFloatValue", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedFloatValue", printer),
                 record.get("wrappedFloatValue"));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedDoubleValue", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedDoubleValue", printer),
                 record.get("wrappedDoubleValue"));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedUInt32Value", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedUInt32Value", printer),
                 record.get("wrappedUInt32Value"));
         Assert.assertEquals(
-                ProtoUtil.getValue(message, "wrappedUInt64Value", printer),
+                ProtoSchemaUtil.getValue(message, "wrappedUInt64Value", printer),
                 record.get("wrappedUInt64Value"));
 
         // Any
-        Assert.assertTrue(ProtoUtil.getValue(message, "anyValue", printer).equals(record.get("anyValue")));
+        Assert.assertTrue(ProtoSchemaUtil.getValue(message, "anyValue", printer).equals(record.get("anyValue")));
 
         // Enum
         GenericData.EnumSymbol enumSymbol = (GenericData.EnumSymbol)record.get("enumValue");
-        if(ProtoUtil.hasField(message, "enumValue")) {
+        if(ProtoSchemaUtil.hasField(message, "enumValue")) {
             Assert.assertEquals(
-                    ((Descriptors.EnumValueDescriptor)ProtoUtil.getFieldValue(message, "enumValue")).getIndex(),
+                    ((Descriptors.EnumValueDescriptor) ProtoSchemaUtil.getFieldValue(message, "enumValue")).getIndex(),
                     enumSymbol.getSchema().getEnumOrdinal(record.get("enumValue").toString()));
         } else {
             Assert.assertEquals(0, enumSymbol.getSchema().getEnumOrdinal(record.get("enumValue").toString()));
         }
 
         // OneOf
-        Assert.assertEquals(ProtoUtil.getValue(message, "entityName", printer), record.get("entityName"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "entityAge", printer), record.get("entityAge"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "entityName", printer), record.get("entityName"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "entityAge", printer), record.get("entityAge"));
 
         // Map
-        List<DynamicMessage> mapMessages = (List<DynamicMessage>)ProtoUtil.getValue(message, "strIntMapValue", printer);
+        List<DynamicMessage> mapMessages = (List<DynamicMessage>) ProtoSchemaUtil.getValue(message, "strIntMapValue", printer);
         List<GenericRecord> mapRecords = (List<GenericRecord>)record.get("strIntMapValue");
         Assert.assertEquals(mapMessages.size(), mapRecords.size());
         for(int i=0; i<mapMessages.size(); i++) {
             Assert.assertEquals(
-                    ProtoUtil.getValue(mapMessages.get(i), "key", printer),
+                    ProtoSchemaUtil.getValue(mapMessages.get(i), "key", printer),
                     mapRecords.get(i).get("key"));
             Assert.assertEquals(
-                    ProtoUtil.getValue(mapMessages.get(i), "value", printer),
+                    ProtoSchemaUtil.getValue(mapMessages.get(i), "value", printer),
                     mapRecords.get(i).get("value"));
         }
 
         mapRecords = (List<GenericRecord>)record.get("longDoubleMapValue");
-        mapMessages = (List<DynamicMessage>) ProtoUtil.getValue(message, "longDoubleMapValue", printer);
+        mapMessages = (List<DynamicMessage>) ProtoSchemaUtil.getValue(message, "longDoubleMapValue", printer);
         Assert.assertEquals(mapMessages.size(), mapRecords.size());
         for (int i = 0; i < mapMessages.size(); i++) {
             Assert.assertEquals(
-                    ProtoUtil.getValue(mapMessages.get(i), "key", printer),
+                    ProtoSchemaUtil.getValue(mapMessages.get(i), "key", printer),
                     mapRecords.get(i).get("key"));
             Assert.assertEquals(
-                    ProtoUtil.getValue(mapMessages.get(i), "value", printer),
+                    ProtoSchemaUtil.getValue(mapMessages.get(i), "value", printer),
                     mapRecords.get(i).get("value"));
         }
 
         // Repeated
-        Assert.assertEquals(ProtoUtil.getValue(message, "boolValues", printer), record.get("boolValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "stringValues", printer), record.get("stringValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "intValues", printer), record.get("intValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "longValues", printer), record.get("longValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "floatValues", printer), record.get("floatValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "doubleValues", printer), record.get("doubleValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "uintValues", printer), record.get("uintValues"));
-        Assert.assertEquals(ProtoUtil.getValue(message, "ulongValues", printer), record.get("ulongValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "boolValues", printer), record.get("boolValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "stringValues", printer), record.get("stringValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "intValues", printer), record.get("intValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "longValues", printer), record.get("longValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "floatValues", printer), record.get("floatValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "doubleValues", printer), record.get("doubleValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "uintValues", printer), record.get("uintValues"));
+        Assert.assertEquals(ProtoSchemaUtil.getValue(message, "ulongValues", printer), record.get("ulongValues"));
 
-        List<DynamicMessage> list = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "dateValues");
+        List<DynamicMessage> list = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(message, "dateValues");
         int i = 0;
-        if(ProtoUtil.hasField(message, "dateValues")) {
+        if(ProtoSchemaUtil.hasField(message, "dateValues")) {
             Assert.assertEquals(list.size(), ((List)record.get("dateValues")).size());
             for (int epochDay : (List<Integer>)record.get("dateValues")) {
                 Assert.assertEquals(
-                        (int)ProtoUtil.getEpochDay(
-                                (com.google.type.Date) (ProtoUtil.convertBuildInValue("google.type.Date", list.get(i)))),
+                        (int) ProtoSchemaUtil.getEpochDay(
+                                (com.google.type.Date) (ProtoSchemaUtil.convertBuildInValue("google.type.Date", list.get(i)))),
                         epochDay);
                 i++;
             }
@@ -342,14 +342,14 @@ public class ProtoToRecordConverterTest {
             Assert.assertEquals(new ArrayList<Date>(), record.get("dateValues"));
         }
 
-        if(ProtoUtil.hasField(message, "timeValues")) {
-            list = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "timeValues");
+        if(ProtoSchemaUtil.hasField(message, "timeValues")) {
+            list = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(message, "timeValues");
             Assert.assertEquals(list.size(), ((List)record.get("timeValues")).size());
             i = 0;
             for (long microSecondOfDay : (List<Long>)record.get("timeValues")) {
                 Assert.assertEquals(
-                        1000_000 *ProtoUtil.getSecondOfDay(
-                                (com.google.type.TimeOfDay) (ProtoUtil.convertBuildInValue("google.type.TimeOfDay", list.get(i)))),
+                        1000_000 * ProtoSchemaUtil.getSecondOfDay(
+                                (com.google.type.TimeOfDay) (ProtoSchemaUtil.convertBuildInValue("google.type.TimeOfDay", list.get(i)))),
                         microSecondOfDay);
                 i++;
             }
@@ -357,14 +357,14 @@ public class ProtoToRecordConverterTest {
             Assert.assertEquals(new ArrayList<LocalTime>(), record.get("timeValues"));
         }
 
-        if(ProtoUtil.hasField(message, "datetimeValues")) {
-            list = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "datetimeValues");
+        if(ProtoSchemaUtil.hasField(message, "datetimeValues")) {
+            list = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(message, "datetimeValues");
             Assert.assertEquals(list.size(), ((List)record.get("datetimeValues")).size());
             i = 0;
             for (long epochMicros : (List<Long>)record.get("datetimeValues")) {
                 Assert.assertEquals(
-                        1000 * ProtoUtil.getEpochMillis(
-                                (com.google.type.DateTime) (ProtoUtil.convertBuildInValue("google.type.DateTime", list.get(i)))),
+                        1000 * ProtoSchemaUtil.getEpochMillis(
+                                (com.google.type.DateTime) (ProtoSchemaUtil.convertBuildInValue("google.type.DateTime", list.get(i)))),
                         epochMicros);
                 i++;
             }
@@ -372,14 +372,14 @@ public class ProtoToRecordConverterTest {
             Assert.assertEquals(new ArrayList<Instant>(), record.get("datetimeValues"));
         }
 
-        if(ProtoUtil.hasField(message, "timestampValues")) {
-            list = (List<DynamicMessage>)ProtoUtil.getFieldValue(message, "timestampValues");
+        if(ProtoSchemaUtil.hasField(message, "timestampValues")) {
+            list = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(message, "timestampValues");
             Assert.assertEquals(list.size(), ((List)record.get("timestampValues")).size());
             i = 0;
             for (long epochMicros : (List<Long>)record.get("timestampValues")) {
                 Assert.assertEquals(
                         Timestamps.toMicros(
-                                (com.google.protobuf.Timestamp) (ProtoUtil.convertBuildInValue("google.protobuf.Timestamp", list.get(i)))),
+                                (com.google.protobuf.Timestamp) (ProtoSchemaUtil.convertBuildInValue("google.protobuf.Timestamp", list.get(i)))),
                         epochMicros);
                 i++;
             }
@@ -387,8 +387,8 @@ public class ProtoToRecordConverterTest {
             Assert.assertEquals(new ArrayList<Instant>(), record.get("timestampValues"));
         }
 
-        if(ProtoUtil.getFieldValue(message, "anyValues") != null && record.get("anyValues") != null) {
-            list = (List<DynamicMessage>) ProtoUtil.getFieldValue(message, "anyValues");
+        if(ProtoSchemaUtil.getFieldValue(message, "anyValues") != null && record.get("anyValues") != null) {
+            list = (List<DynamicMessage>) ProtoSchemaUtil.getFieldValue(message, "anyValues");
             Assert.assertEquals(list.size(), ((List)record.get("anyValues")).size());
             i = 0;
             for (var json : (List<String>)record.get("anyValues")) {
@@ -399,8 +399,8 @@ public class ProtoToRecordConverterTest {
             }
         }
 
-        if(ProtoUtil.hasField(message, "enumValues")) {
-            List<Descriptors.EnumValueDescriptor> enums = (List<Descriptors.EnumValueDescriptor>)ProtoUtil.getFieldValue(message, "enumValues");
+        if(ProtoSchemaUtil.hasField(message, "enumValues")) {
+            List<Descriptors.EnumValueDescriptor> enums = (List<Descriptors.EnumValueDescriptor>) ProtoSchemaUtil.getFieldValue(message, "enumValues");
             Assert.assertEquals(enums.size(), ((List)record.get("enumValues")).size());
             i = 0;
             for(var enumValue : (List<GenericData.EnumSymbol>)record.get("enumValues")) {

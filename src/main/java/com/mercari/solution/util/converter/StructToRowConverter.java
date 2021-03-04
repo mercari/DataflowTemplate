@@ -5,8 +5,9 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
-import com.mercari.solution.util.RowSchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -44,7 +45,7 @@ public class StructToRowConverter {
     }
 
     private static Object getValue(final String fieldName, final Schema.FieldType fieldType, final Struct struct) {
-        if(!SpannerUtil.hasField(struct, fieldName)) {
+        if(!StructSchemaUtil.hasField(struct, fieldName)) {
             return null;
         }
         if(struct.isNull(fieldName)) {

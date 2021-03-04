@@ -8,7 +8,7 @@ import com.google.protobuf.util.JsonFormat;
 import com.google.type.Date;
 import com.google.type.DateTime;
 import com.google.type.TimeOfDay;
-import com.mercari.solution.util.ProtoUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 
 import java.time.*;
@@ -119,10 +119,10 @@ public class ProtoToEntityConverter {
             case BYTE_STRING:
                 return Value.newBuilder().setBlobValue(isNull ? ByteString.copyFromUtf8("") : (ByteString) value).build();
             case MESSAGE: {
-                final Object object = ProtoUtil
+                final Object object = ProtoSchemaUtil
                         .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                 isNull = object == null;
-                switch (ProtoUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
                     case BOOL_VALUE:
                         return Value.newBuilder().setBooleanValue(!isNull && ((BoolValue) object).getValue()).build();
                     case BYTES_VALUE:

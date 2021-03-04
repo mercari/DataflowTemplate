@@ -5,8 +5,8 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Type;
-import com.mercari.solution.util.RowSchemaUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -48,10 +48,10 @@ public class RowToMutationConverter {
                                    final Set<String> excludeFields, final Set<String> hideFields) {
 
         if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
-            return SpannerUtil.createDeleteMutation(row, table, keyFields, Row::getValue);
+            return StructSchemaUtil.createDeleteMutation(row, table, keyFields, Row::getValue);
         }
 
-        final Mutation.WriteBuilder builder = SpannerUtil.createMutationWriteBuilder(table, mutationOp);
+        final Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
         for(final Schema.Field field : row.getSchema().getFields()) {
             if(excludeFields != null && excludeFields.contains(field.getName())) {
                 continue;

@@ -13,7 +13,7 @@ import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.protobuf.util.Timestamps;
-import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;

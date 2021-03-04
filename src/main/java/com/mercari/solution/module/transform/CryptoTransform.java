@@ -13,10 +13,12 @@ import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.*;
 import com.mercari.solution.util.converter.JsonToMapConverter;
-import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.hashicorp.VaultClient;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import freemarker.template.Template;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
@@ -321,9 +323,9 @@ public class CryptoTransform implements TransformModule {
                     if("decrypt".equals(parameters.getMode().trim().toLowerCase())) {
                         final Decrypt<Struct> transform = new Decrypt<>(
                                 parameters,
-                                SpannerUtil::getBytes,
+                                StructSchemaUtil::getBytes,
                                 (Struct struct, Map<String, byte[]> decryptedBytes) -> {
-                                    final Struct.Builder builder = SpannerUtil.toBuilder(struct, null, decryptedBytes.keySet());
+                                    final Struct.Builder builder = StructSchemaUtil.toBuilder(struct, null, decryptedBytes.keySet());
                                     for (var entry : decryptedBytes.entrySet()) {
                                         if(entry.getValue() == null) {
                                             builder.set(entry.getKey()).to((ByteArray) null);
@@ -346,9 +348,9 @@ public class CryptoTransform implements TransformModule {
                     if("decrypt".equals(parameters.getMode().trim().toLowerCase())) {
                         final Decrypt<Entity> transform = new Decrypt<>(
                                 parameters,
-                                DatastoreUtil::getBytes,
+                                EntitySchemaUtil::getBytes,
                                 (Entity entity, Map<String, byte[]> decryptedBytes) -> {
-                                    final Entity.Builder builder = DatastoreUtil.toBuilder(entity, null, decryptedBytes.keySet());
+                                    final Entity.Builder builder = EntitySchemaUtil.toBuilder(entity, null, decryptedBytes.keySet());
                                     for (var entry : decryptedBytes.entrySet()) {
                                         builder.putProperties(entry.getKey(), Value.newBuilder().setBlobValue(ByteString.copyFrom(entry.getValue())).build());
                                     }

@@ -1,7 +1,7 @@
 package com.mercari.solution.util.converter;
 
 import com.google.cloud.spanner.Struct;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 
@@ -14,7 +14,7 @@ public class StructToCsvConverter {
     public static String convert(final Struct struct, final List<String> fields) {
         final List<?> values = fields
                 .stream()
-                .map(f -> SpannerUtil.getValue(struct, f))
+                .map(f -> StructSchemaUtil.getValue(struct, f))
                 .collect(Collectors.toList());
         final StringBuilder sb = new StringBuilder();
         try(final CSVPrinter printer = new CSVPrinter(sb, CSVFormat.DEFAULT)) {

@@ -11,7 +11,7 @@ import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.gson.JsonArray;
-import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.schemas.Schema;
 
@@ -68,7 +68,7 @@ public class StructToMutationConverter {
             return delete(struct, table, keyFields);
         }
 
-        Mutation.WriteBuilder builder = SpannerUtil.createMutationWriteBuilder(table, mutationOp);
+        Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
         for(final Type.StructField field : struct.getType().getStructFields()) {
             if(excludeFields != null && excludeFields.contains(field.getName())) {
                 continue;

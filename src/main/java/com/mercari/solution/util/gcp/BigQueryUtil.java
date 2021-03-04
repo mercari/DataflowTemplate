@@ -20,7 +20,7 @@ import com.google.cloud.bigquery.storage.v1.DataFormat;
 import com.google.cloud.bigquery.storage.v1.ReadSession;
 import com.google.cloud.hadoop.util.ChainingHttpRequestInitializer;
 import com.google.common.collect.ImmutableList;
-import com.mercari.solution.util.AvroSchemaUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.TableRecordToRowConverter;
 import org.apache.beam.sdk.extensions.gcp.util.RetryHttpRequestInitializer;
 import org.apache.beam.sdk.schemas.Schema;

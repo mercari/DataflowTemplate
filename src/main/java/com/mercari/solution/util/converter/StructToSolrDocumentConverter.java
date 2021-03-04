@@ -3,7 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
-import com.mercari.solution.util.SolrUtil;
+import com.mercari.solution.util.schema.SolrSchemaUtil;
 import com.mercari.solution.util.XmlUtil;
 import org.apache.solr.common.SolrInputDocument;
 import org.w3c.dom.Document;
@@ -32,7 +32,7 @@ public class StructToSolrDocumentConverter {
     }
 
     public static String convertSchema(final Type type) {
-        final Document document = SolrUtil.createSchemaXML("content");
+        final Document document = SolrSchemaUtil.createSchemaXML("content");
 
         // fields
         final Element fields = document.createElement("fields");
@@ -42,7 +42,7 @@ public class StructToSolrDocumentConverter {
 
         // types
         final Element types = document.createElement("types");
-        SolrUtil.setDefaultSchemaTypes(document, types);
+        SolrSchemaUtil.setDefaultSchemaTypes(document, types);
 
         final Element root = document.getDocumentElement();
         root.appendChild(fields);
