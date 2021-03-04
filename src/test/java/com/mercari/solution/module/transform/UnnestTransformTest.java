@@ -19,21 +19,21 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 
-public class FlattenTransformTest {
+public class UnnestTransformTest {
 
     @Rule
     public final transient TestPipeline pipeline = TestPipeline.create();
 
     @Test
-    public void testFlattenRow() {
+    public void testUnnestRow() {
 
         final JsonObject parameters = new JsonObject();
         parameters.addProperty("path", "children");
         parameters.addProperty("prefix", true);
 
         final TransformConfig config = new TransformConfig();
-        config.setName("flatten");
-        config.setModule("flatten");
+        config.setName("unnest");
+        config.setModule("unnest");
         config.setInputs(Arrays.asList("rowInput"));
         config.setParameters(parameters);
 
@@ -43,8 +43,8 @@ public class FlattenTransformTest {
                 .apply("CreateDummy", Create.of(testRow, testRow));
         final FCollection<Row> fCollection = FCollection.of("rowInput", inputRows, DataType.ROW, testRow.getSchema());
 
-        final Map<String, FCollection<?>> outputs = FlattenTransform.transform(Arrays.asList(fCollection), config);
-        final PCollection<Row> outputRows = (PCollection<Row>) outputs.get("flatten").getCollection();
+        final Map<String, FCollection<?>> outputs = UnnestTransform.transform(Arrays.asList(fCollection), config);
+        final PCollection<Row> outputRows = (PCollection<Row>) outputs.get("unnest").getCollection();
 
         PAssert.that(outputRows).satisfies(rows -> {
             int count = 0;
@@ -71,15 +71,15 @@ public class FlattenTransformTest {
     }
 
     @Test
-    public void testFlattenStruct() {
+    public void testUnnestStruct() {
 
         final JsonObject parameters = new JsonObject();
         parameters.addProperty("path", "children");
         parameters.addProperty("prefix", true);
 
         final TransformConfig config = new TransformConfig();
-        config.setName("flatten");
-        config.setModule("flatten");
+        config.setName("unnest");
+        config.setModule("unnest");
         config.setInputs(Arrays.asList("structInput"));
         config.setParameters(parameters);
 
@@ -89,8 +89,8 @@ public class FlattenTransformTest {
                 .apply("CreateDummy", Create.of(testStruct, testStruct));
         final FCollection<Struct> fCollection = FCollection.of("structInput", inputRows, DataType.STRUCT, testStruct.getType());
 
-        final Map<String, FCollection<?>> outputs = FlattenTransform.transform(Arrays.asList(fCollection), config);
-        final PCollection<Struct> outputStructss = (PCollection<Struct>) outputs.get("flatten").getCollection();
+        final Map<String, FCollection<?>> outputs = UnnestTransform.transform(Arrays.asList(fCollection), config);
+        final PCollection<Struct> outputStructss = (PCollection<Struct>) outputs.get("unnest").getCollection();
 
         PAssert.that(outputStructss).satisfies(structs -> {
             int count = 0;

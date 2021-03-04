@@ -1,26 +1,24 @@
 package com.mercari.solution.module.transform;
 
+import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Struct;
-import com.google.cloud.spanner.Type;
 import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
-import org.apache.beam.sdk.coders.RowCoder;
-import org.apache.beam.sdk.schemas.Schema;
-import org.apache.beam.sdk.transforms.DoFn;
+import com.mercari.solution.util.converter.DataTypeTransform;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.SerializableFunction;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionList;
+import org.apache.beam.sdk.values.Row;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -28,177 +26,118 @@ public class FlattenTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(FlattenTransform.class);
 
-    private class FlattenTransformParameters implements Serializable {
+    private class FlattenTransformParameters {
 
-        private String path;
-        private Boolean prefix;
+        private String dataType;
 
-        public String getPath() {
-            return path;
+        public String getDataType() {
+            return dataType;
         }
 
-        public void setPath(String path) {
-            this.path = path;
-        }
-
-        public Boolean getPrefix() {
-            return prefix;
-        }
-
-        public void setPrefix(Boolean prefix) {
-            this.prefix = prefix;
+        public void setDataType(String dataType) {
+            this.dataType = dataType;
         }
     }
 
     public String getName() { return "flatten"; }
 
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
-        return FlattenTransform.transform(inputs, config);
+        return Collections.singletonMap(config.getName(), FlattenTransform.transform(inputs, config));
     }
 
-    public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
+    public static FCollection<?> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 
-        final FlattenTransformParameters parameters = new Gson().fromJson(config.getParameters(), FlattenTransformParameters.class);
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        final FlattenTransformParameters parameters = new Gson()
+                .fromJson(config.getParameters(), FlattenTransformParameters.class);
+        final DataType dataType = selectDataType(parameters, inputs);
 
-        final Map<String, FCollection<?>> results = new HashMap<>();
-        for(FCollection<?> input : inputs) {
-            final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
-            switch (input.getDataType()) {
-                case AVRO:
-                    // TODO
-                    throw new IllegalArgumentException("FlattenTransform does not yet support input type: Avro");
-                case ROW: {
-                    final Schema outputSchema = RowSchemaUtil.flatten(input.getSchema(),
-                            parameters.getPath(), parameters.getPrefix());
-                    final FCollection<Row> inputCollection = (FCollection<Row>) input;
-                    final Flatten<Row, Schema, Schema> transform = new Flatten<>(
-                            parameters,
-                            outputSchema,
-                            s -> s,
-                            RowSchemaUtil::flatten);
-                    final PCollection<Row> output = inputCollection.getCollection()
-                            .apply(name, transform)
-                            .setCoder(RowCoder.of(outputSchema));
-                    results.put(name, FCollection.of(name, output, DataType.ROW, outputSchema));
-                    break;
-                }
-                case STRUCT:
-                    final Type outputType = StructSchemaUtil.flatten(input.getSpannerType(),
-                            parameters.getPath(), parameters.getPrefix());
-                    final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
-                    final Flatten<Struct, Type, Type> transform = new Flatten<>(
-                            parameters,
-                            outputType,
-                            s -> s,
-                            StructSchemaUtil::flatten);
-                    final PCollection<Struct> output = inputCollection.getCollection()
-                            .apply(name, transform);
-                    results.put(name, FCollection.of(name, output, DataType.STRUCT, outputType));
-                    break;
-                case ENTITY:
-                    // TODO
-                    throw new IllegalArgumentException("FlattenTransform does not yet support input type: Datastore Entity");
-                default: {
-                    throw new IllegalArgumentException("FlattenTransform does not support input type: " + input.getDataType());
-                }
+        final Pipeline pipeline = inputs.get(0).getCollection().getPipeline();
+        switch (dataType) {
+            case AVRO: {
+                final KV<FCollection<GenericRecord>, PCollectionList<GenericRecord>> list = createCollectionList(pipeline, dataType, inputs);
+                final Flatten<GenericRecord> transform = new Flatten(parameters);
+                final PCollection<GenericRecord> output = list.getValue().apply(config.getName(), transform);
+                return FCollection.update(list.getKey(), output);
             }
-        }
+            case ROW: {
+                final KV<FCollection<Row>, PCollectionList<Row>> list = createCollectionList(pipeline, dataType, inputs);
+                final Flatten<Row> transform = new Flatten(parameters);
+                final PCollection<Row> output = list.getValue().apply(config.getName(), transform);
+                return FCollection.update(list.getKey(), output);
+            }
+            case STRUCT: {
+                final KV<FCollection<Struct>, PCollectionList<Struct>> list = createCollectionList(pipeline, dataType, inputs);
+                final Flatten<Struct> transform = new Flatten(parameters);
+                final PCollection<Struct> output = list.getValue().apply(config.getName(), transform);
+                return FCollection.update(list.getKey(), output);
+            }
+            case MUTATION: {
+                final KV<FCollection<Mutation>, PCollectionList<Mutation>> list = createCollectionList(pipeline, dataType, inputs);
+                final Flatten<Mutation> transform = new Flatten(parameters);
+                final PCollection<Mutation> output = list.getValue().apply(config.getName(), transform);
+                return FCollection.update(list.getKey(), output);
+            }
+            default:
+                throw new IllegalArgumentException("Not supported output data typ: " + dataType.name());
 
-        return results;
+        }
     }
 
-    private static void validateParameters(final FlattenTransformParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("FlattenTransform config parameters must not be empty!");
-        }
-
-        if(parameters.getPath() == null) {
-            throw new IllegalArgumentException("FlattenTransform config parameters must contain path parameter.");
-        }
-    }
-
-    private static void setDefaultParameters(final FlattenTransformParameters parameters) {
-        if(parameters.getPrefix() == null) {
-            parameters.setPrefix(true);
-        }
-    }
-
-
-    public static class Flatten<T, InputSchemaT, RuntimeSchemaT> extends PTransform<PCollection<T>, PCollection<T>> {
+    public static class Flatten<T> extends PTransform<PCollectionList<T>, PCollection<T>> {
 
         private final FlattenTransformParameters parameters;
-        private final InputSchemaT inputSchema;
-        private final SerializableFunction<InputSchemaT, RuntimeSchemaT> schemaConverter;
-        private final ValueFlatten<RuntimeSchemaT, T> valueFlatten;
 
-        private Flatten(final FlattenTransformParameters parameters,
-                        final InputSchemaT schema,
-                        final SerializableFunction<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                        final ValueFlatten<RuntimeSchemaT, T> valueFlatten) {
+        public FlattenTransformParameters getParameters() {
+            return parameters;
+        }
 
+        private Flatten(final FlattenTransformParameters parameters) {
             this.parameters = parameters;
-            this.inputSchema = schema;
-            this.schemaConverter = schemaConverter;
-            this.valueFlatten = valueFlatten;
             validate();
         }
 
         @Override
-        public PCollection<T> expand(final PCollection<T> input) {
-            return input.apply("Flatten", ParDo.of(new FlattenDoFn(
-                    parameters.getPath(), parameters.getPrefix(),
-                    inputSchema, schemaConverter, valueFlatten)));
+        public PCollection<T> expand(final PCollectionList<T> inputs) {
+            return inputs.apply("Flatten", org.apache.beam.sdk.transforms.Flatten.pCollections());
         }
 
         private void validate() {
-            if(this.parameters == null && this.parameters.getPath() == null) {
+            if(this.parameters == null && this.parameters.getDataType() == null) {
                 //throw new IllegalArgumentException("Flatten module required dataType parameter!");
             }
         }
 
-        private class FlattenDoFn extends DoFn<T, T> {
-
-            private final String path;
-            private final boolean prefix;
-            private final InputSchemaT inputSchema;
-            private final SerializableFunction<InputSchemaT, RuntimeSchemaT> schemaConverter;
-            private final ValueFlatten<RuntimeSchemaT, T> valueFlatten;
-
-            private transient RuntimeSchemaT schema;
-
-            FlattenDoFn(final String path,
-                        final boolean prefix,
-                        final InputSchemaT schema,
-                        final SerializableFunction<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                        final ValueFlatten<RuntimeSchemaT, T> valueFlatten) {
-
-                this.path = path;
-                this.prefix = prefix;
-                this.inputSchema = schema;
-                this.schemaConverter = schemaConverter;
-                this.valueFlatten = valueFlatten;
-            }
-
-            @Setup
-            public void setup() {
-                this.schema = this.schemaConverter.apply(inputSchema);
-            }
-
-            @ProcessElement
-            public void processElement(final ProcessContext c) {
-                final T element = c.element();
-                final List<T> outputs = this.valueFlatten.flatten(this.schema, element, path, prefix);
-                outputs.forEach(c::output);
-            }
-
-        }
-
     }
 
-    private interface ValueFlatten<SchemaT, T> extends Serializable {
-        List<T> flatten(final SchemaT schema, final T element, final String path, final boolean prefix);
+    private static DataType selectDataType(
+            final FlattenTransformParameters parameters,
+            final List<FCollection<?>> inputs) {
+
+        if(parameters.getDataType() != null) {
+            return DataType.valueOf(parameters.getDataType().toUpperCase());
+        }
+        return inputs.get(0).getDataType();
+    }
+
+    private static <T> KV<FCollection<T>, PCollectionList<T>> createCollectionList(
+            final Pipeline pipeline,
+            final DataType dataType,
+            final List<FCollection<?>> inputs) {
+
+        if(inputs.size() == 0) {
+            return null;
+        }
+
+        PCollectionList<T> list = PCollectionList.empty(pipeline);
+        FCollection<T> outputCollection = null;
+        for(final FCollection<?> input : inputs) {
+            final DataTypeTransform.TypeTransform<T> transform = DataTypeTransform.transform(input, dataType);
+            final PCollection<T> row = input.getCollection()
+                    .apply("ConvertTo" + dataType.name(), transform);
+            list = list.and(row);
+            outputCollection = transform.getOutputCollection();
+        }
+        return KV.of(outputCollection, list);
     }
 
 }
