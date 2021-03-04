@@ -1,11 +1,14 @@
 package com.mercari.solution.module.transform;
 
+import com.google.cloud.spanner.Struct;
+import com.google.cloud.spanner.Type;
 import com.google.gson.Gson;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -65,8 +68,10 @@ public class FlattenTransform implements TransformModule {
             switch (input.getDataType()) {
                 case AVRO:
                     // TODO
+                    throw new IllegalArgumentException("FlattenTransform does not yet support input type: Avro");
                 case ROW: {
-                    final Schema outputSchema = RowSchemaUtil.flatten(input.getSchema(), parameters.getPath(), true);
+                    final Schema outputSchema = RowSchemaUtil.flatten(input.getSchema(),
+                            parameters.getPath(), parameters.getPrefix());
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
                     final Flatten<Row, Schema, Schema> transform = new Flatten<>(
                             parameters,
@@ -76,15 +81,27 @@ public class FlattenTransform implements TransformModule {
                     final PCollection<Row> output = inputCollection.getCollection()
                             .apply(name, transform)
                             .setCoder(RowCoder.of(outputSchema));
-                    results.put(name, FCollection.of(config.getName(), output, DataType.ROW, outputSchema));
+                    results.put(name, FCollection.of(name, output, DataType.ROW, outputSchema));
                     break;
                 }
                 case STRUCT:
-                    // TODO
+                    final Type outputType = StructSchemaUtil.flatten(input.getSpannerType(),
+                            parameters.getPath(), parameters.getPrefix());
+                    final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
+                    final Flatten<Struct, Type, Type> transform = new Flatten<>(
+                            parameters,
+                            outputType,
+                            s -> s,
+                            StructSchemaUtil::flatten);
+                    final PCollection<Struct> output = inputCollection.getCollection()
+                            .apply(name, transform);
+                    results.put(name, FCollection.of(name, output, DataType.STRUCT, outputType));
+                    break;
                 case ENTITY:
                     // TODO
+                    throw new IllegalArgumentException("FlattenTransform does not yet support input type: Datastore Entity");
                 default: {
-
+                    throw new IllegalArgumentException("FlattenTransform does not support input type: " + input.getDataType());
                 }
             }
         }

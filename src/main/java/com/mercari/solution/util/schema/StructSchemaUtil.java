@@ -12,6 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -59,6 +61,56 @@ public class StructSchemaUtil {
             case STRUCT:
                 return struct.getStruct(field);
             case ARRAY:
+            default:
+                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        }
+    }
+
+    public static Value getStructValue(final Struct struct, final String field) {
+        if(struct.isNull(field)) {
+            return null;
+        }
+        switch (struct.getColumnType(field).getCode()) {
+            case BOOL:
+                return Value.bool(struct.getBoolean(field));
+            case BYTES:
+                return Value.bytes(struct.getBytes(field));
+            case NUMERIC:
+                return Value.numeric(struct.getBigDecimal(field));
+            case STRING:
+                return Value.string(struct.getString(field));
+            case INT64:
+                return Value.int64(struct.getLong(field));
+            case FLOAT64:
+                return Value.float64(struct.getDouble(field));
+            case DATE:
+                return Value.date(struct.getDate(field));
+            case TIMESTAMP:
+                return Value.timestamp(struct.getTimestamp(field));
+            case STRUCT:
+                return Value.struct(struct.getColumnType(field), struct.getStruct(field));
+            case ARRAY: {
+                switch (struct.getColumnType(field).getArrayElementType().getCode()) {
+                    case BOOL:
+                        return Value.boolArray(struct.getBooleanArray(field));
+                    case BYTES:
+                        return Value.bytesArray(struct.getBytesList(field));
+                    case NUMERIC:
+                        return Value.numericArray(struct.getBigDecimalList(field));
+                    case STRING:
+                        return Value.stringArray(struct.getStringList(field));
+                    case INT64:
+                        return Value.int64Array(struct.getLongArray(field));
+                    case FLOAT64:
+                        return Value.float64Array(struct.getDoubleArray(field));
+                    case DATE:
+                        return Value.dateArray(struct.getDateList(field));
+                    case TIMESTAMP:
+                        return Value.timestampArray(struct.getTimestampList(field));
+                    case STRUCT:
+                        return Value.structArray(struct.getColumnType(field).getArrayElementType(), struct.getStructList(field));
+                }
+            }
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
@@ -186,9 +238,18 @@ public class StructSchemaUtil {
 
     public static List<Struct> flatten(final Type type, final Struct struct, final String path, final boolean addPrefix) {
         final List<String> paths = Arrays.asList(path.split("\\."));
-        final List<Object> values = flattenValues(struct, paths, null, addPrefix);
-
-        return null;
+        final List<Map<String, Value>> values = flattenValues(struct, paths, null, addPrefix);
+        return values.stream()
+                .map(map -> {
+                    final Struct.Builder builder = Struct.newBuilder();
+                    map.entrySet().forEach(e -> {
+                        if(e.getValue() != null) {
+                            builder.set(e.getKey()).to(e.getValue());
+                        }
+                    });
+                    return builder.build();
+                })
+                .collect(Collectors.toList());
     }
 
     public static Struct.Builder toBuilder(final Struct struct) {
@@ -310,8 +371,6 @@ public class StructSchemaUtil {
         }
         return Type.struct(fields);
     }
-
-
 
     private static Schema.FieldType convertFieldType(final String t) {
         final String type = t.trim().toUpperCase();
@@ -447,13 +506,13 @@ public class StructSchemaUtil {
                             return Stream.of(Type.StructField.of(f.getName(), elementType));
                         }
                     } else {
-                        return Stream.of(Type.StructField.of(name + f.getName(), f.getType()));
+                        return Stream.of(Type.StructField.of(name, f.getType()));
                     }
                 })
                 .collect(Collectors.toList());
     }
-    private static List<Object> flattenValues(final Struct struct, final List<String> paths, final String prefix, final boolean addPrefix) {
-        final Map<String, Object> values = new HashMap<>();
+    private static List<Map<String, Value>> flattenValues(final Struct struct, final List<String> paths, final String prefix, final boolean addPrefix) {
+        final Map<String, Value> properties = new HashMap<>();
         Type.StructField pathField = null;
         String pathName = null;
         for(final Type.StructField field : struct.getType().getStructFields()) {
@@ -464,7 +523,7 @@ public class StructSchemaUtil {
                 name = field.getName();
             }
             if(paths.size() == 0 || !field.getName().equals(paths.get(0))) {
-                values.put(name, getValue(struct, field.getName()));
+                properties.put(name, getStructValue(struct, field.getName()));
             } else {
                 pathName = name;
                 pathField = field;
@@ -472,37 +531,47 @@ public class StructSchemaUtil {
         }
 
         if(pathField == null) {
-            return Arrays.asList(values);
+            return Arrays.asList(properties);
         }
 
-        if(getValue(struct, pathField.getName()) == null) {
-            return Arrays.asList(values);
+        if(getStructValue(struct, pathField.getName()) == null) {
+            return Arrays.asList(properties);
         }
 
         if(Type.Code.ARRAY.equals(pathField.getType().getCode())) {
-            final List<Object> arrayValues = new ArrayList<>();
-            final List<Object> array = (List)getValue(struct, pathField.getName());
-            for(final Object value : array) {
-                if(Type.Code.STRUCT.equals(pathField.getType().getArrayElementType().getCode())) {
-                    final List<Object> list = flattenValues(
-                            (Struct)value,
-                            paths.subList(1, paths.size()), pathName, addPrefix);
-                    for(Object obj : list) {
-                        if(obj instanceof Map) {
-                            ((Map<String, Object>)obj).putAll(values);
+            final List<Map<String, Value>> arrayValues = new ArrayList<>();
+            final Value array = getStructValue(struct, pathField.getName());
+            if(Type.Code.STRUCT.equals(pathField.getType().getArrayElementType().getCode())) {
+                try {
+                    final Method getStructArray = array.getClass().getDeclaredMethod("getStructArray");
+                    getStructArray.setAccessible(true);
+                    final Object structArray = getStructArray.invoke(array);
+                    for (final Struct child : (List<Struct>)structArray) {
+                        final List<Map<String, Value>> list = flattenValues(
+                                child, paths.subList(1, paths.size()), pathName, addPrefix);
+                        for(Map<String, Value> unnestedChildProperties : list) {
+                            unnestedChildProperties.putAll(properties);
+                            arrayValues.add(unnestedChildProperties);
                         }
-                        arrayValues.add(obj);
                     }
-                } else {
-                    arrayValues.add(value);
+                    return arrayValues;
+                } catch (NoSuchMethodException e) {
+                    throw new RuntimeException(e);
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                } catch (InvocationTargetException e) {
+                    throw new RuntimeException(e);
                 }
+            } else {
+                properties.put(pathName, getStructValue(struct, pathField.getName()));
             }
-            return arrayValues;
         } else {
-            values.put(pathName, getValue(struct, pathField.getName()));
+            properties.put(pathName, getStructValue(struct, pathField.getName()));
         }
 
-        return Arrays.asList(values);
+        final Struct.Builder builder = Struct.newBuilder();
+        properties.entrySet().forEach(e -> builder.set(e.getKey()).to(e.getValue()));
+        return Arrays.asList(Collections.singletonMap(pathName, Value.struct(builder.build())));
     }
 
     public interface ValueGetter<InputT> extends Serializable {
