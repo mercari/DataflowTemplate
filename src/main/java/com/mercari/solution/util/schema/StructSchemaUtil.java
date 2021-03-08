@@ -3,6 +3,7 @@ package com.mercari.solution.util.schema;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.*;
+import com.google.protobuf.util.Timestamps;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.joda.time.DateTime;
@@ -39,7 +40,39 @@ public class StructSchemaUtil {
                 .anyMatch(f -> f.getName().equals(fieldName));
     }
 
-    public static Object getValue(final Struct struct, final String field) {
+    public static Object getValue(final Struct struct, final String fieldName) {
+        if(struct.isNull(fieldName)) {
+            return null;
+        }
+        switch (struct.getColumnType(fieldName).getCode()) {
+            case BOOL:
+                return struct.getBoolean(fieldName);
+            case BYTES:
+                return struct.getBytes(fieldName).toByteArray();
+            case STRING:
+                return struct.getString(fieldName);
+            case INT64:
+                return struct.getLong(fieldName);
+            case FLOAT64:
+                return struct.getDouble(fieldName);
+            case NUMERIC:
+                return struct.getBigDecimal(fieldName);
+            case DATE: {
+                final Date date = struct.getDate(fieldName);
+                return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
+            }
+            case TIMESTAMP: {
+                return Instant.ofEpochMilli(Timestamps.toMillis(struct.getTimestamp(fieldName).toProto()));
+            }
+            case STRUCT:
+                return struct.getStruct(fieldName);
+            case ARRAY:
+            default:
+                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
+        }
+    }
+
+    public static Object getCSVLineValue(final Struct struct, final String field) {
         if(struct.isNull(field)) {
             return null;
         }

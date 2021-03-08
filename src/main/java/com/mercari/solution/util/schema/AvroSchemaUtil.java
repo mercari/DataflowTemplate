@@ -33,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -321,6 +322,112 @@ public class AvroSchemaUtil {
                         .fields()
                         .name("key").type(Schema.create(Schema.Type.STRING)).noDefault()
                         .endRecord());
+    }
+
+    public static Object getValue(final GenericRecord record, final String fieldName) {
+        if(record == null) {
+            return null;
+        }
+        Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return null;
+        }
+        final Schema fieldSchema = unnestUnion(field.schema());
+        switch(fieldSchema.getType()) {
+            case BOOLEAN:
+            case FLOAT:
+            case DOUBLE:
+                return value;
+            case ENUM:
+            case STRING:
+                return value.toString();
+            case BYTES:
+            case FIXED:
+                final byte[] bytes = ((ByteBuffer)value).array();
+                return Arrays.copyOf(bytes, bytes.length);
+            case INT: {
+                final Integer intValue = (Integer) value;
+                if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
+                    return LocalDate.ofEpochDay(intValue.longValue());
+                } else if(LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                    return LocalTime.ofSecondOfDay(intValue * 1000);
+                }
+                return intValue;
+            }
+            case LONG: {
+                final Long longValue = (Long) value;
+                if(LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    return Instant.ofEpochMilli(longValue);
+                } else if(LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return Instant.ofEpochMilli(longValue * 1000);
+                } else if(LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                    return LocalTime.ofSecondOfDay(longValue * 1000_000);
+                }
+                return longValue;
+            }
+            case RECORD:
+            case MAP:
+                return value;
+            case ARRAY:
+                return ((List<Object>)value).stream()
+                        .map(v -> {
+                            if(v == null) {
+                                return null;
+                            }
+                            final Schema arraySchema = unnestUnion(fieldSchema.getElementType());
+                            switch (arraySchema.getType()) {
+                                case BOOLEAN:
+                                case FLOAT:
+                                case DOUBLE:
+                                    return v;
+                                case ENUM:
+                                case STRING:
+                                    return v.toString();
+                                case FIXED:
+                                case BYTES:
+                                    final byte[] b = ((ByteBuffer)v).array();
+                                    return Arrays.copyOf(b, b.length);
+                                case INT: {
+                                    final Integer intValue = (Integer) v;
+                                    if(LogicalTypes.date().equals(arraySchema.getLogicalType())) {
+                                        return LocalDate.ofEpochDay(intValue.longValue());
+                                    } else if(LogicalTypes.timeMillis().equals(arraySchema.getLogicalType())) {
+                                        return LocalTime.ofSecondOfDay(intValue * 1000);
+                                    }
+                                    return intValue;
+                                }
+                                case LONG: {
+                                    final Long longValue = (Long) v;
+                                    if(LogicalTypes.timestampMillis().equals(arraySchema.getLogicalType())) {
+                                        return Instant.ofEpochMilli(longValue);
+                                    } else if(LogicalTypes.timestampMicros().equals(arraySchema.getLogicalType())) {
+                                        return Instant.ofEpochMilli(longValue * 1000);
+                                    } else if(LogicalTypes.timeMicros().equals(arraySchema.getLogicalType())) {
+                                        return LocalTime.ofSecondOfDay(longValue * 1000_000);
+                                    }
+                                    return longValue;
+                                }
+                                case MAP:
+                                case RECORD:
+                                    return v;
+                                case ARRAY:
+                                case NULL:
+                                case UNION:
+                                default:
+                                    return null;
+                            }
+                        })
+                        .collect(Collectors.toList());
+            case UNION:
+            case NULL:
+            default:
+                return null;
+        }
     }
 
     public static byte[] getBytes(final GenericRecord record, final String fieldName) {

@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class EntitySchemaUtil {
 
@@ -45,6 +46,68 @@ public class EntitySchemaUtil {
     public static Object getKeyFieldValue(final Entity entity, String fieldName) {
         final Key.PathElement pe = entity.getKey().getPath(entity.getKey().getPathCount()-1);
         return pe.getName() == null ? pe.getId() : pe.getName();
+    }
+
+    public static Object getValue(final Entity entity, final String fieldName) {
+        if(entity == null) {
+            return null;
+        }
+        final Value value = entity.getPropertiesOrDefault(fieldName, null);
+        if(value == null) {
+            return null;
+        }
+        switch(value.getValueTypeCase()) {
+            case KEY_VALUE: return value.getKeyValue();
+            case STRING_VALUE: return value.getStringValue();
+            case BLOB_VALUE: return value.getBlobValue().toByteArray();
+            case INTEGER_VALUE: return value.getIntegerValue();
+            case DOUBLE_VALUE: return value.getDoubleValue();
+            case BOOLEAN_VALUE: return value.getBooleanValue();
+            case TIMESTAMP_VALUE: return Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue()));
+            case ENTITY_VALUE: return value.getEntityValue();
+            case ARRAY_VALUE: {
+                return value.getArrayValue().getValuesList()
+                        .stream()
+                        .map(v -> {
+                            if(v == null) {
+                                return null;
+                            }
+                            switch (v.getValueTypeCase()) {
+                                case KEY_VALUE:
+                                    return v.getKeyValue();
+                                case BOOLEAN_VALUE:
+                                    return v.getBooleanValue();
+                                case INTEGER_VALUE:
+                                    return v.getIntegerValue();
+                                case BLOB_VALUE:
+                                    return v.getBlobValue().toByteArray();
+                                case STRING_VALUE:
+                                    return v.getStringValue();
+                                case DOUBLE_VALUE:
+                                    return v.getDoubleValue();
+                                case GEO_POINT_VALUE:
+                                    return v.getGeoPointValue();
+                                case TIMESTAMP_VALUE:
+                                    return Instant.ofEpochMilli(Timestamps.toMillis(v.getTimestampValue()));
+                                case ENTITY_VALUE:
+                                    return v.getEntityValue();
+                                case ARRAY_VALUE:
+                                case NULL_VALUE:
+                                case VALUETYPE_NOT_SET:
+                                default:
+                                    return null;
+                            }
+                        })
+                        .collect(Collectors.toList());
+            }
+            case GEO_POINT_VALUE:
+                return value.getGeoPointValue();
+            case VALUETYPE_NOT_SET:
+            case NULL_VALUE:
+                return null;
+            default:
+                throw new IllegalArgumentException(String.format("%s is not supported!", value.getValueTypeCase().name()));
+        }
     }
 
     public static Object getValue(Value value) {
