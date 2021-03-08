@@ -1,0 +1,78 @@
+{
+  "sources": [
+    {
+      "name": "storage",
+      "module": "storage",
+      "parameters": {
+        "input": "gs://example-bucket/prefix",
+        "format": "avro"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "partition",
+      "module": "partition",
+      "inputs": ["storage"],
+      "parameters": {
+        "exclusive": true,
+        "partitions": [
+          {
+            "output": "outputA",
+            "filters": [
+              { "key": "field1", "op": "=", "value": "A" }
+            ]
+          },
+          {
+            "output": "outputB",
+            "filters": {
+              "or": [
+                { "key": "field1", "op": "=", "value": "B" },
+                { "key": "field2", "op": ">", "value": 100 },
+                { "and": [
+                  { "key": "field3", "op": "<", "value": 0 },
+                  { "key": "field4", "op": "in", "value": [1, 2, 3] }
+                ]}
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spannerA",
+      "module": "spanner",
+      "input": "partition.outputA",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytableA"
+      }
+    },
+    {
+      "name": "spannerB",
+      "module": "spanner",
+      "input": "partition.outputB",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytableB"
+      }
+    },
+    {
+      "name": "spannerDefault",
+      "module": "spanner",
+      "input": "partition.defaults",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytableOthers"
+      }
+    }
+  ]
+}

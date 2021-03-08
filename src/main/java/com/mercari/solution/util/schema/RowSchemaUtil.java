@@ -2,12 +2,12 @@ package com.mercari.solution.util.schema;
 
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
-import org.joda.time.format.DateTimeFormat;
-import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.ReadableDateTime;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -15,10 +15,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RowSchemaUtil {
-
-    private static final DateTimeFormatter FORMATTER_YYYY_MM_DD = DateTimeFormat.forPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter FORMATTER_TIMESTAMP = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
-
 
     public static Schema.Builder toBuilder(final Schema schema) {
         return toBuilder(schema, null, false);
@@ -215,19 +211,90 @@ public class RowSchemaUtil {
                 fieldType.getLogicalType().getIdentifier().equals(CalciteUtils.NULLABLE_TIME.getLogicalType().getIdentifier());
     }
 
+    public static boolean isLogicalTypeEnum(final Schema.FieldType fieldType) {
+        return fieldType.getLogicalType().getIdentifier().equals(EnumerationType.IDENTIFIER);
+    }
+
     public static boolean isLogicalTypeTimestamp(final Schema.FieldType fieldType) {
         return CalciteUtils.TIMESTAMP.typesEqual(fieldType) || CalciteUtils.NULLABLE_TIMESTAMP.typesEqual(fieldType);
     }
 
-    public static Object getLogicalTypeValue(final Schema.FieldType fieldType, final Object value) {
-        switch (fieldType.getLogicalType().getBaseType().getTypeName()) {
-            case DATETIME:
-                switch (fieldType.getLogicalType().getArgumentType().getTypeName()) {
-                    case STRING:
-                        return ((Instant) value).toString(FORMATTER_YYYY_MM_DD);
-                }
+    public static Object getValue(final Row row, final String fieldName) {
+        if(row == null) {
+            return null;
         }
-        return null;
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        if(row.getValue(fieldName) == null) {
+            return null;
+        }
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        switch (field.getType().getTypeName()) {
+            case BOOLEAN:
+                return row.getBoolean(fieldName);
+            case STRING:
+                return row.getString(fieldName);
+            case BYTES:
+                return row.getBytes(fieldName);
+            case BYTE:
+                return row.getByte(fieldName);
+            case INT16:
+                return row.getInt16(fieldName);
+            case INT32:
+                return row.getInt32(fieldName);
+            case INT64:
+                return row.getInt64(fieldName);
+            case FLOAT:
+                return row.getFloat(fieldName);
+            case DOUBLE:
+                return row.getDouble(fieldName);
+            case DECIMAL:
+                return row.getDecimal(fieldName);
+            case DATETIME:
+                return row.getDateTime(fieldName).toInstant();
+            case LOGICAL_TYPE:
+                if(isLogicalTypeDate(field.getType())) {
+                    return row.getValue(fieldName); //LocalDate
+                } else if(isLogicalTypeTime(field.getType())) {
+                    return row.getValue(fieldName); //LocalTime
+                } else if(isLogicalTypeEnum(field.getType())) {
+                    final EnumerationType.Value enumValue = row.getValue(fieldName);
+                    return ((EnumerationType)field.getType().getLogicalType()).getValues().get(enumValue.getValue());
+                }
+                return row.getValue(fieldName);
+            case ARRAY:
+            case ITERABLE:
+                if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.DATETIME)) {
+                    return row.getArray(fieldName).stream()
+                            .map(v -> {
+                                if(v == null) {
+                                    return null;
+                                }
+                                final Schema.FieldType arrayType = field.getType().getCollectionElementType();
+                                switch (arrayType.getTypeName()) {
+                                    case DATETIME:
+                                        return ((ReadableDateTime)v).toInstant();
+                                    case LOGICAL_TYPE:
+                                        if(isLogicalTypeEnum(field.getType().getCollectionElementType())) {
+                                            final EnumerationType.Value ev = (EnumerationType.Value)v;
+                                            return ((EnumerationType)arrayType.getLogicalType()).getValues().get(ev.getValue());
+                                        }
+                                    default:
+                                        return v;
+                                }
+                            })
+                            .collect(Collectors.toList());
+                } else {
+                    return row.getArray(fieldName);
+                }
+            case ROW:
+                return row.getRow(fieldName);
+            case MAP:
+                return row.getMap(fieldName);
+            default:
+                return null;
+        }
     }
 
     public static String getAsString(final Row row, final String field) {

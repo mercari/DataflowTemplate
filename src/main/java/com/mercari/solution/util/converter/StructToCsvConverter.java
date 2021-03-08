@@ -14,7 +14,7 @@ public class StructToCsvConverter {
     public static String convert(final Struct struct, final List<String> fields) {
         final List<?> values = fields
                 .stream()
-                .map(f -> StructSchemaUtil.getValue(struct, f))
+                .map(f -> StructSchemaUtil.getCSVLineValue(struct, f))
                 .collect(Collectors.toList());
         final StringBuilder sb = new StringBuilder();
         try(final CSVPrinter printer = new CSVPrinter(sb, CSVFormat.DEFAULT)) {

@@ -1,0 +1,30 @@
+# Partition Transform Module
+
+Partition transform module splits a data collection into separate data collections based on conditions.
+
+## Transform module common parameters
+
+| parameter | optional | type | description |
+| --- | --- | --- | --- |
+| name | required | String | Step name. specified to be unique in config file. |
+| module | required | String | Specified `partition` |
+| inputs | required | Array<String\> | Specify the names of the step from which you want to process the data, including the name of the transform. |
+| parameters | required | Map<String,Object\> | Specify the following individual parameters. |
+
+## Partition transform module parameters
+
+| parameter | optional | type | description |
+| --- | --- | --- | --- |
+| partitions | required | Array<PartitionField\> | Specify the conditions to be assigned to each partition. |
+| exclusive | optional | Boolean | Specifies whether the partitions should be allocated exclusively. Default is true. |
+
+## PartitionField parameters
+
+| parameter | optional | type | description |
+| --- | --- | --- | --- |
+| output | required | String | Specifies the output name of the partition. (given as a suffix to the module name). Records that do not match any of the filter criteria for any of the partitions will be associated with the output named `defaults`. |
+| filters | required | [FilterCondition](filtercondition.md) | Specify the conditions for assigning data to a partition. |
+
+## Related example config files
+
+* [Split Avro records to Cloud Spanner](../../../../examples/avro-to-partition-to-spanner.json)
