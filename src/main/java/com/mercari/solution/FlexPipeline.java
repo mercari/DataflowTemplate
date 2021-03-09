@@ -22,6 +22,7 @@ import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
@@ -167,7 +168,7 @@ public class FlexPipeline {
         if(configParam.startsWith("gs://")) {
             jsonText = StorageUtil.readString(configParam);
         } else if(Files.exists(Paths.get(configParam)) && !Files.isDirectory(Paths.get(configParam))) {
-            jsonText = new String(Files.readAllBytes(Paths.get(configParam)));
+            jsonText = Files.readString(Paths.get(configParam), StandardCharsets.UTF_8);
         } else {
             jsonText = configParam;
         }

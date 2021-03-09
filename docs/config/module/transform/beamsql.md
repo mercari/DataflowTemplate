@@ -15,7 +15,7 @@ Transform Modules for processing and combining input data with a given SQL.
 
 | parameter | optional | type | description |
 | --- | --- | --- | --- |
-| sql | required |  String | sql text to process inputs data. |
+| sql | required |  String | sql text to process inputs data. You can also specify the path of the GCS where you put the SQL file. |
 
 ## Related example config files
 

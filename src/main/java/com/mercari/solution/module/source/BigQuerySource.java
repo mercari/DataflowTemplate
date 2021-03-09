@@ -11,6 +11,7 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
+import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
@@ -220,6 +221,7 @@ public class BigQuerySource implements SourceModule {
         private final String timestampAttribute;
         private final String timestampDefault;
         private final BigQuerySourceParameters parameters;
+        private final Map<String, Object> templateArgs;
 
         public BigQuerySourceParameters getParameters() {
             return parameters;
@@ -229,6 +231,7 @@ public class BigQuerySource implements SourceModule {
             this.timestampAttribute = config.getTimestampAttribute();
             this.timestampDefault = config.getTimestampDefault();
             this.parameters = new Gson().fromJson(config.getParameters(), BigQuerySourceParameters.class);
+            this.templateArgs = config.getArgs();
         }
 
         @Override
@@ -242,7 +245,8 @@ public class BigQuerySource implements SourceModule {
             if(parameters.getQuery() != null) {
                 final String query;
                 if(parameters.getQuery().startsWith("gs://")) {
-                    query = StorageUtil.readString(parameters.getQuery());
+                    final String rawQuery = StorageUtil.readString(parameters.getQuery());
+                    query = TemplateUtil.executeStrictTemplate(rawQuery, templateArgs);
                 } else {
                     query = parameters.getQuery();
                 }

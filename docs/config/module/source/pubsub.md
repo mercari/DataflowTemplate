@@ -11,7 +11,7 @@ Source Module for loading data by specifying a gql into Cloud PubSub.
 | schema | required | [Schema](SCHEMA.md) | Schema of the data to be read |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters |
 
-## BigQuery source module parameters
+## PubSub source module parameters
 
 | parameter | optional | type | description |
 | --- | --- | --- | --- |

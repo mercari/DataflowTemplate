@@ -16,21 +16,22 @@ import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.WriteFilesResult;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
-import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.SerializableFunction;
-import org.apache.beam.sdk.transforms.Wait;
+import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.Row;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.List;
@@ -53,6 +54,7 @@ public class StorageSink implements SinkModule {
         private Integer numShards;
         private String prefix;
         private String compression;
+        private String outputNotify;
 
         private String datetimeFormat;
         private String datetimeFormatZone;
@@ -61,6 +63,7 @@ public class StorageSink implements SinkModule {
         // csv
         private Boolean header;
         private Boolean bom;
+        private Boolean outputEmpty;
 
         public String getOutput() {
             return output;
@@ -134,6 +137,14 @@ public class StorageSink implements SinkModule {
             this.compression = compression;
         }
 
+        public String getOutputNotify() {
+            return outputNotify;
+        }
+
+        public void setOutputNotify(String outputNotify) {
+            this.outputNotify = outputNotify;
+        }
+
         public String getDatetimeFormat() {
             return datetimeFormat;
         }
@@ -174,6 +185,13 @@ public class StorageSink implements SinkModule {
             this.bom = bom;
         }
 
+        public Boolean getOutputEmpty() {
+            return outputEmpty;
+        }
+
+        public void setOutputEmpty(Boolean outputEmpty) {
+            this.outputEmpty = outputEmpty;
+        }
     }
 
     public String getName() { return "storage"; }
@@ -366,7 +384,44 @@ public class StorageSink implements SinkModule {
                     throw new IllegalArgumentException("Not supported format: " + format);
             }
 
+            if(parameters.getOutputEmpty() || parameters.getOutputNotify() != null) {
+                final String emptyContent;
+                if("csv".equals(parameters.getFormat().trim().toLowerCase())) {
+                    emptyContent = String.join(",", getFieldNames(collection));
+                } else {
+                    emptyContent = "";
+                }
+                ((PCollection<KV<String, String>>)writeResult.getPerDestinationOutputFilenames())
+                        .apply("ExtractOutputPath", MapElements.into(TypeDescriptors.strings()).via(s -> s.getValue()))
+                        .setCoder(NullableCoder.of(StringUtf8Coder.of()))
+                        .apply("GloballyAggregate", Combine.globally((a, b) -> a + "\n" + b))
+                        .apply("Postprocess", ParDo.of(new PostprocessDoFn(
+                                parameters.getOutputNotify(),
+                                parameters.getOutputEmpty(),
+                                parameters.getOutput(),
+                                emptyContent)));
+            }
+
             return writeResult.getPerDestinationOutputFilenames();
+        }
+
+        private static List<String> getFieldNames(final FCollection<?> collection) {
+            switch (collection.getDataType()) {
+                case ROW:
+                    return collection.getSchema().getFieldNames();
+                case AVRO:
+                    return collection.getAvroSchema().getFields().stream()
+                            .map(org.apache.avro.Schema.Field::name)
+                            .collect(Collectors.toList());
+                case STRUCT:
+                    return collection.getSpannerType().getStructFields().stream()
+                            .map(Type.StructField::getName)
+                            .collect(Collectors.toList());
+                case ENTITY:
+                    return collection.getSchema().getFieldNames();
+                default:
+                    throw new IllegalArgumentException("Not supported data type: " + collection.getDataType().name());
+            }
         }
 
         private <InputT> FileIO.Write<String, InputT> createWrite(
@@ -487,6 +542,39 @@ public class StorageSink implements SinkModule {
             if(this.parameters.getBom() == null) {
                 this.parameters.setBom(false);
             }
+            if(this.parameters.getOutputEmpty() == null) {
+                this.parameters.setOutputEmpty(false);
+            }
+        }
+
+        private static class PostprocessDoFn extends DoFn<String, Void> {
+
+            private final String outputNotify;
+            private final Boolean outputEmpty;
+            private final String output;
+            private final String emptyText;
+
+            PostprocessDoFn(final String outputNotify, final Boolean outputEmpty, final String output, final String emptyText) {
+                this.outputNotify = outputNotify;
+                this.outputEmpty = outputEmpty;
+                this.output = output;
+                this.emptyText = emptyText;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) throws IOException {
+                final String filePaths = c.element();
+                if(outputEmpty && filePaths == null) {
+                    LOG.info("OutputEmptyFile: " + output);
+                    StorageUtil.writeString(output, emptyText == null ? "" : emptyText);
+                }
+
+                if(outputNotify != null && outputNotify.startsWith("gs://")) {
+                    LOG.info("OutputNotifyFile: " + outputNotify);
+                    StorageUtil.writeString(outputNotify, filePaths == null ? "" : filePaths);
+                }
+            }
+
         }
 
     }
