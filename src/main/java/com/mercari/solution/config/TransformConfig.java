@@ -4,15 +4,21 @@ import com.google.gson.JsonObject;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 
 public class TransformConfig implements Serializable {
 
+    // transform module properties
     private String name;
     private String module;
     private List<String> inputs;
     private JsonObject parameters;
     private List<String> wait;
 
+    // template args
+    private Map<String, Object> args;
+
+    // getter, setter
     public String getName() {
         return name;
     }
@@ -51,6 +57,14 @@ public class TransformConfig implements Serializable {
 
     public void setWait(List<String> wait) {
         this.wait = wait;
+    }
+
+    public Map<String, Object> getArgs() {
+        return args;
+    }
+
+    public void setArgs(Map<String, Object> args) {
+        this.args = args;
     }
 
 }

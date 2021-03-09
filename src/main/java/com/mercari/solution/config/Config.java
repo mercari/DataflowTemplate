@@ -78,6 +78,7 @@ public class Config implements Serializable {
         this.sinks = sinks;
     }
 
+
     public boolean isCalcitePlanner() {
         if(this.transforms == null) {
             return false;
@@ -154,14 +155,19 @@ public class Config implements Serializable {
             if(config.getSources() == null || config.getSources().size() == 0) {
                 throw new IllegalArgumentException("Inputs must not be null or size zero !");
             }
+
+            final Map<String, Object> templateArgs = getTemplateArgs(args);
+
             config.setSources(config.getSources().stream()
                     .filter(Objects::nonNull)
+                    .peek(c -> c.setArgs(templateArgs))
                     .collect(Collectors.toList()));
             if(config.getTransforms() == null) {
                 config.setTransforms(new ArrayList<>());
             }
             config.setTransforms(config.getTransforms().stream()
                     .filter(Objects::nonNull)
+                    .peek(c -> c.setArgs(templateArgs))
                     .collect(Collectors.toList()));
             if(config.getSinks() == null) {
                 config.setSinks(new ArrayList<>());
@@ -169,10 +175,26 @@ public class Config implements Serializable {
             config.setSinks(config.getSinks().stream()
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList()));
+
             return config;
         } catch (Throwable e) {
             throw new RuntimeException("Failed to parse config json: " + jsonText, e);
         }
+    }
+
+    static Map<String, Object> getTemplateArgs(final String[] args) {
+        final Map<String, Map<String, String>> argsParameters = filterConfigArgs(args);
+        final Map<String, Object> map = new HashMap<>();
+        for(final Map.Entry<String, String> entry : argsParameters.getOrDefault("template", new HashMap<>()).entrySet()) {
+            JsonElement jsonElement;
+            try {
+                jsonElement = new Gson().fromJson(entry.getValue(), JsonElement.class);
+            } catch (final JsonSyntaxException e) {
+                jsonElement = new JsonPrimitive(entry.getValue());
+            }
+            map.put(entry.getKey(), extractTemplateParameters(jsonElement));
+        }
+        return map;
     }
 
     private static void replaceParameters(final JsonArray array, final Map<String, Map<String, String>> args) {

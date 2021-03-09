@@ -16,7 +16,7 @@ Source Module for loading data by specifying a query or table into BigQuery.
 
 | parameter | optional | type | description |
 | --- | --- | --- | --- |
-| query | selective required | String | Specify the SQL to read data from BigQuery; unnecessary if table is specified |
+| query | selective required | String | Specify the SQL to read data from BigQuery. unnecessary if table is specified. You can also specify the path of the GCS where you put the SQL file. |
 | table | selective required | String | Specify a Table to load data from BigQuery ({project}. {dataset}. {table} format). If query is specified, it is not necessary. (You can't specify it in the case of view.) |
 | queryTempDataset | optional | String | Optional when specifying a query. Specify a temporary Dataset to store the query results in. If not specified, a temporary Dataset will be created. |
 | queryLocation | optional | String | Optional when specifying a query. Query execution location(ex: US) specification. |

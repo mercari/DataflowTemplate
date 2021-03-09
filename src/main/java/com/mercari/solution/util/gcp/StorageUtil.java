@@ -29,6 +29,7 @@ import org.apache.parquet.io.SeekableInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -126,7 +127,7 @@ public class StorageUtil {
 
     private static String readString(final String bucket, final String object) {
         final byte[] bytes = readBytes(bucket, object);
-        return new String(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private static byte[] readBytes(final String bucket, final String object) {

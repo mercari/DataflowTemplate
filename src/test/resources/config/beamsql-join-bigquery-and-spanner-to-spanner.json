@@ -1,0 +1,49 @@
+{
+  "sources": [
+    {
+      "name": "BigQueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT BField1, BField2 FROM `myproject.mydataset.mytable` WHERE StartDate > DATE('${startDate}')"
+      }
+    },
+    {
+      "name": "SpannerInput",
+      "module": "spanner",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "fields": ["SField1","SField2"]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "beamsql",
+      "module": "beamsql",
+      "inputs": [
+        "BigQueryInput",
+        "SpannerInput"
+      ],
+      "parameters": {
+        "sql": "SELECT BigQueryInput.BField1 AS Field1, IF(BigQueryInput.BField2 IS NULL, SpannerInput.SField2, BigQueryInput.BField2) AS Field2 FROM BigQueryInput LEFT JOIN SpannerInput ON BigQueryInput.BField1 = SpannerInput.SField1 WHERE BigQueryInput.Date = DATE('${startDate}')"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "SpannerOutput",
+      "module": "spanner",
+      "input": "beamsql",
+      "parameters": {
+        "projectId": "anotherproject",
+        "instanceId": "anotherinstance",
+        "databaseId": "anotherdatabase",
+        "table": "anothertable",
+        "createTable": ${create?c},
+        "keyFields": [${keyFields?join(',')}]
+      }
+    }
+  ]
+}

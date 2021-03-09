@@ -19,8 +19,8 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | projectId | required | String | The GCP Project ID of the Spanner you want to load |
 | instanceId | required | String | The Instance ID of the Spanner you want to load |
 | databaseId | required | String | The Database ID of the Spanner you want to load |
-| query | selective required | String | Specify the SQL to read data from Spanner; not necessary if table is specified. |
-| table | selective required | String | Specify the table name to read data from Spanner; not necessary if query is specified. |
+| query | selective required | String | Specify the SQL to read data from Spanner. Not necessary if table is specified. You can also specify the path of the GCS where you put the SQL file. |
+| table | selective required | String | Specify the table name to read data from Spanner. Not necessary if query is specified. |
 | fields | optional | Array<String\> | Specify the name of the field you want to read from the table. The default is all fields. |
 | timestampBound | optional | String | Specify when you want to read the data at the specified time. Format: `yyyy-MM-ddTHH:mm:SSZ` |
 

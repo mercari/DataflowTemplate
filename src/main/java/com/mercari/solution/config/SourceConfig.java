@@ -11,9 +11,11 @@ import org.apache.beam.sdk.schemas.Schema;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class SourceConfig implements Serializable {
 
+    // source module properties
     private String name;
     private String module;
     private Boolean microbatch;
@@ -23,6 +25,10 @@ public class SourceConfig implements Serializable {
     private String timestampAttribute;
     private String timestampDefault;
 
+    // template args
+    private Map<String, Object> args;
+
+    // getter, setter
     public String getName() {
         return name;
     }
@@ -88,6 +94,14 @@ public class SourceConfig implements Serializable {
 
     public void setTimestampDefault(String timestampDefault) {
         this.timestampDefault = timestampDefault;
+    }
+
+    public Map<String, Object> getArgs() {
+        return args;
+    }
+
+    public void setArgs(Map<String, Object> args) {
+        this.args = args;
     }
 
     public static Schema convertSchema(final InputSchema inputSchema) {

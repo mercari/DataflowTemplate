@@ -10,6 +10,7 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
+import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
@@ -250,8 +251,8 @@ public class SpannerSource implements SourceModule {
 
     public static class SpannerBatchSource extends PTransform<PBegin, PCollection<Struct>> {
 
-        private static final TupleTag<KV<String, KV<BatchTransactionId, Partition>>> tagOutputPartition = new TupleTag<KV<String, KV<BatchTransactionId, Partition>>>(){ private static final long serialVersionUID = 1L; };
-        private static final TupleTag<Struct> tagOutputStruct = new TupleTag<Struct>(){ private static final long serialVersionUID = 1L; };
+        private static final TupleTag<KV<String, KV<BatchTransactionId, Partition>>> tagOutputPartition = new TupleTag<>(){ private static final long serialVersionUID = 1L; };
+        private static final TupleTag<Struct> tagOutputStruct = new TupleTag<>(){ private static final long serialVersionUID = 1L; };
 
         private Type type;
 
@@ -259,15 +260,14 @@ public class SpannerSource implements SourceModule {
         private final String timestampDefault;
         private final SpannerSourceParameters parameters;
 
-        public SpannerSourceParameters getParameters() {
-            return parameters;
-        }
+        private final Map<String, Object> templateArgs;
 
 
         private SpannerBatchSource(final SourceConfig config) {
             this.timestampAttribute = config.getTimestampAttribute();
             this.timestampDefault = config.getTimestampDefault();
             this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
+            this.templateArgs = config.getArgs();
             validateParameters();
             setDefaultParameters();
         }
@@ -289,7 +289,8 @@ public class SpannerSource implements SourceModule {
 
                 final String query;
                 if(parameters.getQuery().startsWith("gs://")) {
-                    query = StorageUtil.readString(parameters.getQuery());
+                    final String rawQuery = StorageUtil.readString(parameters.getQuery());
+                    query = TemplateUtil.executeStrictTemplate(rawQuery, templateArgs);
                 } else {
                     query = parameters.getQuery();
                 }

@@ -6,6 +6,7 @@ import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
+import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.sql.udf.JsonFunctions;
@@ -65,6 +66,7 @@ public class BeamSQLTransform implements TransformModule {
 
         private final BeamSQLTransformParameters parameters;
         private final Map<String,FCollection<?>> inputCollections;
+        private final Map<String, Object> templateArgs;
 
         public BeamSQLTransformParameters getParameters() {
             return parameters;
@@ -73,6 +75,7 @@ public class BeamSQLTransform implements TransformModule {
         private SQLTransform(final TransformConfig config, final Map<String,FCollection<?>> inputCollections) {
             this.parameters = new Gson().fromJson(config.getParameters(), BeamSQLTransformParameters.class);
             this.inputCollections = inputCollections;
+            this.templateArgs = config.getArgs();
             validate();
         }
 
@@ -90,7 +93,8 @@ public class BeamSQLTransform implements TransformModule {
 
             final String query;
             if(parameters.getSql().startsWith("gs://")) {
-                query = StorageUtil.readString(parameters.getSql());
+                final String rawQuery = StorageUtil.readString(parameters.getSql());
+                query = TemplateUtil.executeStrictTemplate(rawQuery, templateArgs);
             } else {
                 query = parameters.getSql();
             }
