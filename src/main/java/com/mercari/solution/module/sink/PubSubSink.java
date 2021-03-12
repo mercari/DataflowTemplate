@@ -1,10 +1,17 @@
 package com.mercari.solution.module.sink;
 
+import com.google.cloud.spanner.Struct;
+import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
-import com.mercari.solution.util.converter.DataTypeTransform;
+import com.mercari.solution.module.SinkModule;
+import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -15,30 +22,34 @@ import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PDone;
+import org.apache.beam.sdk.values.Row;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.stream.Collectors;
 
-public class PubSubSink {
+public class PubSubSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(PubSubSink.class);
 
     private class PubSubSinkParameters implements Serializable {
 
         private String topic;
-        private String format;
+        private Format format;
         private List<String> attributes;
         private String idAttribute;
         private String timestampAttribute;
+
+        private Integer maxBatchSize;
+        private Integer maxBatchBytesSize;
 
         public String getTopic() {
             return topic;
@@ -48,11 +59,11 @@ public class PubSubSink {
             this.topic = topic;
         }
 
-        public String getFormat() {
+        public Format getFormat() {
             return format;
         }
 
-        public void setFormat(String format) {
+        public void setFormat(Format format) {
             this.format = format;
         }
 
@@ -80,30 +91,51 @@ public class PubSubSink {
             this.timestampAttribute = timestampAttribute;
         }
 
+        public Integer getMaxBatchSize() {
+            return maxBatchSize;
+        }
+
+        public void setMaxBatchSize(Integer maxBatchSize) {
+            this.maxBatchSize = maxBatchSize;
+        }
+
+        public Integer getMaxBatchBytesSize() {
+            return maxBatchBytesSize;
+        }
+
+        public void setMaxBatchBytesSize(Integer maxBatchBytesSize) {
+            this.maxBatchBytesSize = maxBatchBytesSize;
+        }
     }
+
+    public String getName() { return "pubsub"; }
 
     private enum Format {
         avro,
         json
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+        write(input, config, waits);
+        return new HashMap<>();
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    private static void write(final FCollection<?> collection, final SinkConfig config) {
+        write(collection, config, null);
+    }
+
+    private static void write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final PubSubSinkParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSinkParameters.class);
         final Write write = new Write(collection, parameters, waits);
-        final PCollection output = collection.getCollection().apply(config.getName(), write);
+        final PDone output = collection.getCollection().apply(config.getName(), write);
         try {
             config.outputAvroSchema(collection.getAvroSchema());
         } catch (Exception e) {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
-        return FCollection.update(write.collection, output);
     }
 
-    public static class Write extends PTransform<PCollection<?>, PCollection<Void>> {
+    private static class Write extends PTransform<PCollection<?>, PDone> {
 
         private static final Logger LOG = LoggerFactory.getLogger(Write.class);
 
@@ -120,37 +152,94 @@ public class PubSubSink {
             this.waits = waits;
         }
 
-        public PCollection<Void> expand(final PCollection<?> input) {
+        public PDone expand(final PCollection<?> input) {
 
             validateParameters();
             setDefaultParameters();
 
-            final PCollection<GenericRecord> records = input
-                    .apply("ToMutation", DataTypeTransform.transform(collection, DataType.AVRO));
-
-            PCollection<PubsubMessage> messages = null;
-
             PubsubIO.Write<PubsubMessage> write = PubsubIO.writeMessages().to(parameters.getTopic());
-
             if(parameters.getIdAttribute() != null) {
                 write = write.withIdAttribute(parameters.getIdAttribute());
             }
             if(parameters.getTimestampAttribute() != null) {
                 write = write.withTimestampAttribute(parameters.getTimestampAttribute());
             }
+            if(parameters.getMaxBatchSize() != null) {
+                write = write.withMaxBatchSize(parameters.getMaxBatchSize());
+            }
+            if(parameters.getMaxBatchBytesSize() != null) {
+                write = write.withMaxBatchBytesSize(parameters.getMaxBatchBytesSize());
+            }
 
-            return null;
+            switch (parameters.getFormat()) {
+                case avro: {
+                    final PCollection<GenericRecord> records = input
+                            .apply("ToRecord", DataTypeTransform.transform(collection, DataType.AVRO));
+                    return records.apply("ToMessage", ParDo.of(new GenericRecordPubsubMessageDoFn(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    collection.getAvroSchema().toString())))
+                            .apply("PublishPubSub", write);
+                }
+                case json: {
+                    switch (collection.getDataType()) {
+                        case ROW: {
+                            final PCollection<Row> rows = (PCollection<Row>)input;
+                            return rows.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    RowSchemaUtil::getAsString,
+                                    RowToJsonConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        case AVRO: {
+                            final PCollection<GenericRecord> records = (PCollection<GenericRecord>)input;
+                            return records.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    AvroSchemaUtil::getAsString,
+                                    RecordToJsonConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        case STRUCT: {
+                            final PCollection<Struct> structs = (PCollection<Struct>)input;
+                            return structs.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    StructSchemaUtil::getAsString,
+                                    StructToJsonConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        case ENTITY: {
+                            final PCollection<Entity> entities = (PCollection<Entity>)input;
+                            return entities.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    EntitySchemaUtil::getAsString,
+                                    EntityToJsonConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        default:
+                            throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
+                    }
+                }
+                default:
+                    throw new IllegalArgumentException("PubSubSink module not support format: " + parameters.getFormat());
+            }
         }
 
         private void validateParameters() {
             if(this.parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+                throw new IllegalArgumentException("PubSub parameters must not be empty!");
             }
 
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
             if(parameters.getTopic() == null) {
-                errorMessages.add("Parameter must contain topic");
+                errorMessages.add("PubSub module parameter must contain topic");
+            }
+            if(parameters.getFormat() == null) {
+                errorMessages.add("PubSub module parameter must contain format");
             }
             if(errorMessages.size() > 0) {
                 throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
@@ -161,74 +250,141 @@ public class PubSubSink {
             if(parameters.getAttributes() == null) {
                 parameters.setAttributes(new ArrayList<>());
             }
+            if(parameters.getIdAttribute() != null
+                    && !parameters.getAttributes().contains(parameters.getIdAttribute())) {
+                parameters.getAttributes().add(parameters.getIdAttribute());
+            }
         }
 
-        private class PubsubMessageDoFn extends DoFn<GenericRecord, PubsubMessage> {
 
-            private final List<String> attributes;
-            private final String idAttribute;
+        private static class JsonPubsubMessageDoFn<T> extends PubsubMessageDoFn<T> {
+
+            private final FieldGetter<T> getter;
+            private final JsonConverter<T> converter;
+
+            JsonPubsubMessageDoFn(final List<String> attributes,
+                                  final String idAttribute,
+                                  final FieldGetter<T> getter,
+                                  final JsonConverter<T> converter) {
+
+                super(attributes, idAttribute);
+                this.getter = getter;
+                this.converter = converter;
+            }
+
+            @Override
+            String getString(T element, String fieldName) {
+                return getter.getString(element, fieldName);
+            }
+
+            @Override
+            byte[] encode(T element) {
+                final String json = converter.convert(element);
+                if(json == null) {
+                    return null;
+                }
+                return json.getBytes(StandardCharsets.UTF_8);
+            }
+
+        }
+
+        private static class GenericRecordPubsubMessageDoFn extends PubsubMessageDoFn<GenericRecord> {
+
             private final String schemaString;
 
             private transient Schema schema;
+            private transient DatumWriter<GenericRecord> writer;
             private transient BinaryEncoder encoder;
 
+            GenericRecordPubsubMessageDoFn(final List<String> attributes,
+                                           final String idAttribute,
+                                           final String schemaString) {
 
-            public PubsubMessageDoFn(final String schemaString, final List<String> attributes, final String idAttribute) {
+                super(attributes, idAttribute);
                 this.schemaString = schemaString;
-                this.attributes = attributes;
-                this.idAttribute = idAttribute;
             }
 
             @Setup
             public void setup() {
                 this.schema = new Schema.Parser().parse(schemaString);
-            }
-
-            @StartBundle
-            public void startBundle(final StartBundleContext c) {
+                this.writer = new GenericDatumWriter<>(schema);
                 this.encoder = null;
             }
 
-            @ProcessElement
-            public void processElement(ProcessContext c) throws IOException {
-                final GenericRecord record = c.element();
+            @Override
+            String getString(GenericRecord record, String fieldName) {
+                return AvroSchemaUtil.getAsString(record, fieldName);
+            }
 
-                final Map<String, String> attributeMap;
-                if(attributes.size() > 0) {
-                    attributeMap = new HashMap<>();
-                    for(final String attribute : attributes) {
-                        final Object value = record.get(attribute);
-                        if(value != null) {
-                            attributeMap.put(attribute, value.toString());
-                        }
-                    }
-                } else {
-                    attributeMap = null;
-                }
-
-                final String attributeId;
-                if(idAttribute != null) {
-                    final Object value = record.get(idAttribute);
-                    if(value != null) {
-                        attributeId = value.toString();
-                    } else {
-                        attributeId = null;
-                    }
-                } else {
-                    attributeId = null;
-                }
-
-                try(final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                    this.encoder = EncoderFactory.get().binaryEncoder(out, this.encoder);
-                    final DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(schema);
+            @Override
+            byte[] encode(GenericRecord record) {
+                try(final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
+                    encoder = EncoderFactory.get().binaryEncoder(byteArrayOutputStream, encoder);
                     writer.write(record, encoder);
                     encoder.flush();
-                    final byte[] payload = out.toByteArray();
-                    final PubsubMessage message = new PubsubMessage(payload, attributeMap, attributeId);
-                    c.output(message);
+                    return byteArrayOutputStream.toByteArray();
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to encode record: " + record.toString(), e);
                 }
             }
 
         }
+
+        private static abstract class PubsubMessageDoFn<T> extends DoFn<T, PubsubMessage> {
+
+            private final List<String> attributes;
+            private final String idAttribute;
+
+            PubsubMessageDoFn(final List<String> attributes, final String idAttribute) {
+                this.attributes = attributes;
+                this.idAttribute = idAttribute;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final T element = c.element();
+                final Map<String, String> attributeMap = getAttributes(element);
+                final String attributeId = getIdAttribute(element);
+                final byte[] payload = encode(element);
+                final PubsubMessage message = new PubsubMessage(payload, attributeMap, attributeId);
+                c.output(message);
+            }
+
+            private Map<String, String> getAttributes(T element) {
+                final Map<String, String> attributeMap = new HashMap<>();
+                if(attributes == null || attributes.size() == 0) {
+                    return attributeMap;
+                }
+                for(final String attribute : attributes) {
+                    final String value = getString(element, attribute);
+                    if(value == null) {
+                        continue;
+                    }
+                    attributeMap.put(attribute, value);
+                }
+                return attributeMap;
+            }
+
+            private String getIdAttribute(T element) {
+                if(idAttribute != null) {
+                    return null;
+                }
+                return getString(element, idAttribute);
+            }
+
+            abstract String getString(T element, String fieldName);
+
+            abstract byte[] encode(T element);
+
+        }
     }
+
+    private interface FieldGetter<T> extends Serializable {
+        String getString(final T value, final String field);
+    }
+
+    private interface JsonConverter<T> extends Serializable {
+        String convert(final T value);
+    }
+
 }

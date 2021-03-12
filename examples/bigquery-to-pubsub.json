@@ -1,0 +1,26 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "table": "muproject:mudataset.mytable"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "bigqueryInput",
+      "outputAvroSchema": "gs://example-bucket/output_schema.avsc",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "json",
+        "idAttribute": "TransactionID",
+        "timestampAttribute": "CreatedAt",
+        "attributes": ["UserID", "ItemID"]
+      }
+    }
+  ]
+}

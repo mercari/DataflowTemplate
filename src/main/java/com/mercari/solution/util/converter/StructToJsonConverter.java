@@ -6,9 +6,6 @@
  */
 package com.mercari.solution.util.converter;
 
-import com.google.cloud.ByteArray;
-import com.google.cloud.Date;
-import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.gson.JsonArray;
@@ -16,7 +13,6 @@ import com.google.gson.JsonObject;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Converter converts Cloud Spanner Struct to Json text row
@@ -42,7 +38,10 @@ public class StructToJsonConverter {
     }
 
     public static JsonObject convertStruct(final Struct struct) {
-        JsonObject obj = new JsonObject();
+        if(struct == null) {
+            return null;
+        }
+        final JsonObject obj = new JsonObject();
         struct.getType().getStructFields().stream()
                 .filter(f -> !f.getName().startsWith(INTERNAL_USE_FIELD_PREFIX))
                 .forEach(f -> setJsonFieldValue(obj, f, struct));
@@ -74,10 +73,10 @@ public class StructToJsonConverter {
                 obj.addProperty(fieldName, isNullField ? null : struct.getString(fieldName));
                 break;
             case BYTES:
-                //obj.addProperty(fieldName, isNullField ? null : new String(struct.getBytes(fieldName).toByteArray(), StandardCharsets.UTF_8));
                 obj.addProperty(fieldName, isNullField ? null : struct.getBytes(fieldName).toBase64());
-                //final String base64 = java.util.Base64.getEncoder().encodeToString(struct.getBytes(fieldName).toByteArray());
-                //obj.addProperty(fieldName, isNullField ? null : base64);
+                break;
+            case NUMERIC:
+                obj.addProperty(fieldName, isNullField ? null : struct.getBigDecimal(fieldName).toString());
                 break;
             case TIMESTAMP:
                 obj.addProperty(fieldName, isNullField ? null : struct.getTimestamp(fieldName).toString());
@@ -111,29 +110,59 @@ public class StructToJsonConverter {
         final JsonArray array = new JsonArray();
         switch (field.getType().getArrayElementType().getCode()) {
             case BOOL:
-                struct.getBooleanList(field.getName()).stream().filter(Objects::nonNull).forEach(array::add);
+                struct.getBooleanList(field.getName()).forEach(array::add);
                 break;
             case INT64:
-                struct.getLongList(field.getName()).stream().filter(Objects::nonNull).forEach(array::add);
+                struct.getLongList(field.getName()).forEach(array::add);
                 break;
             case FLOAT64:
-                struct.getDoubleList(field.getName()).stream().filter(Objects::nonNull).forEach(array::add);
+                struct.getDoubleList(field.getName()).forEach(array::add);
                 break;
             case STRING:
-                struct.getStringList(field.getName()).stream().filter(Objects::nonNull).forEach(array::add);
+                struct.getStringList(field.getName()).forEach(array::add);
                 break;
             case BYTES:
-                struct.getBytesList(field.getName()).stream().filter(Objects::nonNull).map(ByteArray::toBase64).forEach(array::add);
+                struct.getBytesList(field.getName()).stream()
+                        .map(b -> {
+                            if(b == null) {
+                                return null;
+                            }
+                            return b.toBase64();
+                        })
+                        .forEach(array::add);
+                break;
+            case NUMERIC:
+                struct.getBigDecimalList(field.getName()).stream()
+                        .map(d -> {
+                            if(d == null) {
+                                return null;
+                            }
+                            return d.toString();
+                        })
+                        .forEach(array::add);
                 break;
             case TIMESTAMP:
-                struct.getTimestampList(field.getName()).stream().filter(Objects::nonNull).map(Timestamp::toString).forEach(array::add);
+                struct.getTimestampList(field.getName()).stream()
+                        .map(t -> {
+                            if(t == null) {
+                                return null;
+                            }
+                            return t.toString();
+                        })
+                        .forEach(array::add);
                 break;
             case DATE:
-                struct.getDateList(field.getName()).stream().filter(Objects::nonNull).map(Date::toString).forEach(array::add);
+                struct.getDateList(field.getName()).stream()
+                        .map(d -> {
+                            if(d == null) {
+                                return null;
+                            }
+                            return d.toString();
+                        })
+                        .forEach(array::add);
                 break;
             case STRUCT:
                 struct.getStructList(field.getName()).stream()
-                        .filter(Objects::nonNull)
                         .map(StructToJsonConverter::convertStruct)
                         .forEach(array::add);
                 break;

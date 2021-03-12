@@ -5,7 +5,9 @@ import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.protobuf.util.Timestamps;
 import com.google.type.LatLng;
+import org.joda.time.Instant;
 
 import java.util.Base64;
 import java.util.List;
@@ -48,7 +50,7 @@ public class EntityToJsonConverter {
                 obj.addProperty(fieldName, value.getDoubleValue());
                 break;
             case TIMESTAMP_VALUE:
-                obj.addProperty(fieldName, value.getTimestampValue().toString());
+                obj.addProperty(fieldName, Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue())).toString());
                 break;
             case BLOB_VALUE:
                 obj.addProperty(fieldName, Base64.getEncoder().encodeToString(value.getBlobValue().toByteArray()));
@@ -82,7 +84,7 @@ public class EntityToJsonConverter {
                                     array.add(v.getDoubleValue());
                                     break;
                                 case TIMESTAMP_VALUE:
-                                    array.add(v.getTimestampValue().toString());
+                                    array.add(Instant.ofEpochMilli(Timestamps.toMillis(v.getTimestampValue())).toString());
                                     break;
                                 case BLOB_VALUE:
                                     array.add(Base64.getEncoder().encodeToString(v.getBlobValue().toByteArray()));
