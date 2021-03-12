@@ -141,6 +141,36 @@ public class EntitySchemaUtil {
         return object.toString();
     }
 
+    public static String getAsString(final Entity entity, final String fieldName) {
+        final Value value = entity.getPropertiesOrDefault(fieldName, null);
+        if(value == null) {
+            return null;
+        }
+        switch(value.getValueTypeCase()) {
+            case KEY_VALUE:
+                return toStringKey(value.getKeyValue());
+            case STRING_VALUE:
+                return value.getStringValue();
+            case BLOB_VALUE:
+                return Base64.getEncoder().encodeToString(value.getBlobValue().toByteArray());
+            case INTEGER_VALUE:
+                return Long.toString(value.getIntegerValue());
+            case DOUBLE_VALUE:
+                return Double.toString(value.getDoubleValue());
+            case BOOLEAN_VALUE:
+                return Boolean.toString(value.getBooleanValue());
+            case TIMESTAMP_VALUE:
+                return Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue())).toString();
+            case GEO_POINT_VALUE:
+            case ENTITY_VALUE:
+            case ARRAY_VALUE:
+            case VALUETYPE_NOT_SET:
+            case NULL_VALUE:
+            default:
+                return null;
+        }
+    }
+
     public static Date convertDate(final Value value) {
         if(Value.ValueTypeCase.STRING_VALUE.equals(value.getValueTypeCase())) {
             final String datestr = value.getStringValue();
@@ -361,6 +391,18 @@ public class EntitySchemaUtil {
             default:
                 throw new IllegalArgumentException("Spanner type: " + type + " not supported!");
         }
+    }
+
+    private static String toStringKey(Key key) {
+        final List<String> names = new ArrayList<>();
+        for(final Key.PathElement path : key.getPathList()) {
+            if(path.getName() == null) {
+                names.add(path.getKind() + "," + path.getId());
+            } else {
+                names.add(path.getKind() + "," + path.getName());
+            }
+        }
+        return String.join(",", names);
     }
 
 }

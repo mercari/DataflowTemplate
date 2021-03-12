@@ -7,13 +7,15 @@ import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.List;
-import java.util.Objects;
+
 
 public class RecordToJsonConverter {
 
@@ -47,16 +49,37 @@ public class RecordToJsonConverter {
 
     private static void setValue(final JsonObject obj, final Schema.Field field, final GenericRecord record) {
         final String fieldName = field.name();
+        final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
         final Object value = record.get(fieldName);
         final boolean isNullField = value == null;
-        switch (AvroSchemaUtil.unnestUnion(field.schema()).getType()) {
+        switch (fieldSchema.getType()) {
             case BOOLEAN:
                 obj.addProperty(fieldName, (Boolean) value);
                 break;
+            case ENUM:
+            case STRING:
+                obj.addProperty(fieldName, isNullField ? null : value.toString());
+                break;
+            case FIXED:
+            case BYTES: {
+                if(isNullField) {
+                    obj.addProperty(fieldName, (String)null);
+                } else {
+                    final byte[] bytes = ((ByteBuffer)value).array();
+                    if(AvroSchemaUtil.isLogicalTypeDecimal(fieldSchema)) {
+                        final int scale = AvroSchemaUtil.getLogicalTypeDecimal(fieldSchema).getScale();
+                        var decimal = BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale);
+                        obj.addProperty(fieldName, decimal.toString());
+                    } else {
+                        obj.addProperty(fieldName, Base64.getEncoder().encodeToString(bytes));
+                    }
+                }
+                break;
+            }
             case INT:
-                if (LogicalTypes.date().equals(field.schema().getLogicalType())) {
+                if (LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : LocalDate.ofEpochDay((int) value).format(DateTimeFormatter.ISO_LOCAL_DATE));
-                } else if (LogicalTypes.timeMillis().equals(field.schema().getLogicalType())) {
+                } else if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : LocalTime.ofNanoOfDay(new Long((Integer) value) * 1000 * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME));
                 } else {
                     obj.addProperty(fieldName, (Integer) value);
@@ -64,11 +87,11 @@ public class RecordToJsonConverter {
                 break;
             case LONG: {
                 final Long longValue = (Long) value;
-                if (LogicalTypes.timestampMillis().equals(field.schema().getLogicalType())) {
+                if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.ofEpochMilli(longValue)));
-                } else if (LogicalTypes.timestampMicros().equals(field.schema().getLogicalType())) {
+                } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.ofEpochMilli(longValue / 1000)));
-                } else if (LogicalTypes.timeMicros().equals(field.schema().getLogicalType())) {
+                } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : LocalTime.ofNanoOfDay(longValue * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME));
                 } else {
                     obj.addProperty(fieldName, longValue);
@@ -81,23 +104,16 @@ public class RecordToJsonConverter {
             case DOUBLE:
                 obj.addProperty(fieldName, (Double) value);
                 break;
-            case ENUM:
-            case STRING:
-                obj.addProperty(fieldName, isNullField ? null : value.toString());
-                break;
-            case FIXED:
-            case BYTES:
-                obj.addProperty(fieldName, isNullField ? null : Base64.getEncoder().encodeToString(((ByteBuffer) value).array()));
-                break;
             case RECORD:
                 obj.add(fieldName, isNullField ? null : convertRecord((GenericRecord) value));
                 break;
             case ARRAY:
-                obj.add(fieldName, isNullField ? null : convertArray(AvroSchemaUtil.unnestUnion(field.schema().getElementType()), (List<?>) value));
+                obj.add(fieldName, isNullField ? null : convertArray(fieldSchema.getElementType(), (List<?>) value));
                 break;
+            case NULL:
+                obj.add(fieldName, null);
             case MAP:
             case UNION:
-            case NULL:
             default:
                 break;
         }
@@ -108,86 +124,113 @@ public class RecordToJsonConverter {
         if(arrayValue == null || arrayValue.size() == 0) {
             return array;
         }
-        switch (schema.getType()) {
+        final Schema elementSchema = AvroSchemaUtil.unnestUnion(schema);
+        switch (elementSchema.getType()) {
             case BOOLEAN:
                 arrayValue.stream()
-                        .filter(Objects::nonNull)
                         .map(v -> (Boolean) v)
                         .forEach(array::add);
                 break;
+            case FIXED:
+            case BYTES:
+                arrayValue.stream()
+                        .map(v -> (ByteBuffer)v)
+                        .map(v -> {
+                            if(v == null) {
+                                return null;
+                            }
+                            final byte[] bytes = v.array();
+                            if(AvroSchemaUtil.isLogicalTypeDecimal(elementSchema)) {
+                                final int scale = AvroSchemaUtil.getLogicalTypeDecimal(elementSchema).getScale();
+                                var decimal = BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale);
+                                return decimal.toPlainString();
+                            } else {
+                                return Base64.getEncoder().encodeToString(bytes);
+                            }
+                        })
+                        .forEach(array::add);
+                break;
+            case ENUM:
+            case STRING:
+                arrayValue.stream()
+                        .map(v -> v == null ? null : v.toString())
+                        .forEach(array::add);
+                break;
             case INT:
-                if (LogicalTypes.date().equals(schema.getLogicalType())) {
+                if (LogicalTypes.date().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
-                            .map(v -> (Integer) v)
-                            .map(LocalDate::ofEpochDay)
-                            .map(ld -> ld.format(DateTimeFormatter.ISO_LOCAL_DATE))
+                            .map(v -> {
+                                if(v == null) {
+                                    return null;
+                                }
+                                return LocalDate.ofEpochDay((Integer)v)
+                                        .format(DateTimeFormatter.ISO_LOCAL_DATE);
+                            })
                             .forEach(array::add);
-                } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timeMillis().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
-                            .map(v -> (Long) v * 1000 * 1000)
-                            .map(LocalTime::ofNanoOfDay)
-                            .map(lt -> lt.format(DateTimeFormatter.ISO_LOCAL_TIME))
+                            .map(v -> {
+                                if(v == null) {
+                                    return null;
+                                }
+                                return LocalTime.ofNanoOfDay((1000L * 1000L * (Integer)v))
+                                        .format(DateTimeFormatter.ISO_LOCAL_TIME);
+                            })
                             .forEach(array::add);
                 } else {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
                             .map(v -> (Integer) v)
                             .forEach(array::add);
                 }
                 break;
             case LONG:
-                if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
+                if (LogicalTypes.timestampMillis().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
                             .map(v -> (Long) v)
-                            .map(java.time.Instant::ofEpochMilli)
-                            .map(DateTimeFormatter.ISO_INSTANT::format)
+                            .map(v -> {
+                                if(v == null) {
+                                    return null;
+                                }
+                                var instant = java.time.Instant.ofEpochMilli(v);
+                                return DateTimeFormatter.ISO_INSTANT.format(instant);
+                            })
                             .forEach(array::add);
-                } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timestampMicros().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
-                            .map(v -> (Long) v / 1000)
-                            .map(java.time.Instant::ofEpochMilli)
-                            .map(DateTimeFormatter.ISO_INSTANT::format)
+                            .map(v -> (Long) v)
+                            .map(v -> {
+                                if(v == null) {
+                                    return null;
+                                }
+                                var instant = java.time.Instant.ofEpochMilli(v/1000);
+                                return DateTimeFormatter.ISO_INSTANT.format(instant);
+                            })
                             .forEach(array::add);
-                } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timeMicros().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
-                            .map(v -> (Long) v * 1000)
-                            .map(LocalTime::ofNanoOfDay)
-                            .map(lt -> lt.format(DateTimeFormatter.ISO_LOCAL_TIME))
+                            .map(v -> (Long) v)
+                            .map(v -> {
+                                if(v == null) {
+                                    return null;
+                                }
+                                return LocalTime.ofNanoOfDay(v * 1000)
+                                        .format(DateTimeFormatter.ISO_LOCAL_TIME);
+                            })
                             .forEach(array::add);
                 } else {
                     arrayValue.stream()
-                            .filter(Objects::nonNull)
                             .map(v -> (Long) v)
                             .forEach(array::add);
                 }
                 break;
             case FLOAT:
                 arrayValue.stream()
-                        .filter(Objects::nonNull)
                         .map(v -> (Float) v)
                         .forEach(array::add);
                 break;
             case DOUBLE:
                 arrayValue.stream()
-                        .filter(Objects::nonNull)
                         .map(v -> (Double) v)
-                        .forEach(array::add);
-                break;
-            case STRING:
-                arrayValue.stream()
-                        .filter(Objects::nonNull)
-                        .map(Object::toString)
-                        .forEach(array::add);
-                break;
-            case BYTES:
-                arrayValue.stream()
-                        .filter(Objects::nonNull)
-                        .map((bytes) -> java.util.Base64.getEncoder().encodeToString((byte[])bytes))
                         .forEach(array::add);
                 break;
             case RECORD:

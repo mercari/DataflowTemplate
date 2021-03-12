@@ -11,18 +11,16 @@ import com.google.gson.JsonObject;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
-import org.apache.avro.generic.GenericDatumWriter;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.generic.GenericRecordBuilder;
-import org.apache.avro.io.BinaryEncoder;
-import org.apache.avro.io.DatumWriter;
-import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.generic.*;
+import org.apache.avro.io.*;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Days;
 import org.joda.time.Instant;
 import org.joda.time.MutableDateTime;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.DateTime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -33,15 +31,14 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AvroSchemaUtil {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AvroSchemaUtil.class);
 
     private enum TableRowFieldType {
         STRING,
@@ -530,11 +527,57 @@ public class AvroSchemaUtil {
         }
     }
 
-    public static String getAsString(final GenericRecord record, final String field) {
-        if(record.get(field) == null) {
+    public static String getAsString(final GenericRecord record, final String fieldName) {
+        final Object value = record.get(fieldName);
+        if(value == null) {
             return null;
         }
-        return record.get(field).toString();
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Schema fieldSchema = unnestUnion(field.schema());
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+            case FLOAT:
+            case DOUBLE:
+            case ENUM:
+            case STRING:
+                return value.toString();
+            case FIXED:
+            case BYTES:
+                return Base64.getEncoder().encodeToString(((ByteBuffer) value).array());
+            case INT: {
+                if (LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
+                    return LocalDate.ofEpochDay((int) value).format(DateTimeFormatter.ISO_LOCAL_DATE);
+                } else if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                    return LocalTime.ofNanoOfDay(new Long((Integer) value) * 1000 * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME);
+                } else {
+                    return value.toString();
+                }
+            }
+            case LONG: {
+                final Long longValue = (Long) value;
+                if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    return DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.ofEpochMilli(longValue));
+                } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.ofEpochMilli(longValue / 1000));
+                } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                    return LocalTime.ofNanoOfDay(longValue * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME);
+                } else {
+                    return longValue.toString();
+                }
+            }
+            case RECORD:
+            case MAP:
+            case ARRAY:
+                return value.toString();
+            case UNION:
+            case NULL:
+            default:
+                return null;
+        }
     }
 
     public static Date convertEpochDaysToGDate(final Integer epochDays) {
@@ -653,7 +696,7 @@ public class AvroSchemaUtil {
                 });
     }
 
-    public static byte[] toBytes(final GenericRecord record) throws IOException {
+    public static byte[] encode(final GenericRecord record) throws IOException {
         final DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(record.getSchema());
         try(final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
             final BinaryEncoder binaryEncoder = EncoderFactory.get().binaryEncoder(byteArrayOutputStream, null);
@@ -663,7 +706,7 @@ public class AvroSchemaUtil {
         }
     }
 
-    public static byte[] toBytes(final Schema schema, final List<GenericRecord> records) throws IOException {
+    public static byte[] encode(final Schema schema, final List<GenericRecord> records) throws IOException {
         final DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(schema);
         try(final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
             final BinaryEncoder binaryEncoder = EncoderFactory.get().binaryEncoder(byteArrayOutputStream, null);
@@ -675,6 +718,12 @@ public class AvroSchemaUtil {
         }
     }
 
+    public static GenericRecord decode(final Schema schema, final byte[] bytes) throws IOException {
+        final DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(schema);
+        final BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
+        GenericRecord record = new GenericData.Record(schema);
+        return datumReader.read(record, decoder);
+    }
 
     private static Schema convertSchema(final TableFieldSchema fieldSchema) {
         return convertSchema(

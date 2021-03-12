@@ -33,9 +33,7 @@ public class RowToJsonConverter {
         if(row == null) {
             return obj;
         }
-        row.getSchema().getFields().stream()
-                //.filter(f -> !f.getName().startsWith(INTERNAL_USE_FIELD_PREFIX))
-                .forEach(f -> setValue(obj, f, row));
+        row.getSchema().getFields().forEach(f -> setValue(obj, f, row));
         return obj;
     }
 
@@ -68,14 +66,13 @@ public class RowToJsonConverter {
                 obj.addProperty(fieldName, isNullField ? null : row.getString(fieldName));
                 break;
             case BYTES:
-                //obj.addProperty(fieldName, isNullField ? null : new String(struct.getBytes(fieldName).toByteArray(), StandardCharsets.UTF_8));
                 obj.addProperty(fieldName, isNullField ? null : java.util.Base64.getEncoder().encodeToString(row.getBytes(fieldName)));
                 break;
             case DATETIME:
                 obj.addProperty(fieldName, isNullField ? null : row.getDateTime(fieldName).toString());
                 break;
             case DECIMAL:
-                obj.addProperty(fieldName, isNullField ? null : row.getDecimal(fieldName).doubleValue());
+                obj.addProperty(fieldName, isNullField ? null : row.getDecimal(fieldName).toString());
                 break;
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
