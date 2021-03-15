@@ -9,10 +9,12 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -26,14 +28,10 @@ public class JsonToRowConverter {
         return convert(schema, jsonObject);
     }
 
-    public static Row convert( final Schema schema, final JsonObject jsonObject) {
-        final Row.Builder builder = Row.withSchema(schema);
+    public static Row convert(final Schema schema, final JsonObject jsonObject) {
+        final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
         for(final Schema.Field field : schema.getFields()) {
-            if(field.getType().getTypeName().equals(Schema.TypeName.ARRAY)) {
-                builder.addArray(convertValue(field.getType(), jsonObject.get(field.getName())));
-            } else {
-                builder.addValue(convertValue(field.getType(), jsonObject.get(field.getName())));
-            }
+            builder.withFieldValue(field.getName(), convertValue(field.getType(), jsonObject.get(field.getName())));
         }
         return builder.build();
     }
@@ -64,6 +62,19 @@ public class JsonToRowConverter {
                 return jsonElement.isJsonPrimitive() ? jsonElement.getAsBoolean() : null;
             case DATETIME:
                 return jsonElement.isJsonPrimitive() ? Instant.parse(jsonElement.getAsString()) : null;
+            case DECIMAL: {
+                if(!jsonElement.isJsonPrimitive()) {
+                    throw new IllegalStateException("Can not convert Decimal type from jsonElement: " + jsonElement.toString());
+                }
+                final JsonPrimitive jsonPrimitive = jsonElement.getAsJsonPrimitive();
+                if(jsonPrimitive.isString()) {
+                    return new BigDecimal(jsonPrimitive.getAsString());
+                } else if(jsonPrimitive.isNumber()) {
+                    return new BigDecimal(jsonPrimitive.getAsString());
+                } else {
+                    throw new IllegalStateException("Can not convert Decimal type from jsonElement: " + jsonElement.toString());
+                }
+            }
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return LocalDate.parse(jsonElement.getAsString());
@@ -99,7 +110,7 @@ public class JsonToRowConverter {
                             fieldType.getTypeName(), jsonElement.toString()));
                 }
                 // for maprecord
-                {
+                if(fieldType.getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
                     final Schema.FieldType elementFieldType = fieldType.getCollectionElementType();
                     final Schema.Options options = elementFieldType.getRowSchema().getOptions();
                     if(options.hasOption("extension") && options.getValue("extension").equals("maprecord")) {
@@ -128,7 +139,6 @@ public class JsonToRowConverter {
                 }
                 return childValues;
             case BYTE:
-            case DECIMAL:
             default:
                 return null;
         }

@@ -1,0 +1,43 @@
+{
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "parameters": {
+        "subscription": "projects/myproject/subscriptions/mysubscription",
+        "format": "json",
+        "eventTimeField": "EventTimestamp"
+      },
+      "schema": {
+        "fields": [
+          { "name": "UserID", "type": "long", "mode": "nullable" },
+          { "name": "Count", "type": "long", "mode": "nullable" },
+          { "name": "EventTimestamp", "type": "timestamp", "mode": "nullable" }
+        ]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "beamsqlTransform",
+      "module": "beamsql",
+      "inputs": [
+        "pubsubInput"
+      ],
+      "parameters": {
+        "sql": "SELECT UserID, COUNT(UserID) AS Count, SUM(Count) AS SumCount, MIN(EventTimestamp) AS EarliestTime, MAX(EventTimestamp) AS LatestTime FROM pubsubInput GROUP BY UserID, TUMBLE(EventTimestamp, 'INTERVAL 10 SECOND') HAVING SumCount > 1"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "beamsqlTransform",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "json"
+      }
+    }
+  ]
+}

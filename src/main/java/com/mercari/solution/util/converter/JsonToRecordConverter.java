@@ -51,13 +51,17 @@ public class JsonToRecordConverter {
                 case FIXED:
                 case BYTES:
                     if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
-                        final LogicalTypes.Decimal decimal = AvroSchemaUtil.getLogicalTypeDecimal(schema);
+                        final LogicalTypes.Decimal decimalType = AvroSchemaUtil.getLogicalTypeDecimal(schema);
                         if(jsonElement.isJsonPrimitive()) {
                             final JsonPrimitive jsonPrimitive = jsonElement.getAsJsonPrimitive();
                             if(jsonPrimitive.isString()) {
-                                return new BigDecimal(jsonPrimitive.getAsString(), new MathContext(decimal.getPrecision()));
+                                final BigDecimal decimal = new BigDecimal(jsonPrimitive.getAsString(), new MathContext(decimalType.getPrecision()));
+                                return ByteBuffer.wrap(decimal.unscaledValue().toByteArray());
                             } else if(jsonPrimitive.isNumber()) {
-                                return jsonPrimitive.getAsBigDecimal();
+                                final BigDecimal decimal = jsonPrimitive.getAsBigDecimal();
+                                return ByteBuffer.wrap(decimal.unscaledValue().toByteArray());
+                            } else {
+                                throw new IllegalStateException();
                             }
                         }
                     }
