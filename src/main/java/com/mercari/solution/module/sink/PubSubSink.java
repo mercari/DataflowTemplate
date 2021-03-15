@@ -366,7 +366,7 @@ public class PubSubSink implements SinkModule {
             }
 
             private String getIdAttribute(T element) {
-                if(idAttribute != null) {
+                if(idAttribute == null) {
                     return null;
                 }
                 return getString(element, idAttribute);
