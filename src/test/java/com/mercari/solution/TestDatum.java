@@ -179,6 +179,10 @@ public class TestDatum {
                         schemaNest1, Schema.create(Schema.Type.NULL))).noDefault()
                 .name("recordArrayField").type(Schema.createUnion(
                         Schema.createArray(schemaNest1), Schema.create(Schema.Type.NULL))).noDefault()
+                .name("recordFieldNull").type(Schema.createUnion(
+                        schemaNest1, Schema.create(Schema.Type.NULL))).noDefault()
+                .name("recordArrayFieldNull").type(Schema.createUnion(
+                        Schema.createArray(schemaNest1), Schema.create(Schema.Type.NULL))).noDefault()
                 .endRecord();
 
         final GenericRecord recordFlat = generateFlatRecordNull(schemaFlat).build();
@@ -189,6 +193,8 @@ public class TestDatum {
         final GenericRecord recordNest2 = generateFlatRecordNull(schemaNest2)
                 .set("recordField", recordNest1)
                 .set("recordArrayField", Arrays.asList(recordNest1, recordNest1))
+                .set("recordFieldNull", null)
+                .set("recordArrayFieldNull", null)
                 .build();
 
         return recordNest2;
@@ -231,6 +237,9 @@ public class TestDatum {
                 .addField("recordField", org.apache.beam.sdk.schemas.Schema.FieldType.row(schemaNest1))
                 .addField("recordArrayField", org.apache.beam.sdk.schemas.Schema.FieldType.array(
                         org.apache.beam.sdk.schemas.Schema.FieldType.row(schemaNest1)))
+                .addField("recordFieldNull", org.apache.beam.sdk.schemas.Schema.FieldType.row(schemaNest1).withNullable(true))
+                .addField("recordArrayFieldNull", org.apache.beam.sdk.schemas.Schema.FieldType.array(
+                        org.apache.beam.sdk.schemas.Schema.FieldType.row(schemaNest1)).withNullable(true))
                 .build();
 
         final Row rowFlat = generateFlatRowNull(schemaFlat).build();
@@ -269,6 +278,8 @@ public class TestDatum {
         final Struct structNest2 = generateFlatStructNull()
                 .set("recordField").to(structNest1)
                 .set("recordArrayField").toStructArray(structNest1.getType(), Arrays.asList(structNest1, structNest1))
+                .set("recordFieldNull").to(structNest1.getType(), null)
+                .set("recordArrayFieldNull").toStructArray(structNest1.getType(), null)
                 .build();
 
         return structNest2;
@@ -320,6 +331,8 @@ public class TestDatum {
                                         Value.newBuilder().setEntityValue(entityNest1).build()))
                                 .build())
                         .build())
+                .putProperties("recordFieldNull", Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build())
+                .putProperties("recordArrayFieldNull", Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build())
                 .build();
         return entityNest2;
     }
@@ -546,7 +559,9 @@ public class TestDatum {
                 .set("stringField").to((String)null)
                 .set("bytesField").to((ByteArray)null)
                 .set("booleanField").to((Boolean)null)
+                .set("intField").to((Long)null)
                 .set("longField").to((Long)null)
+                .set("floatField").to((Double)null)
                 .set("doubleField").to((Double)null)
                 .set("dateField").to((Date)null)
                 .set("timestampField").to((Timestamp)null)
@@ -567,7 +582,9 @@ public class TestDatum {
                 .putProperties("stringField", Value.newBuilder().setStringValue(getStringFieldValue()).build())
                 .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(getBytesFieldValue()).toByteArray())).build())
                 .putProperties("booleanField", Value.newBuilder().setBooleanValue(getBooleanFieldValue()).build())
+                .putProperties("intField", Value.newBuilder().setIntegerValue(getIntFieldValue()).build())
                 .putProperties("longField", Value.newBuilder().setIntegerValue(getLongFieldValue()).build())
+                .putProperties("floatField", Value.newBuilder().setDoubleValue(getFloatFieldValue()).build())
                 .putProperties("doubleField", Value.newBuilder().setDoubleValue(getDoubleFieldValue()).build())
                 .putProperties("dateField", Value.newBuilder().setStringValue(getDateFieldValue().toString()).build())
                 .putProperties("timeField", Value.newBuilder().setStringValue(getTimeFieldValue().toString()).build())

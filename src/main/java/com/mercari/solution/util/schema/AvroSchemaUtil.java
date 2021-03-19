@@ -276,13 +276,49 @@ public class AvroSchemaUtil {
     }
 
     public static GenericRecordBuilder toBuilder(final GenericRecord record) {
-        return toBuilder(record, record.getSchema());
+        return toBuilder(record.getSchema(), record);
     }
 
-    public static GenericRecordBuilder toBuilder(final GenericRecord record, final Schema schema) {
+    public static GenericRecordBuilder toBuilder(final Schema schema, final GenericRecord record) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
-        for(final Schema.Field field : record.getSchema().getFields()) {
-            builder.set(field, record.get(field.name()));
+        for(final Schema.Field field : schema.getFields()) {
+            if(record.getSchema().getField(field.name()) != null) {
+                final Schema fieldSchema = unnestUnion(field.schema());
+                final Object fieldValue = record.get(field.name());
+                if(fieldValue == null) {
+                    builder.set(field.name(), null);
+                    continue;
+                }
+                switch (fieldSchema.getType()) {
+                    case ARRAY: {
+                        final Schema elementSchema = unnestUnion(fieldSchema.getElementType());
+                        if(elementSchema.getType().equals(Schema.Type.RECORD)) {
+                            final List<GenericRecord> children = new ArrayList<>();
+                            for(final GenericRecord child : (List<GenericRecord>)fieldValue) {
+                                if(child == null) {
+                                    children.add(null);
+                                } else {
+                                    children.add(toBuilder(elementSchema, child).build());
+                                }
+                            }
+                            builder.set(field.name(), children);
+                        } else {
+                            builder.set(field.name(), fieldValue);
+                        }
+                        break;
+                    }
+                    case RECORD: {
+                        final GenericRecord child = toBuilder(fieldSchema, (GenericRecord)fieldValue).build();
+                        builder.set(field.name(), child);
+                        break;
+                    }
+                    default:
+                        builder.set(field.name(), fieldValue);
+                        break;
+                }
+            } else {
+                builder.set(field, null);
+            }
         }
         return builder;
     }
@@ -304,6 +340,54 @@ public class AvroSchemaUtil {
             schemaFields.name(field.name()).type(field.schema()).noDefault();
         }
         return builder;
+    }
+
+    public static Schema selectFields(final Schema schema, final List<String> fields) {
+        return selectFields(schema, fields, "root");
+    }
+
+    private static Schema selectFields(final Schema schema, final List<String> fields, final String name) {
+        final SchemaBuilder.FieldAssembler<Schema> builder = SchemaBuilder.builder().record(name).fields();
+        final Map<String, List<String>> childFields = new HashMap<>();
+        for(String field : fields) {
+            if(field.contains(".")) {
+                final String[] strs = field.split("\\.", 2);
+                if(childFields.containsKey(strs[0])) {
+                    childFields.get(strs[0]).add(strs[1]);
+                } else {
+                    childFields.put(strs[0], new ArrayList<>(Arrays.asList(strs[1])));
+                }
+            } else {
+                builder.name(field).type(schema.getField(field).schema()).noDefault();
+            }
+        }
+
+        if(childFields.size() > 0) {
+            for(var entry : childFields.entrySet()) {
+                final Schema.Field childField = schema.getField(entry.getKey());
+                Schema unnestedChildSchema = unnestUnion(childField.schema());
+                final String childName = name + "." + entry.getKey();
+                switch (unnestedChildSchema.getType()) {
+                    case RECORD: {
+                        final Schema selectedChildSchema = selectFields(unnestedChildSchema, entry.getValue(), childName);
+                        builder.name(entry.getKey()).type(toNullable(selectedChildSchema)).noDefault();
+                        break;
+                    }
+                    case ARRAY: {
+                        if(!unnestUnion(unnestedChildSchema.getElementType()).getType().equals(Schema.Type.RECORD)) {
+                            throw new IllegalStateException();
+                        }
+                        final Schema childSchema = selectFields(unnestUnion(unnestedChildSchema.getElementType()), entry.getValue(), childName);
+                        builder.name(entry.getKey()).type(toNullable(Schema.createArray(toNullable(childSchema)))).noDefault();
+                        break;
+                    }
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+        }
+
+        return builder.endRecord();
     }
 
     public static Schema createMapRecordSchema(final String name, final Schema keySchema, final Schema valueSchema) {
@@ -723,6 +807,13 @@ public class AvroSchemaUtil {
         final BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
         GenericRecord record = new GenericData.Record(schema);
         return datumReader.read(record, decoder);
+    }
+
+    public static Schema toNullable(final Schema schema) {
+        if(isNullable(schema)) {
+            return schema;
+        }
+        return Schema.createUnion(schema, Schema.create(Schema.Type.NULL));
     }
 
     private static Schema convertSchema(final TableFieldSchema fieldSchema) {

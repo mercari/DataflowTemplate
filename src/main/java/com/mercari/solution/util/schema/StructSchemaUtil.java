@@ -1,5 +1,6 @@
 package com.mercari.solution.util.schema;
 
+import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.*;
@@ -15,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -187,7 +189,6 @@ public class StructSchemaUtil {
                 return Base64.getDecoder().decode(struct.getString(fieldName));
             default:
                 return null;
-            //throw new IllegalStateException();
         }
     }
 
@@ -285,6 +286,106 @@ public class StructSchemaUtil {
                 .collect(Collectors.toList());
     }
 
+    public static Struct.Builder toBuilder(final Type type, final Struct struct) {
+        final Struct.Builder builder = Struct.newBuilder();
+        for(final Type.StructField field : type.getStructFields()) {
+            final Value value = getStructValue(struct, field.getName());
+            if(value != null) {
+                switch (field.getType().getCode()) {
+                    case ARRAY: {
+                        if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
+                            final List<Struct> children = new ArrayList<>();
+                            for(final Struct child : struct.getStructList(field.getName())) {
+                                if(child == null) {
+                                    children.add(null);
+                                } else {
+                                    children.add(toBuilder(field.getType().getArrayElementType(), child).build());
+                                }
+                            }
+                            builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), children);
+                        } else {
+                            builder.set(field.getName()).to(value);
+                        }
+                        break;
+                    }
+                    case STRUCT: {
+                        final Struct child = toBuilder(field.getType(), struct.getStruct(field.getName())).build();
+                        builder.set(field.getName()).to(child);
+                        break;
+                    }
+                    default:
+                        builder.set(field.getName()).to(value);
+                        break;
+                }
+            } else {
+                switch (field.getType().getCode()) {
+                    case BOOL:
+                        builder.set(field.getName()).to((Boolean)null);
+                        break;
+                    case STRING:
+                        builder.set(field.getName()).to((String)null);
+                        break;
+                    case BYTES:
+                        builder.set(field.getName()).to((ByteArray) null);
+                        break;
+                    case INT64:
+                        builder.set(field.getName()).to((Long)null);
+                        break;
+                    case FLOAT64:
+                        builder.set(field.getName()).to((Double)null);
+                        break;
+                    case NUMERIC:
+                        builder.set(field.getName()).to((BigDecimal) null);
+                        break;
+                    case DATE:
+                        builder.set(field.getName()).to((Date)null);
+                        break;
+                    case TIMESTAMP:
+                        builder.set(field.getName()).to((Timestamp)null);
+                        break;
+                    case STRUCT:
+                        builder.set(field.getName()).to(field.getType(), null);
+                        break;
+                    case ARRAY: {
+                        switch (field.getType().getArrayElementType().getCode()) {
+                            case BOOL:
+                                builder.set(field.getName()).toBoolArray((Iterable<Boolean>)null);
+                                break;
+                            case BYTES:
+                                builder.set(field.getName()).toBytesArray(null);
+                                break;
+                            case STRING:
+                                builder.set(field.getName()).toStringArray(null);
+                                break;
+                            case INT64:
+                                builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
+                                break;
+                            case FLOAT64:
+                                builder.set(field.getName()).toFloat64Array((Iterable<Double>)null);
+                                break;
+                            case NUMERIC:
+                                builder.set(field.getName()).toNumericArray(null);
+                                break;
+                            case DATE:
+                                builder.set(field.getName()).toDateArray(null);
+                                break;
+                            case TIMESTAMP:
+                                builder.set(field.getName()).toTimestampArray(null);
+                                break;
+                            case STRUCT:
+                                builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
+                                break;
+                            case ARRAY:
+                                throw new IllegalStateException();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return builder;
+    }
+
     public static Struct.Builder toBuilder(final Struct struct) {
         return toBuilder(struct, null, null);
     }
@@ -370,6 +471,47 @@ public class StructSchemaUtil {
             }
         }
         return builder;
+    }
+
+    public static Type selectFields(Type type, final List<String> fields) {
+        final List<Type.StructField> structFields = new ArrayList<>();
+        final Map<String, List<String>> childFields = new HashMap<>();
+        for(String field : fields) {
+            if(field.contains(".")) {
+                final String[] strs = field.split("\\.", 2);
+                if(childFields.containsKey(strs[0])) {
+                    childFields.get(strs[0]).add(strs[1]);
+                } else {
+                    childFields.put(strs[0], new ArrayList<>(Arrays.asList(strs[1])));
+                }
+            } else {
+                structFields.add(type.getStructFields().get(type.getFieldIndex(field)));
+            }
+        }
+
+        if(childFields.size() > 0) {
+            for(var entry : childFields.entrySet()) {
+                final Type.StructField childField = type.getStructFields().get(type.getFieldIndex(entry.getKey()));
+                switch (childField.getType().getCode()) {
+                    case STRUCT: {
+                        final Type childType = selectFields(childField.getType(), entry.getValue());
+                        structFields.add(Type.StructField.of(entry.getKey(), childType));
+                        break;
+                    }
+                    case ARRAY: {
+                        if(!childField.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
+                            throw new IllegalStateException();
+                        }
+                        final Type childType = selectFields(childField.getType().getArrayElementType(), entry.getValue());
+                        structFields.add(Type.StructField.of(entry.getKey(), Type.array(childType)));
+                        break;
+                    }
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+        }
+        return Type.struct(structFields);
     }
 
     public static Schema convertSchemaFromInformationSchema(final List<Struct> structs, final Collection<String> columnNames) {
