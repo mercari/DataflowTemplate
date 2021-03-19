@@ -1,9 +1,11 @@
 package com.mercari.solution.util.schema;
 
 import com.google.cloud.Date;
+import com.google.datastore.v1.ArrayValue;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
+import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import org.apache.beam.sdk.schemas.Schema;
@@ -196,6 +198,57 @@ public class EntitySchemaUtil {
             throw new IllegalArgumentException();
         }
 
+    }
+
+    public static Entity.Builder toBuilder(final Schema schema, final Entity entity) {
+        final Entity.Builder builder = Entity.newBuilder();
+        builder.setKey(entity.getKey());
+        final Map<String,Value> values = entity.getPropertiesMap();
+        for(final Schema.Field field : schema.getFields()) {
+            if(!values.containsKey(field.getName())) {
+                builder.putProperties(field.getName(), Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+                continue;
+            }
+            switch (field.getType().getTypeName()) {
+                case ITERABLE:
+                case ARRAY: {
+                    if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
+                        final List<Entity> children = new ArrayList<>();
+                        for(final Value child : values.get(field.getName()).getArrayValue().getValuesList()) {
+                            if(child == null || child.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
+                                children.add(null);
+                            } else {
+                                children.add(toBuilder(field.getType().getCollectionElementType().getRowSchema(), child.getEntityValue()).build());
+                            }
+                        }
+                        final List<Value> entityValues = children.stream()
+                                .map(e -> {
+                                    if(e == null) {
+                                        return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+                                    }
+                                    return Value.newBuilder().setEntityValue(e).build();
+                                })
+                                .collect(Collectors.toList());
+                        builder.putProperties(field.getName(), Value.newBuilder()
+                                .setArrayValue(ArrayValue.newBuilder().addAllValues(entityValues))
+                                .build());
+                    } else {
+                        builder.putProperties(field.getName(), values.get(field.getName()));
+                    }
+                    break;
+                }
+                case ROW: {
+                    final Entity child = toBuilder(field.getType().getRowSchema(), values.get(field.getName()).getEntityValue()).build();
+                    builder.putProperties(field.getName(), Value.newBuilder().setEntityValue(child).build());
+                    break;
+                }
+                default:
+                    builder.putProperties(field.getName(), values.get(field.getName()));
+                    break;
+            }
+
+        }
+        return builder;
     }
 
     public static Entity.Builder toBuilder(final Entity entity) {

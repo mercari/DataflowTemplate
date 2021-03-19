@@ -71,6 +71,7 @@ public class FlexPipeline {
             experiments.add("shuffle_mode=service");
             flexOptions.setExperiments(experiments);
         }
+
         final Pipeline pipeline = Pipeline.create(flexOptions);
         run(pipeline, config);
     }

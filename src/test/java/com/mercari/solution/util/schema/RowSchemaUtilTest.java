@@ -1,6 +1,7 @@
 package com.mercari.solution.util.schema;
 
 import com.google.cloud.ByteArray;
+import com.mercari.solution.TestDatum;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
@@ -11,10 +12,7 @@ import org.junit.Test;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class RowSchemaUtilTest {
@@ -102,6 +100,148 @@ public class RowSchemaUtilTest {
 
         Assert.assertEquals(row.getArray("booleanArrayField"), newRow.getArray("booleanArrayField"));
         Assert.assertEquals(row.getArray("stringArrayField"), newRow.getArray("stringArrayField"));
+    }
+
+    @Test
+    public void testSelectFields() {
+        final Row row = TestDatum.generateRow();
+        final List<String> fields = Arrays.asList(
+                "stringField", "intField", "longField",
+                "recordField.stringField", "recordField.doubleField", "recordField.booleanField",
+                "recordField.recordField.intField", "recordField.recordField.floatField",
+                "recordField.recordArrayField.intField", "recordField.recordArrayField.floatField",
+                "recordArrayField.stringField", "recordArrayField.timestampField",
+                "recordArrayField.recordField.intField", "recordArrayField.recordField.floatField",
+                "recordArrayField.recordArrayField.intField", "recordArrayField.recordArrayField.floatField");
+
+        final Schema schema = RowSchemaUtil.selectFields(row.getSchema(), fields);
+
+        // schema test
+        Assert.assertEquals(5, schema.getFieldCount());
+        Assert.assertTrue(schema.hasField("stringField"));
+        Assert.assertTrue(schema.hasField("intField"));
+        Assert.assertTrue(schema.hasField("longField"));
+        Assert.assertTrue(schema.hasField("recordField"));
+        Assert.assertTrue(schema.hasField("recordArrayField"));
+
+        final Schema schemaChild = schema.getField("recordField").getType().getRowSchema();
+        Assert.assertEquals(5, schemaChild.getFieldCount());
+        Assert.assertTrue(schemaChild.hasField("stringField"));
+        Assert.assertTrue(schemaChild.hasField("doubleField"));
+        Assert.assertTrue(schemaChild.hasField("booleanField"));
+        Assert.assertTrue(schemaChild.hasField("recordField"));
+        Assert.assertTrue(schemaChild.hasField("recordArrayField"));
+
+        Assert.assertEquals(Schema.TypeName.ARRAY, schemaChild.getField("recordArrayField").getType().getTypeName());
+        final Schema schemaChildChildren = schemaChild.getField("recordArrayField").getType().getCollectionElementType().getRowSchema();
+        Assert.assertEquals(2, schemaChildChildren.getFieldCount());
+        Assert.assertTrue(schemaChildChildren.hasField("intField"));
+        Assert.assertTrue(schemaChildChildren.hasField("floatField"));
+
+        final Schema schemaGrandchild = schemaChild.getField("recordField").getType().getRowSchema();
+        Assert.assertEquals(2, schemaGrandchild.getFieldCount());
+        Assert.assertTrue(schemaGrandchild.hasField("intField"));
+        Assert.assertTrue(schemaGrandchild.hasField("floatField"));
+
+        Assert.assertEquals(Schema.TypeName.ARRAY, schema.getField("recordArrayField").getType().getTypeName());
+        final Schema schemaChildren = schema.getField("recordArrayField").getType().getCollectionElementType().getRowSchema();
+        Assert.assertEquals(4, schemaChildren.getFieldCount());
+        Assert.assertTrue(schemaChildren.hasField("stringField"));
+        Assert.assertTrue(schemaChildren.hasField("timestampField"));
+        Assert.assertTrue(schemaChildren.hasField("recordField"));
+        Assert.assertTrue(schemaChildren.hasField("recordArrayField"));
+
+        final Schema schemaChildrenChild = schemaChildren.getField("recordField").getType().getRowSchema();
+        Assert.assertEquals(2, schemaChildrenChild.getFieldCount());
+        Assert.assertTrue(schemaChildrenChild.hasField("intField"));
+        Assert.assertTrue(schemaChildrenChild.hasField("floatField"));
+
+        Assert.assertEquals(Schema.TypeName.ARRAY, schemaChildren.getField("recordArrayField").getType().getTypeName());
+        final Schema schemaChildrenChildren = schemaChildren.getField("recordArrayField").getType().getCollectionElementType().getRowSchema();
+        Assert.assertEquals(2, schemaChildrenChildren.getFieldCount());
+        Assert.assertTrue(schemaChildrenChildren.hasField("intField"));
+        Assert.assertTrue(schemaChildrenChildren.hasField("floatField"));
+
+        // row test
+        final Row selectedRow = RowSchemaUtil.toBuilder(schema, row).build();
+        Assert.assertEquals(5, selectedRow.getFieldCount());
+        Assert.assertEquals(TestDatum.getStringFieldValue(), selectedRow.getString("stringField"));
+        Assert.assertEquals(TestDatum.getIntFieldValue(), selectedRow.getInt32("intField"));
+        Assert.assertEquals(TestDatum.getLongFieldValue(), selectedRow.getInt64("longField"));
+
+        final Row selectedRowChild = selectedRow.getRow("recordField");
+        Assert.assertEquals(5, selectedRowChild.getFieldCount());
+        Assert.assertEquals(TestDatum.getStringFieldValue(), selectedRowChild.getString("stringField"));
+        Assert.assertEquals(TestDatum.getDoubleFieldValue(), selectedRowChild.getDouble("doubleField"));
+        Assert.assertEquals(TestDatum.getBooleanFieldValue(), selectedRowChild.getBoolean("booleanField"));
+
+        final Row selectedRowGrandchild = selectedRowChild.getRow("recordField");
+        Assert.assertEquals(2, selectedRowGrandchild.getFieldCount());
+        Assert.assertEquals(TestDatum.getIntFieldValue(), selectedRowGrandchild.getInt32("intField"));
+        Assert.assertEquals(TestDatum.getFloatFieldValue(), selectedRowGrandchild.getFloat("floatField"));
+
+        Assert.assertEquals(2, selectedRow.getArray("recordArrayField").size());
+        for(final Row child : selectedRow.<Row>getArray("recordArrayField")) {
+            Assert.assertEquals(4, child.getFieldCount());
+            Assert.assertEquals(TestDatum.getStringFieldValue(), child.getString("stringField"));
+            Assert.assertEquals(TestDatum.getTimestampFieldValue(), child.getDateTime("timestampField"));
+
+            Assert.assertEquals(2, child.getArray("recordArrayField").size());
+            for(final Row grandchild : child.<Row>getArray("recordArrayField")) {
+                Assert.assertEquals(2, grandchild.getFieldCount());
+                Assert.assertEquals(TestDatum.getIntFieldValue(), grandchild.getInt32("intField"));
+                Assert.assertEquals(TestDatum.getFloatFieldValue(), grandchild.getFloat("floatField"));
+            }
+
+            final Row grandchild = child.getRow("recordField");
+            Assert.assertEquals(TestDatum.getIntFieldValue(), grandchild.getInt32("intField"));
+            Assert.assertEquals(TestDatum.getFloatFieldValue(), grandchild.getFloat("floatField"));
+        }
+
+        // null fields row test
+        final Row rowNull = TestDatum.generateRowNull();
+        final List<String> newFields = new ArrayList<>(fields);
+        newFields.add("recordFieldNull");
+        newFields.add("recordArrayFieldNull");
+        final Schema schemaNull = RowSchemaUtil.selectFields(rowNull.getSchema(), newFields);
+
+        final Row selectedRowNull = RowSchemaUtil.toBuilder(schemaNull, rowNull).build();
+        Assert.assertEquals(7, selectedRowNull.getFieldCount());
+        Assert.assertNull(selectedRowNull.getString("stringField"));
+        Assert.assertNull(selectedRowNull.getInt32("intField"));
+        Assert.assertNull(selectedRowNull.getInt64("longField"));
+        Assert.assertNull(selectedRowNull.getInt64("recordFieldNull"));
+        Assert.assertNull(selectedRowNull.getInt64("recordArrayFieldNull"));
+
+        final Row selectedRowChildNull = selectedRowNull.getRow("recordField");
+        Assert.assertEquals(5, selectedRowChildNull.getFieldCount());
+        Assert.assertNull(selectedRowChildNull.getString("stringField"));
+        Assert.assertNull(selectedRowChildNull.getDouble("doubleField"));
+        Assert.assertNull(selectedRowChildNull.getBoolean("booleanField"));
+
+        final Row selectedRowGrandchildNull = selectedRowChildNull.getRow("recordField");
+        Assert.assertEquals(2, selectedRowGrandchildNull.getFieldCount());
+        Assert.assertNull(selectedRowGrandchildNull.getInt32("intField"));
+        Assert.assertNull(selectedRowGrandchildNull.getFloat("floatField"));
+
+        Assert.assertEquals(2, selectedRowNull.getArray("recordArrayField").size());
+        for(final Row child : selectedRowNull.<Row>getArray("recordArrayField")) {
+            Assert.assertEquals(4, child.getFieldCount());
+            Assert.assertNull(child.getString("stringField"));
+            Assert.assertNull(child.getDateTime("timestampField"));
+
+            Assert.assertEquals(2, child.getArray("recordArrayField").size());
+            for(final Row grandchild : child.<Row>getArray("recordArrayField")) {
+                Assert.assertEquals(2, grandchild.getFieldCount());
+                Assert.assertNull(grandchild.getInt32("intField"));
+                Assert.assertNull(grandchild.getFloat("floatField"));
+            }
+
+            final Row grandchild = child.getRow("recordField");
+            Assert.assertNull(grandchild.getInt32("intField"));
+            Assert.assertNull(grandchild.getFloat("floatField"));
+        }
+
     }
 
     @Test

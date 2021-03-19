@@ -2,16 +2,160 @@ package com.mercari.solution.util.schema;
 
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
+import com.google.protobuf.util.Timestamps;
+import com.mercari.solution.TestDatum;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class StructSchemaUtilTest {
+
+    private static final double DELTA = 1e-15;
+
+    @Test
+    public void testSelectFields() {
+        final Struct struct = TestDatum.generateStruct();
+        final List<String> fields = Arrays.asList(
+                "stringField", "intField", "longField",
+                "recordField.stringField", "recordField.doubleField", "recordField.booleanField",
+                "recordField.recordField.intField", "recordField.recordField.floatField",
+                "recordField.recordArrayField.intField", "recordField.recordArrayField.floatField",
+                "recordArrayField.stringField", "recordArrayField.timestampField",
+                "recordArrayField.recordField.intField", "recordArrayField.recordField.floatField",
+                "recordArrayField.recordArrayField.intField", "recordArrayField.recordArrayField.floatField");
+
+        final Type type = StructSchemaUtil.selectFields(struct.getType(), fields);
+
+        // schema test
+        Assert.assertEquals(5, type.getStructFields().size());
+        Assert.assertTrue(type.getFieldIndex("stringField") >= 0);
+        Assert.assertTrue(type.getFieldIndex("intField") >= 0);
+        Assert.assertTrue(type.getFieldIndex("longField") >= 0);
+        Assert.assertTrue(type.getFieldIndex("recordField") >= 0);
+        Assert.assertTrue(type.getFieldIndex("recordArrayField") >= 0);
+
+        final Type typeChild = type.getStructFields().get(type.getFieldIndex("recordField")).getType();
+        Assert.assertEquals(5, typeChild.getStructFields().size());
+        Assert.assertTrue(typeChild.getFieldIndex("stringField") >= 0);
+        Assert.assertTrue(typeChild.getFieldIndex("doubleField") >= 0);
+        Assert.assertTrue(typeChild.getFieldIndex("booleanField") >= 0);
+        Assert.assertTrue(typeChild.getFieldIndex("recordField") >= 0);
+        Assert.assertTrue(typeChild.getFieldIndex("recordArrayField") >= 0);
+
+        Assert.assertEquals(Type.Code.ARRAY, typeChild.getStructFields().get(typeChild.getFieldIndex("recordArrayField")).getType().getCode());
+        final Type typeChildChildren = typeChild.getStructFields().get(typeChild.getFieldIndex("recordArrayField")).getType().getArrayElementType();
+        Assert.assertEquals(2, typeChildChildren.getStructFields().size());
+        Assert.assertTrue(typeChildChildren.getFieldIndex("intField") >= 0);
+        Assert.assertTrue(typeChildChildren.getFieldIndex("floatField") >= 0);
+
+        final Type typeGrandchild = typeChild.getStructFields().get(typeChild.getFieldIndex("recordField")).getType();
+        Assert.assertEquals(2, typeGrandchild.getStructFields().size());
+        Assert.assertTrue(typeGrandchild.getFieldIndex("intField") >= 0);
+        Assert.assertTrue(typeGrandchild.getFieldIndex("floatField") >= 0);
+
+        Assert.assertEquals(Type.Code.ARRAY, type.getStructFields().get(type.getFieldIndex("recordArrayField")).getType().getCode());
+        final Type typeChildren = type.getStructFields().get(type.getFieldIndex("recordArrayField")).getType().getArrayElementType();
+        Assert.assertEquals(4, typeChildren.getStructFields().size());
+        Assert.assertTrue(typeChildren.getFieldIndex("stringField") >= 0);
+        Assert.assertTrue(typeChildren.getFieldIndex("timestampField") >= 0);
+        Assert.assertTrue(typeChildren.getFieldIndex("recordField") >= 0);
+        Assert.assertTrue(typeChildren.getFieldIndex("recordArrayField") >= 0);
+
+        final Type typeChildrenChild = typeChildren.getStructFields().get(typeChildren.getFieldIndex("recordField")).getType();
+        Assert.assertEquals(2, typeChildrenChild.getStructFields().size());
+        Assert.assertTrue(typeChildrenChild.getFieldIndex("intField") >= 0);
+        Assert.assertTrue(typeChildrenChild.getFieldIndex("floatField") >= 0);
+
+        Assert.assertEquals(Type.Code.ARRAY, typeChildren.getStructFields().get(typeChildren.getFieldIndex("recordArrayField")).getType().getCode());
+        final Type typeChildrenChildren = typeChildren.getStructFields().get(typeChildren.getFieldIndex("recordArrayField")).getType().getArrayElementType();
+        Assert.assertEquals(2, typeChildrenChildren.getStructFields().size());
+        Assert.assertTrue(typeChildrenChildren.getFieldIndex("intField") >= 0);
+        Assert.assertTrue(typeChildrenChildren.getFieldIndex("floatField") >= 0);
+
+        // row test
+        final Struct selectedStruct = StructSchemaUtil.toBuilder(type, struct).build();
+        Assert.assertEquals(5, selectedStruct.getColumnCount());
+        Assert.assertEquals(TestDatum.getStringFieldValue(), selectedStruct.getString("stringField"));
+        Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), ((Long)selectedStruct.getLong("intField")).intValue());
+        Assert.assertEquals(TestDatum.getLongFieldValue().longValue(), selectedStruct.getLong("longField"));
+
+        final Struct selectedStructChild = selectedStruct.getStruct("recordField");
+        Assert.assertEquals(5, selectedStructChild.getColumnCount());
+        Assert.assertEquals(TestDatum.getStringFieldValue(), selectedStructChild.getString("stringField"));
+        Assert.assertEquals(TestDatum.getDoubleFieldValue().doubleValue(), selectedStructChild.getDouble("doubleField"), DELTA);
+        Assert.assertEquals(TestDatum.getBooleanFieldValue(), selectedStructChild.getBoolean("booleanField"));
+
+        final Struct selectedStructGrandchild = selectedStructChild.getStruct("recordField");
+        Assert.assertEquals(2, selectedStructGrandchild.getColumnCount());
+        Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(selectedStructGrandchild.getLong("intField")).intValue());
+        Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(selectedStructGrandchild.getDouble("floatField")).floatValue(), DELTA);
+
+        Assert.assertEquals(2, selectedStruct.getStructList("recordArrayField").size());
+        for(final Struct child : selectedStruct.getStructList("recordArrayField")) {
+            Assert.assertEquals(4, child.getColumnCount());
+            Assert.assertEquals(TestDatum.getStringFieldValue(), child.getString("stringField"));
+            Assert.assertEquals(TestDatum.getTimestampFieldValue().getMillis(), Timestamps.toMillis(child.getTimestamp("timestampField").toProto()));
+
+            Assert.assertEquals(2, child.getStructList("recordArrayField").size());
+            for(final Struct grandchild : child.getStructList("recordArrayField")) {
+                Assert.assertEquals(2, grandchild.getColumnCount());
+                Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(grandchild.getLong("intField")).intValue());
+                Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getDouble("floatField")).floatValue(), DELTA);
+            }
+
+            final Struct grandchild = child.getStruct("recordField");
+            Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(grandchild.getLong("intField")).intValue());
+            Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getDouble("floatField")).floatValue(), DELTA);
+        }
+
+        // null fields row test
+        final Struct structNull = TestDatum.generateStructNull();
+        final List<String> newFields = new ArrayList<>(fields);
+        newFields.add("recordFieldNull");
+        newFields.add("recordArrayFieldNull");
+        final Type typeNull = StructSchemaUtil.selectFields(structNull.getType(), newFields);
+
+        final Struct selectedStructNull = StructSchemaUtil.toBuilder(typeNull, structNull).build();
+        Assert.assertEquals(7, selectedStructNull.getColumnCount());
+        Assert.assertTrue(selectedStructNull.isNull("stringField"));
+        Assert.assertTrue(selectedStructNull.isNull("intField"));
+        Assert.assertTrue(selectedStructNull.isNull("longField"));
+        Assert.assertTrue(selectedStructNull.isNull("recordFieldNull"));
+        Assert.assertTrue(selectedStructNull.isNull("recordArrayFieldNull"));
+
+        final Struct selectedStructChildNull = selectedStructNull.getStruct("recordField");
+        Assert.assertEquals(5, selectedStructChildNull.getColumnCount());
+        Assert.assertTrue(selectedStructChildNull.isNull("stringField"));
+        Assert.assertTrue(selectedStructChildNull.isNull("doubleField"));
+        Assert.assertTrue(selectedStructChildNull.isNull("booleanField"));
+
+        final Struct selectedStructGrandchildNull = selectedStructChildNull.getStruct("recordField");
+        Assert.assertEquals(2, selectedStructGrandchildNull.getColumnCount());
+        Assert.assertTrue(selectedStructGrandchildNull.isNull("intField"));
+        Assert.assertTrue(selectedStructGrandchildNull.isNull("floatField"));
+
+        Assert.assertEquals(2, selectedStructNull.getStructList("recordArrayField").size());
+        for(final Struct child : selectedStructNull.getStructList("recordArrayField")) {
+            Assert.assertEquals(4, child.getColumnCount());
+            Assert.assertTrue(child.isNull("stringField"));
+            Assert.assertTrue(child.isNull("timestampField"));
+
+            Assert.assertEquals(2, child.getStructList("recordArrayField").size());
+            for(final Struct grandchild : child.getStructList("recordArrayField")) {
+                Assert.assertEquals(2, grandchild.getColumnCount());
+                Assert.assertTrue(grandchild.isNull("intField"));
+                Assert.assertTrue(grandchild.isNull("floatField"));
+            }
+
+            final Struct grandchild = child.getStruct("recordField");
+            Assert.assertEquals(2, grandchild.getColumnCount());
+            Assert.assertTrue(grandchild.isNull("intField"));
+            Assert.assertTrue(grandchild.isNull("floatField"));
+        }
+
+    }
 
     @Test
     public void testFlattenType() {

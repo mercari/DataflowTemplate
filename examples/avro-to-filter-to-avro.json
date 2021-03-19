@@ -1,0 +1,43 @@
+{
+  "sources": [
+    {
+      "name": "avroInput",
+      "module": "storage",
+      "parameters": {
+        "input": "gs://example-bucket/input/prefix*",
+        "format": "avro"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "filteredRecord",
+      "module": "filter",
+      "inputs": ["avroInput"],
+      "parameters": {
+        "fields": ["field1", "field2", "nestedField.fieldA", "nestedArrayField.fieldB"],
+        "filters": {
+          "or": [
+            { "key": "field1", "op": "=", "value": "B" },
+            { "key": "field2", "op": ">", "value": 100 },
+            { "and": [
+              { "key": "field3", "op": "<", "value": 0 },
+              { "key": "field4", "op": "in", "value": [1, 2, 3] }
+            ]}
+          ]
+        }
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "avroOutput",
+      "module": "storage",
+      "input": "filteredRecord",
+      "parameters": {
+        "format": "avro",
+        "output": "gs://example-bucket/output/avro"
+      }
+    }
+  ]
+}

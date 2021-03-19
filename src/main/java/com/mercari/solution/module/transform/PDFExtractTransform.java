@@ -244,7 +244,7 @@ public class PDFExtractTransform implements TransformModule {
                                 }
                                 final PDFDocumentInformation info = content.getInformation();
                                 return AvroSchemaUtil
-                                        .toBuilder(record, schema)
+                                        .toBuilder(schema, record)
                                         .set(prefix + FIELD_NAME_CONTENT, text)
                                         .set(prefix + FIELD_NAME_PAGE, content.getPage())
                                         .set(prefix + FIELD_NAME_FILESIZE, content.getFileSize())

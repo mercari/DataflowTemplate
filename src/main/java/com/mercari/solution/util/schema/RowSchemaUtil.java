@@ -46,8 +46,42 @@ public class RowSchemaUtil {
 
     public static Row.FieldValueBuilder toBuilder(final Schema schema, final Row row) {
         final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
-        for(final Schema.Field field : row.getSchema().getFields()) {
-            builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+        for(final Schema.Field field : schema.getFields()) {
+            if(row.getValue(field.getName()) == null) {
+                builder.withFieldValue(field.getName(), null);
+                continue;
+            }
+            if(row.getSchema().hasField(field.getName())) {
+                switch (field.getType().getTypeName()) {
+                    case ITERABLE:
+                    case ARRAY: {
+                        if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
+                            final List<Row> children = new ArrayList<>();
+                            for(final Row child : row.<Row>getArray(field.getName())) {
+                                if(child == null) {
+                                    children.add(null);
+                                } else {
+                                    children.add(toBuilder(field.getType().getCollectionElementType().getRowSchema(), child).build());
+                                }
+                            }
+                            builder.withFieldValue(field.getName(), children);
+                        } else {
+                            builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+                        }
+                        break;
+                    }
+                    case ROW: {
+                        final Row child = toBuilder(field.getType().getRowSchema(), row.getRow(field.getName())).build();
+                        builder.withFieldValue(field.getName(), child);
+                        break;
+                    }
+                    default:
+                        builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+                        break;
+                }
+            } else {
+                builder.withFieldValue(field.getName(), null);
+            }
         }
         return builder;
     }
@@ -94,6 +128,48 @@ public class RowSchemaUtil {
                 builder.addValue(values.get(field.getName()));
             } else {
                 builder.addValue(row.getValue(field.getName()));
+            }
+        }
+        return builder.build();
+    }
+
+    public static Schema selectFields(Schema schema, final List<String> fields) {
+        final Schema.Builder builder = Schema.builder();
+        final Map<String, List<String>> childFields = new HashMap<>();
+        for(String field : fields) {
+            if(field.contains(".")) {
+                final String[] strs = field.split("\\.", 2);
+                if(childFields.containsKey(strs[0])) {
+                    childFields.get(strs[0]).add(strs[1]);
+                } else {
+                    childFields.put(strs[0], new ArrayList<>(Arrays.asList(strs[1])));
+                }
+            } else {
+                builder.addField(schema.getField(field));
+            }
+        }
+
+        if(childFields.size() > 0) {
+            for(var entry : childFields.entrySet()) {
+                final Schema.Field childField = schema.getField(entry.getKey());
+                switch (childField.getType().getTypeName()) {
+                    case ROW: {
+                        final Schema childSchema = selectFields(childField.getType().getRowSchema(), entry.getValue());
+                        builder.addField(entry.getKey(), Schema.FieldType.row(childSchema));
+                        break;
+                    }
+                    case ITERABLE:
+                    case ARRAY: {
+                        if(!childField.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
+                            throw new IllegalStateException();
+                        }
+                        final Schema childSchema = selectFields(childField.getType().getCollectionElementType().getRowSchema(), entry.getValue());
+                        builder.addField(entry.getKey(), Schema.FieldType.array(Schema.FieldType.row(childSchema).withNullable(true)).withNullable(true));
+                        break;
+                    }
+                    default:
+                        throw new IllegalStateException();
+                }
             }
         }
         return builder.build();

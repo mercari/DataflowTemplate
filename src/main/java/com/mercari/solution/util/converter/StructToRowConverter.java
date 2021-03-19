@@ -57,6 +57,7 @@ public class StructToRowConverter {
             case STRING:
                 return struct.getString(fieldName);
             case DECIMAL:
+                return struct.getBigDecimal(fieldName);
             case BYTES:
                 return struct.getBytes(fieldName).toByteArray();
             case INT16:
@@ -103,6 +104,7 @@ public class StructToRowConverter {
             case STRING:
                 return struct.getStringList(fieldName);
             case DECIMAL:
+                return struct.getBigDecimalList(fieldName);
             case BYTES:
                 return struct.getBytesList(fieldName).stream()
                         .map(ByteArray::toByteArray)
@@ -161,6 +163,8 @@ public class StructToRowConverter {
                 return Schema.FieldType.INT64.withNullable(true);
             case FLOAT64:
                 return Schema.FieldType.DOUBLE;
+            case NUMERIC:
+                return Schema.FieldType.DECIMAL;
             case BOOL:
                 return Schema.FieldType.BOOLEAN;
             case DATE:
