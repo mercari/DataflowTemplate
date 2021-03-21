@@ -20,3 +20,4 @@ Transform Modules for processing and combining input data with a given SQL.
 ## Related example config files
 
 * [BeamSQL: Join BigQuery and Spanner table](../../../../examples/beamsql-join-bigquery-and-spanner-to-spanner.json)
+* [Cloud PubSub(Json) to BeamSQL to Cloud PubSub(Json)](../../../../examples/pubsub-to-beamsql-to-pubsub.json)

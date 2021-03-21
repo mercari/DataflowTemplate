@@ -7,7 +7,7 @@ Filter transform module can be used to filter rows by specified criteria or to r
 | parameter | optional | type | description |
 | --- | --- | --- | --- |
 | name | required | String | Step name. specified to be unique in config file. |
-| module | required | String | Specified `partition` |
+| module | required | String | Specified `filter` |
 | inputs | required | Array<String\> | Specify the names of the step from which you want to process the data, including the name of the transform. |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters. |
 
