@@ -19,6 +19,7 @@
 | --- | --- | --- | --- |
 | [beamsql](transform/beamsql.md) | ○ | ○ | Process the data in a given SQL |
 | [window](transform/window.md) | ○ | ○ | Assign to the specified type of Window from the time of the specified field |
+| [filter](transform/filter.md) | ○ | ○ | Filter rows by specified criteria or to retrieve only specified columns |
 | [partition](transform/partition.md) | ○ | ○ | Splits a data collection into separate data collections based on specified conditions |
 | [protobuf](transform/protobuf.md) | ○ | ○ | Deserialize a value serialized in ProtocolBuffer format. |
 | [crypto](transform/crypto.md) | ○ | ○ | Encrypts or decrypts the value of a specified field.(Currently, only decryption is supported) |

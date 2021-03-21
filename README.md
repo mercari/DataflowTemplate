@@ -71,16 +71,6 @@ gcloud dataflow flex-template build gs://{path/to/template_file} \
   --sdk-language "JAVA"
 ```
 
-You can write legacy format template file manually and upload gcs.
-
-```json
-{
-  "docker_template_spec": {
-    "docker_image": "gcr.io/{deploy_project}/{template_repo_name}"
-  }
-}
-```
-
 ## Run Template
 
 * Run Dataflow Job from Template Container Image
@@ -96,23 +86,28 @@ gcloud dataflow flex-template run {job_name} \
   --parameters=config=gs://{path/to/config.json}
 ```
 
-You can also run template by REST API for using Legacy format template file.
+You can also run template by [REST API](https://cloud.google.com/dataflow/docs/reference/rest/v1b3/projects.locations.flexTemplates/launch).
 
 ```sh
 PROJECT_ID=[PROJECT_ID]
-REGION=us-central1
-CONFIG="$(cat examples/xxxx.json)"
-curl -X POST -H "Content-Type: application/json"  -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://dataflow.googleapis.com/v1b3/projects/${PROJECT_ID}/locations/${REGION}/templates:launch"`
-  `"?dynamicTemplate.gcsPath=gs://{path/to/legacy_template_file}" -d "{
+REGION=[REGION]
+CONFIG="$(cat examples/xxx.json)"
+curl -X POST -H "Content-Type: application/json"  -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://dataflow.googleapis.com/v1b3/projects/${PROJECT_ID}/locations/${REGION}/flexTemplates:launch" -d "{
+  'launchParameter': {
+    'jobName': 'myJobName',
+    'containerSpecGcsPath': 'gs://{path/to/template_file}',
     'parameters': {
-      'config': '$(echo "$CONFIG")'
+      'config': '$(echo "$CONFIG")',
+      'stagingLocation': 'gs://{path/to/staging}'
     },
     'environment': {
-        'tempLocation': 'gs://{path/to/tempfile}'
-    },
-    'jobName':'myJobName',
-  }"
+      'tempLocation': 'gs://{path/to/temp}'
+    }
+  }
+}"
 ```
+
+(The options `tempLocation` and `stagingLocation` are optional. If not specified, a bucket named `dataflow-staging-us-{region}-{project_no}` will be automatically generated and used)
 
 
 ## Deploy Docker image for local pipeline
