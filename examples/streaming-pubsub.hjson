@@ -1,0 +1,47 @@
+{
+  "settings": {
+    "streaming": true
+  },
+
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "parameters": {
+        "subscription": "projects/kouzoh-p-codechaitu/subscriptions/ratings",
+        "format": "json",
+        "eventTimeField": "EventTimestamp"
+      },
+      "schema": {
+        "fields": [
+          { "name": "url", "type": "string"},
+          { "name": "review", "type": "string"},
+          { "name": "EventTimestamp", "type": "timestamp", "mode": "nullable" }
+        ]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "beamsqlTransform",
+      "module": "beamsql",
+      "inputs": [
+        "pubsubInput"
+      ],
+      "parameters": {
+        "sql": "SELECT * FROM pubsubInput"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "beamsqlTransform",
+      "parameters": {
+        "topic": "projects/kouzoh-p-codechaitu/topics/ratings-sink",
+        "format": "json"
+      }
+    }
+  ]
+}
