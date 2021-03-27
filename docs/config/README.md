@@ -27,7 +27,15 @@ You can define and run a pipeline by combining these three types of various buil
 
 The list of build-in modules can be found on [Modules Page](module/README.md).
 
-Examples of configuration files are listed in the [Examples Page](../../examples/README.md), so try to find and arrange a configuration file that is close to the data processing you want to perform.
+Examples of configuration files are listed in the [Examples Page](../../examples/README.md), so try to find and arrange a configuration file that is close to the data processing you want to perform. 
+
+When we want to use streaming pipeline, we need to enable a settings option for streaming. [Reference](https://github.com/kouzoh/mercari-segmentation-jp/discussions/365#discussioncomment-528168)
+```JSON
+"settings": {
+    "streaming": true
+  }
+```
+A example of streaming pipeline with pubsub as source and sink can be found [here](https://github.com/codechaitu/DataflowTemplate/blob/master/examples/streaming-pubsub-to-beamsql-to-pubsub.hjson).
 
 Below is an overview of these built-in modules.
 
@@ -54,7 +62,7 @@ Common configuration items in the source module are as follows.
 | timestampAttribute | String | optional | Defines which fields of the source record should be treated as EventTime. The default is the time of input. |
 | microbatch | Boolean | optional | Specify true if you want to retrieve data in near real time using the Micorobatch method. Default is false. (You need to start Dataflow in streaming mode if microbatch mode.) |
 
-
+Currently in Schema, EventTimestamp is a mandatory field. [Reference](https://github.com/kouzoh/mercari-segmentation-jp/discussions/365#discussioncomment-527330)
 ## Transform modules
 
 The transform is a module that defines what to do with the data.
