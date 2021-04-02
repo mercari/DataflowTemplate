@@ -73,10 +73,11 @@ gcloud dataflow flex-template build gs://{path/to/template_file} \
 
 ## Run Template
 
-* Run Dataflow Job from Template Container Image
+Run Dataflow Job from Template Container Image
 
-gcloud command.
 You can run template specifying gcs path that uploaded config file.
+
+* gcloud command
 
 ```sh
 gsutil cp config.json gs://{path/to/config.json}
@@ -86,12 +87,15 @@ gcloud dataflow flex-template run {job_name} \
   --parameters=config=gs://{path/to/config.json}
 ```
 
+* REST API
+
 You can also run template by [REST API](https://cloud.google.com/dataflow/docs/reference/rest/v1b3/projects.locations.flexTemplates/launch).
 
 ```sh
 PROJECT_ID=[PROJECT_ID]
 REGION=[REGION]
 CONFIG="$(cat examples/xxx.json)"
+
 curl -X POST -H "Content-Type: application/json"  -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://dataflow.googleapis.com/v1b3/projects/${PROJECT_ID}/locations/${REGION}/flexTemplates:launch" -d "{
   'launchParameter': {
     'jobName': 'myJobName',
@@ -107,8 +111,18 @@ curl -X POST -H "Content-Type: application/json"  -H "Authorization: Bearer $(gc
 }"
 ```
 
-(The options `tempLocation` and `stagingLocation` are optional. If not specified, a bucket named `dataflow-staging-us-{region}-{project_no}` will be automatically generated and used)
+(The options `tempLocation` and `stagingLocation` are optional. If not specified, a bucket named `dataflow-staging-{region}-{project_no}` will be automatically generated and used)
 
+### Run Template in streaming mode
+
+To run Template in streaming mode, specify `streaming=true` in the parameter.
+
+```sh
+gcloud dataflow flex-template run {job_name} \
+  --template-file-gcs-location=gs://{path/to/template_file} \
+  --parameters=config=gs://{path/to/config.json} \
+  --parameters=streaming=true
+```
 
 ## Deploy Docker image for local pipeline
 
