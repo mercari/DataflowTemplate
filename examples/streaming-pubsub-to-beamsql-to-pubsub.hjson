@@ -1,0 +1,49 @@
+{
+  // Use this setting for streaming pipeline
+  "settings": {
+    "streaming": true
+  },
+
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "parameters": {
+        "subscription": "projects/myproject/subscriptions/mysubscription",
+        "format": "json",
+        // This eventTimeField is currently mandatory requirment
+        "eventTimeField": "EventTimestamp"
+      },
+      "schema": {
+        "fields": [
+          { "name": "url", "type": "string"},
+          { "name": "review", "type": "string"},
+          { "name": "EventTimestamp", "type": "timestamp", "mode": "nullable" }
+        ]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "beamsqlTransform",
+      "module": "beamsql",
+      "inputs": [
+        "pubsubInput"
+      ],
+      "parameters": {
+        "sql": "SELECT * FROM pubsubInput"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "beamsqlTransform",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "json"
+      }
+    }
+  ]
+}
