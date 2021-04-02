@@ -1,6 +1,5 @@
 {
   // Use this setting for streaming pipeline
-  // Ref: https://github.com/kouzoh/mercari-segmentation-jp/discussions/365#discussioncomment-528168
   "settings": {
     "streaming": true
   },
@@ -13,7 +12,6 @@
         "subscription": "projects/myproject/subscriptions/mysubscription",
         "format": "json",
         // This eventTimeField is currently mandatory requirment
-        // Ref: https://github.com/kouzoh/mercari-segmentation-jp/discussions/365#discussioncomment-527330
         "eventTimeField": "EventTimestamp"
       },
       "schema": {
