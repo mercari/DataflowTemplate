@@ -1,6 +1,8 @@
 # Mercari Dataflow Template
 
-The Mercari Dataflow Template enable you to easily run various pipelines without writing a program, just by defining a simple configuration file.
+The Mercari Dataflow Template allows you to run various pipelines without writing programs by simply defining a configuration file.
+
+Mercari Dataflow Template is implemented as a [FlexTemplate](https://cloud.google.com/dataflow/docs/guides/templates/using-flex-templates) for [Cloud Dataflow](https://cloud.google.com/dataflow). Pipelines are assembled based on the defined configuration file and can be executed as Cloud Dataflow Jobs.
 
 See the [Document](docs/README.md) for usage
 
@@ -52,12 +54,20 @@ The Dataflow job will be started, and you can check the execution status of the 
 
 ## Deploy Template
 
+Mercari Dataflow Template is used as FlexTemplate.
+Therefore, the Mercari Dataflow Template should be deployed according to the FlexTemplate creation steps.
+
 ### Requirements
 
 * Java 11
-* Maven 3
+* [Maven 3](https://maven.apache.org/index.html)
+* [gcloud command-line tool](https://cloud.google.com/sdk/gcloud)
 
 ### Push Template Container Image to Cloud Container Registry.
+
+The first step is to build the source code and register it as a container image in the [Cloud Container Registry](https://cloud.google.com/container-registry).
+
+The following command will generate a container for FlexTemplate from the source code and upload it to Container Registry.
 
 ```sh
 mvn clean package -DskipTests -Dimage=gcr.io/{deploy_project}/{template_repo_name}
@@ -65,17 +75,22 @@ mvn clean package -DskipTests -Dimage=gcr.io/{deploy_project}/{template_repo_nam
 
 ### Upload template file.
 
+The next step is to generate a template file to start a job from the container image and upload it to GCS.
+
+Use the following command to generate a template file that can execute a dataflow job from a container image, and upload it to GCS.
+
 ```sh
 gcloud dataflow flex-template build gs://{path/to/template_file} \
   --image "gcr.io/{deploy_project}/{template_repo_name}" \
   --sdk-language "JAVA"
 ```
 
-## Run Template
+## Run dataflow job from template file
 
-* Run Dataflow Job from Template Container Image
+Run Dataflow Job from the template file.
 
-gcloud command.
+* gcloud command
+
 You can run template specifying gcs path that uploaded config file.
 
 ```sh
@@ -86,12 +101,15 @@ gcloud dataflow flex-template run {job_name} \
   --parameters=config=gs://{path/to/config.json}
 ```
 
+* REST API
+
 You can also run template by [REST API](https://cloud.google.com/dataflow/docs/reference/rest/v1b3/projects.locations.flexTemplates/launch).
 
 ```sh
 PROJECT_ID=[PROJECT_ID]
 REGION=[REGION]
 CONFIG="$(cat examples/xxx.json)"
+
 curl -X POST -H "Content-Type: application/json"  -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://dataflow.googleapis.com/v1b3/projects/${PROJECT_ID}/locations/${REGION}/flexTemplates:launch" -d "{
   'launchParameter': {
     'jobName': 'myJobName',
@@ -107,8 +125,18 @@ curl -X POST -H "Content-Type: application/json"  -H "Authorization: Bearer $(gc
 }"
 ```
 
-(The options `tempLocation` and `stagingLocation` are optional. If not specified, a bucket named `dataflow-staging-us-{region}-{project_no}` will be automatically generated and used)
+(The options `tempLocation` and `stagingLocation` are optional. If not specified, a bucket named `dataflow-staging-{region}-{project_no}` will be automatically generated and used)
 
+### Run Template in streaming mode
+
+To run Template in streaming mode, specify `streaming=true` in the parameter.
+
+```sh
+gcloud dataflow flex-template run {job_name} \
+  --template-file-gcs-location=gs://{path/to/template_file} \
+  --parameters=config=gs://{path/to/config.json} \
+  --parameters=streaming=true
+```
 
 ## Deploy Docker image for local pipeline
 
