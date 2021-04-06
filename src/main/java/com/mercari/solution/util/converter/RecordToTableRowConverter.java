@@ -197,11 +197,21 @@ public class RecordToTableRowConverter {
                         .map(RecordToTableRowConverter::convertTableFieldSchema)
                         .collect(Collectors.toList());
                 return tableFieldSchema.setName(name).setType("RECORD").setFields(childTableFieldSchemas);
-            case ARRAY:
-                return tableFieldSchema
-                        .setName(name)
-                        .setType(convertTableFieldSchema(name, schema.getElementType(), AvroSchemaUtil.isNullable(schema.getElementType())).getType())
-                        .setMode("REPEATED");
+            case ARRAY: {
+                final TableFieldSchema elementSchema = convertTableFieldSchema(name, schema.getElementType(), AvroSchemaUtil.isNullable(schema.getElementType()));
+                if(elementSchema.getType().equals("RECORD")) {
+                    return tableFieldSchema
+                            .setName(name)
+                            .setType(elementSchema.getType())
+                            .setFields(elementSchema.getFields())
+                            .setMode("REPEATED");
+                } else {
+                    return tableFieldSchema
+                            .setName(name)
+                            .setType(elementSchema.getType())
+                            .setMode("REPEATED");
+                }
+            }
             case UNION:
                 return convertTableFieldSchema(name, AvroSchemaUtil.unnestUnion(schema), AvroSchemaUtil.isNullable(schema));
             case MAP:

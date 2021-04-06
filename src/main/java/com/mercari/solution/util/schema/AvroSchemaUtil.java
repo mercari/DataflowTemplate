@@ -121,7 +121,7 @@ public class AvroSchemaUtil {
     private static final Pattern PATTERN_DATE3 = Pattern.compile("[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}");
     private static final Pattern PATTERN_TIME1 = Pattern.compile("[0-9]{4}");
     private static final Pattern PATTERN_TIME2 = Pattern.compile("[0-9]{2}:[0-9]{2}");
-    private static final Pattern PATTERN_TIME3 = Pattern.compile("[0-9]{4}:[0-9]{2}:[0-9]{2}");
+    private static final Pattern PATTERN_TIME3 = Pattern.compile("[0-9]{2}:[0-9]{2}:[0-9]{2}");
 
     /**
      * Convert BigQuery {@link TableSchema} object to Avro {@link Schema} object.
@@ -746,12 +746,13 @@ public class AvroSchemaUtil {
     }
 
     public static int convertTimeStringToInteger(final String timeString) {
-        if(PATTERN_TIME1.matcher(timeString).find()) {
-            return FORMAT_TIME1.parseLocalTime(timeString).getMillisOfDay();
+
+        if(PATTERN_TIME3.matcher(timeString).find()) {
+            return FORMAT_TIME3.parseLocalTime(timeString).getMillisOfDay();
         } else if(PATTERN_TIME2.matcher(timeString).find()) {
             return FORMAT_TIME2.parseLocalTime(timeString).getMillisOfDay();
-        } else if(PATTERN_TIME3.matcher(timeString).find()) {
-            return FORMAT_TIME3.parseLocalTime(timeString).getMillisOfDay();
+        } else if(PATTERN_TIME1.matcher(timeString).find()) {
+            return FORMAT_TIME1.parseLocalTime(timeString).getMillisOfDay();
         } else {
             throw new IllegalArgumentException("Illegal time string: " + timeString);
         }
