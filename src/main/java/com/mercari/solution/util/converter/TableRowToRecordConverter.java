@@ -10,9 +10,11 @@ import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
+import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.text.ParseException;
@@ -20,6 +22,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class TableRowToRecordConverter {
@@ -45,7 +48,7 @@ public class TableRowToRecordConverter {
         }
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
-            builder.set(field.name(), convertRecordValue(field.schema(), tableRow));
+            builder.set(field.name(), convertRecordValue(field.schema(), tableRow.get(field.name())));
         }
         return builder.build();
     }
@@ -137,7 +140,13 @@ public class TableRowToRecordConverter {
         switch (schema.getType()) {
             case FIXED:
             case BYTES: {
-                return ByteBuffer.wrap((byte[])value);
+                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+                    final BigDecimal decimal = (BigDecimal)value;
+                    return ByteBuffer.wrap(decimal.unscaledValue().toByteArray());
+                } else {
+                    final ByteBuffer byteBuffer = (ByteBuffer)value;
+                    return byteBuffer;
+                }
             }
             case ENUM:
             case STRING: {
@@ -166,9 +175,11 @@ public class TableRowToRecordConverter {
             }
             case LONG: {
                 if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
-                    return java.time.Instant.parse(value.toString()).toEpochMilli();
+                    return Instant.parse(value.toString()).getMillis();
                 } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
-                    return java.time.Instant.parse(value.toString()).toEpochMilli() * 1000;
+                    final java.time.Instant instant = java.time.Instant.parse(Instant.parse(value.toString()).toString());
+                    final long micros = TimeUnit.SECONDS.toMicros(instant.getEpochSecond()) + TimeUnit.NANOSECONDS.toMicros(instant.getNano());
+                    return micros;
                 } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     return Long.valueOf(value.toString());
                 } else {

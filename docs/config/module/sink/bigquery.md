@@ -23,6 +23,11 @@ Sink module to write the input data to a specified BigQuery table.
 | partitioning | optional | String | Specifies that you want to save the data in the partition table when the destination table is generated automatically. One of `DAY` or `HOUR` is specified. The default is disabled.|
 | partitioningField | optional | String | Specify the field name you want to specify as the destination partition when saving to Partition Table. |
 | clustering | optional | String | Specify a split field name for Clustering. |
+| skipInvalidRows | optional | Boolean | Insert all valid rows of a request, even if invalid rows exist. Default is false. (this option only for streaming mode) |
+| ignoreUnknownValues | optional | Boolean | Accept rows that contain values that do not match the schema. Default is false. |
+| ignoreInsertIds | optional | Boolean | Setting this option to true disables insertId based data [deduplication offered by BigQuery](https://cloud.google.com/bigquery/streaming-data-into-bigquery#disabling_best_effort_de-duplication). Default is false. (this option only for streaming mode) |
+| withExtendedErrorInfo | optional | Boolean | Enables extended error information. Default is false. (this option only for streaming mode) |
+| failedInsertRetryPolicy | optional | Enum | Specfies a policy for handling failed inserts. You can specify one of the values `always`,`never`, or `retryTransientErrors`. Default is `retryTransientErrors` which indicates that retry all failures except for known persistent errors. (this option only for streaming mode) |
 | kmsKey | optional | String | kmsKey |
 
 ## Related example config files
