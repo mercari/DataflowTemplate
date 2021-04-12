@@ -1,10 +1,12 @@
 package com.mercari.solution.config;
 
 import com.google.gson.JsonObject;
+import com.google.protobuf.Descriptors;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.RecordToRowConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 
@@ -145,6 +147,15 @@ public class SourceConfig implements Serializable {
         return RowToRecordConverter.convertSchema(schema);
     }
 
+    public static Map<String, Descriptors.Descriptor> convertProtobufDescriptors(final InputSchema inputSchema) {
+        if(inputSchema.getProtobufDescriptor() != null && inputSchema.getProtobufDescriptor().startsWith("gs://")) {
+            final byte[] bytes = StorageUtil.readBytes(inputSchema.getProtobufDescriptor());
+            return ProtoSchemaUtil.getDescriptors(bytes);
+        } else {
+            throw new IllegalArgumentException("SourceConfig does not contain protobuf descriptor file.");
+        }
+    }
+
     private static Schema.FieldType convertFieldType(final InputSchemaField field) {
         return convertFieldType(field, field.getMode());
     }
@@ -223,6 +234,7 @@ public class SourceConfig implements Serializable {
     public static class InputSchema implements Serializable {
 
         private String avroSchema;
+        private String protobufDescriptor;
         private List<InputSchemaField> fields;
 
         public String getAvroSchema() {
@@ -231,6 +243,14 @@ public class SourceConfig implements Serializable {
 
         public void setAvroSchema(String avroSchema) {
             this.avroSchema = avroSchema;
+        }
+
+        public String getProtobufDescriptor() {
+            return protobufDescriptor;
+        }
+
+        public void setProtobufDescriptor(String protobufDescriptor) {
+            this.protobufDescriptor = protobufDescriptor;
         }
 
         public List<InputSchemaField> getFields() {

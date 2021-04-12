@@ -47,11 +47,11 @@ public class RowSchemaUtil {
     public static Row.FieldValueBuilder toBuilder(final Schema schema, final Row row) {
         final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
         for(final Schema.Field field : schema.getFields()) {
-            if(row.getValue(field.getName()) == null) {
-                builder.withFieldValue(field.getName(), null);
-                continue;
-            }
             if(row.getSchema().hasField(field.getName())) {
+                if(row.getValue(field.getName()) == null) {
+                    builder.withFieldValue(field.getName(), null);
+                    continue;
+                }
                 switch (field.getType().getTypeName()) {
                     case ITERABLE:
                     case ARRAY: {

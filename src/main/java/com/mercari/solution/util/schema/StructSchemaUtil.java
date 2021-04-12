@@ -102,6 +102,9 @@ public class StructSchemaUtil {
     }
 
     public static Value getStructValue(final Struct struct, final String field) {
+        if(!hasField(struct, field)) {
+            return null;
+        }
         if(struct.isNull(field)) {
             return null;
         }
@@ -259,7 +262,7 @@ public class StructSchemaUtil {
     }
 
     public static Type addStructField(final Type type, final List<Type.StructField> fields) {
-        final List<Type.StructField> allFields = type.getStructFields();
+        final List<Type.StructField> allFields = new ArrayList<>(type.getStructFields());
         allFields.addAll(fields);
         return Type.struct(allFields);
     }
@@ -289,6 +292,9 @@ public class StructSchemaUtil {
     public static Struct.Builder toBuilder(final Type type, final Struct struct) {
         final Struct.Builder builder = Struct.newBuilder();
         for(final Type.StructField field : type.getStructFields()) {
+            if(!hasField(struct, field.getName())) {
+                continue;
+            }
             final Value value = getStructValue(struct, field.getName());
             if(value != null) {
                 switch (field.getType().getCode()) {

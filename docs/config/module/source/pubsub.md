@@ -20,7 +20,6 @@ PubSub source module for receiving message from specified Cloud PubSub topic or 
 | subscription | selective required | String | Specify the subscription to read data from PubSub; unnecessary if topic is specified |
 | format | required | String | Specify the format. Currently support `avro` or `json` |
 | idAttribute | optional | String | Specify the Attribute name you want to identify as id. [ref](https://cloud.google.com/dataflow/docs/concepts/streaming-with-cloud-pubsub#efficient_deduplication) |
-| eventTimeField | optional | String | Specify the name of the field if you want to keep the event time of messages received from PubSub as a field. |
 
 ## Related example config files
 

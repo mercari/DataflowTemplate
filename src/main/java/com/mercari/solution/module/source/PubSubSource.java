@@ -1,18 +1,21 @@
 package com.mercari.solution.module.source;
 
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
+import com.google.api.services.pubsub.model.Subscription;
 import com.google.gson.Gson;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.util.JsonFormat;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
-import com.mercari.solution.util.converter.JsonToRecordConverter;
-import com.mercari.solution.util.converter.JsonToRowConverter;
-import com.mercari.solution.util.converter.PubSubToRecordConverter;
+import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.gcp.PubSubUtil;
+import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
@@ -21,26 +24,31 @@ import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.values.PBegin;
-import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.Row;
-import org.joda.time.Instant;
+import org.apache.beam.sdk.values.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
+
 public class PubSubSource implements SourceModule {
 
-    private class PubSubSourceParameters {
+    private static final Logger LOG = LoggerFactory.getLogger(PubSubSource.class);
+
+    private class PubSubSourceParameters implements Serializable {
 
         private String topic;
         private String subscription;
+
         private Format format;
         private String idAttribute;
-        private String eventTimeField;
         private OutputType outputType;
+
+        private String messageName;
 
         public String getTopic() {
             return topic;
@@ -74,20 +82,20 @@ public class PubSubSource implements SourceModule {
             this.idAttribute = idAttribute;
         }
 
-        public String getEventTimeField() {
-            return eventTimeField;
-        }
-
-        public void setEventTimeField(String eventTimeField) {
-            this.eventTimeField = eventTimeField;
-        }
-
         public OutputType getOutputType() {
             return outputType;
         }
 
         public void setOutputType(OutputType outputType) {
             this.outputType = outputType;
+        }
+
+        public String getMessageName() {
+            return messageName;
+        }
+
+        public void setMessageName(String messageName) {
+            this.messageName = messageName;
         }
     }
 
@@ -96,6 +104,7 @@ public class PubSubSource implements SourceModule {
     private enum Format {
         avro,
         json,
+        protobuf,
         message
     }
 
@@ -195,11 +204,13 @@ public class PubSubSource implements SourceModule {
 
     public static class PubSubStream<T> extends PTransform<PBegin, PCollection<T>> {
 
-        private final SourceConfig config;
+        private final SourceConfig.InputSchema schema;
+        private final String timestampAttribute;
         private final PubSubSourceParameters parameters;
 
         private PubSubStream(final SourceConfig config, final PubSubSourceParameters parameters) {
-            this.config = config;
+            this.schema = config.getSchema();
+            this.timestampAttribute = config.getTimestampAttribute();
             this.parameters = parameters;
         }
 
@@ -208,7 +219,7 @@ public class PubSubSource implements SourceModule {
             PubsubIO.Read read;
             switch (parameters.getFormat()) {
                 case avro: {
-                    read = PubsubIO.readAvroGenericRecords(SourceConfig.convertAvroSchema(config.getSchema()));
+                    read = PubsubIO.readAvroGenericRecords(SourceConfig.convertAvroSchema(schema));
                     break;
                 }
                 case json: {
@@ -223,24 +234,39 @@ public class PubSubSource implements SourceModule {
                     throw new IllegalArgumentException("PubSubSource must be set format avro or message. " + parameters.getFormat());
             }
 
-            if(parameters.getTopic() != null) {
+            if (parameters.getTopic() != null) {
                 read = read.fromTopic(parameters.getTopic());
-            } else if(parameters.getSubscription() != null) {
+            } else if (parameters.getSubscription() != null) {
                 read = read.fromSubscription(parameters.getSubscription());
             }
 
-            if(parameters.getIdAttribute() != null) {
+            if (parameters.getIdAttribute() != null) {
                 read = read.withIdAttribute(parameters.getIdAttribute());
             }
-            if(config.getTimestampAttribute() != null) {
-                read = read.withTimestampAttribute(config.getTimestampAttribute());
+            if (timestampAttribute != null) {
+                read = read.withTimestampAttribute(timestampAttribute);
             }
+
+            final String deadletterTopic;
+            final boolean sendDeadletter;
+            if (parameters.getSubscription() == null) {
+                deadletterTopic = null;
+                sendDeadletter = false;
+            } else {
+                deadletterTopic = getDeadLetterTopic(parameters.getSubscription());
+                sendDeadletter = deadletterTopic != null;
+            }
+
+            final TupleTag<PubsubMessage> failuresTag = new TupleTag<>() {
+            };
 
             // Deserialize pubsub messages
             final PCollection<T> messages;
+            final PCollection<PubsubMessage> failures;
             switch (parameters.getFormat()) {
                 case avro: {
                     messages = (PCollection<T>) begin.apply("ReadPubSubRecord", (PubsubIO.Read<GenericRecord>) read);
+                    failures = null;
                     break;
                 }
                 case json: {
@@ -248,15 +274,70 @@ public class PubSubSource implements SourceModule {
                             .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read);
                     switch (parameters.getOutputType()) {
                         case avro: {
-                            Schema avroSchema = SourceConfig.convertAvroSchema(config.getSchema());
-                            messages = (PCollection<T>) pubsubMessages.apply("JsonToRecord", ParDo.of(new JsonToRecordDoFn(avroSchema.toString())))
+                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
+                            };
+                            final Schema avroSchema = SourceConfig.convertAvroSchema(schema);
+                            final PCollectionTuple tuple = pubsubMessages
+                                    .apply("JsonToRecord", ParDo
+                                            .of(new JsonToRecordDoFn(sendDeadletter, avroSchema.toString(), failuresTag))
+                                            .withOutputTags(outputAvroTag, TupleTagList.of(failuresTag)));
+                            messages = (PCollection<T>) tuple.get(outputAvroTag)
                                     .setCoder(AvroCoder.of(avroSchema));
+                            failures = tuple.get(failuresTag);
                             break;
                         }
                         case row: {
-                            final org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(config.getSchema());
-                            messages = (PCollection<T>) pubsubMessages.apply("JsonToRow", ParDo.of(new JsonToRowDoFn(rowSchema)))
+                            final TupleTag<Row> outputRowTag = new TupleTag<>() {
+                            };
+                            final org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(schema);
+                            final PCollectionTuple tuple = pubsubMessages
+                                    .apply("JsonToRow", ParDo
+                                            .of(new JsonToRowDoFn(sendDeadletter, rowSchema, failuresTag))
+                                            .withOutputTags(outputRowTag, TupleTagList.of(failuresTag)));
+                            messages = (PCollection<T>) tuple.get(outputRowTag)
                                     .setCoder(RowCoder.of(rowSchema));
+                            failures = tuple.get(failuresTag);
+                            break;
+                        }
+                        default:
+                            throw new IllegalStateException();
+                    }
+                    break;
+                }
+                case protobuf: {
+                    final PCollection<PubsubMessage> pubsubMessages = begin
+                            .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read);
+                    final Map<String, Descriptors.Descriptor> descriptors = SourceConfig.convertProtobufDescriptors(schema);
+                    switch (parameters.getOutputType()) {
+                        case avro: {
+                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
+                            };
+                            final PCollectionTuple tuple = pubsubMessages
+                                    .apply("ProtobufToRecord", ParDo
+                                            .of(new ProtoToRecordDoFn(sendDeadletter,
+                                                    parameters.getMessageName(),
+                                                    schema.getProtobufDescriptor(),
+                                                    failuresTag))
+                                            .withOutputTags(outputAvroTag, TupleTagList.of(failuresTag)));
+                            final Schema avroSchema = ProtoToRecordConverter.convertSchema(descriptors.get(parameters.getMessageName()));
+                            messages = (PCollection<T>) tuple.get(outputAvroTag)
+                                    .setCoder(AvroCoder.of(avroSchema));
+                            failures = tuple.get(failuresTag);
+                            break;
+                        }
+                        case row: {
+                            final TupleTag<Row> outputRowTag = new TupleTag<>() {
+                            };
+                            final PCollectionTuple tuple = pubsubMessages
+                                    .apply("ProtobufToRow", ParDo
+                                            .of(new ProtoToRowDoFn(sendDeadletter, parameters.getMessageName(),
+                                                    schema.getProtobufDescriptor(),
+                                                    failuresTag))
+                                            .withOutputTags(outputRowTag, TupleTagList.of(failuresTag)));
+                            final org.apache.beam.sdk.schemas.Schema rowSchema = ProtoToRowConverter.convertSchema(descriptors.get(parameters.getMessageName()));
+                            messages = (PCollection<T>) tuple.get(outputRowTag)
+                                    .setCoder(RowCoder.of(rowSchema));
+                            failures = tuple.get(failuresTag);
                             break;
                         }
                         default:
@@ -269,46 +350,73 @@ public class PubSubSource implements SourceModule {
                             .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read)
                             .apply("MessageToRecord", ParDo.of(new MessageToRecordDoFn()))
                             .setCoder(AvroCoder.of(PubSubToRecordConverter.createMessageSchema()));
+                    failures = null;
                     break;
                 }
                 default:
                     throw new IllegalArgumentException();
             }
 
-            // Add event time Field
-            if(parameters.getEventTimeField() == null) {
-                return messages;
+            if (failures != null && deadletterTopic != null) {
+                failures.apply("PublishDeadLetter", PubsubIO.writeMessages().to(deadletterTopic));
             }
 
-            if(parameters.getFormat().equals(Format.avro)
-                    || parameters.getFormat().equals(Format.message)
-                    || (parameters.getFormat().equals(Format.json) && parameters.getOutputType().equals(OutputType.avro))) {
+            return messages;
+        }
 
-                final PCollection<GenericRecord> withEventTimeField = ((PCollection<GenericRecord>)messages)
-                        .apply("WithEventTimeField", ParDo.of(new WithEventTimeFieldDoFn<>(
-                                parameters.getEventTimeField(),
-                                (GenericRecord r, Map<String, Object> values) -> {
-                                    final GenericRecordBuilder builder = AvroSchemaUtil.copy(r, r.getSchema());
-                                    for(var entry : values.entrySet()) {
-                                        builder.set(entry.getKey(), entry.getValue());
-                                    }
-                                    return builder.build();
-                                },
-                                (Instant timestamp) -> timestamp.getMillis() * 1000L)));
-                return (PCollection<T>) withEventTimeField;
-            } else {
-                final PCollection<Row> withEventTimeField = ((PCollection<Row>)messages)
-                        .apply("WithEventTimeField", ParDo.of(new WithEventTimeFieldDoFn<>(
-                                parameters.getEventTimeField(),
-                                (Row r, Map<String, Object> values) -> {
-                                    final Row.FieldValueBuilder builder = RowSchemaUtil.toBuilder(r);
-                                    for(var entry : values.entrySet()) {
-                                        builder.withFieldValue(entry.getKey(), entry.getValue());
-                                    }
-                                    return builder.build();
-                                },
-                                (Instant timestamp) -> timestamp)));
-                return (PCollection<T>) withEventTimeField;
+        private String getDeadLetterTopic(String subscriptionName) {
+            try {
+                final Subscription subscription = PubSubUtil.pubsub()
+                        .projects()
+                        .subscriptions()
+                        .get(subscriptionName)
+                        .execute();
+                if(subscription.getDeadLetterPolicy() == null) {
+                    return null;
+                }
+                return subscription.getDeadLetterPolicy().getDeadLetterTopic();
+            } catch (GoogleJsonResponseException e) {
+                if(e.getStatusCode() == 404) {
+                    return null;
+                }
+                throw new RuntimeException(e);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+    }
+
+    private static class JsonToRowDoFn extends DoFn<PubsubMessage, Row> {
+
+        private final TupleTag<PubsubMessage> failuresTag;
+
+        private final boolean sendDeadletter;
+        private final org.apache.beam.sdk.schemas.Schema schema;
+
+        JsonToRowDoFn(final boolean sendDeadletter,
+                      final org.apache.beam.sdk.schemas.Schema schema,
+                      final TupleTag<PubsubMessage> failuresTag) {
+
+            this.sendDeadletter = sendDeadletter;
+            this.schema = schema;
+            this.failuresTag = failuresTag;
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final byte[] content = c.element().getPayload();
+            final String json = new String(content, StandardCharsets.UTF_8);
+            try {
+                final Row row = JsonToRowConverter.convert(schema, json);
+                c.output(row);
+            } catch (Exception e) {
+                if(sendDeadletter) {
+                    c.output(failuresTag, c.element());
+                    LOG.error("Failed to parse json: " + json);
+                } else {
+                    throw e;
+                }
             }
         }
 
@@ -316,11 +424,19 @@ public class PubSubSource implements SourceModule {
 
     private static class JsonToRecordDoFn extends DoFn<PubsubMessage, GenericRecord> {
 
+        private final TupleTag<PubsubMessage> failuresTag;
+
+        private final boolean sendDeadletter;
         private final String schemaString;
         private transient Schema schema;
 
-        JsonToRecordDoFn(final String schemaString) {
+        JsonToRecordDoFn(final boolean sendDeadletter,
+                         final String schemaString,
+                         final TupleTag<PubsubMessage> failuresTag) {
+
+            this.sendDeadletter = sendDeadletter;
             this.schemaString = schemaString;
+            this.failuresTag = failuresTag;
         }
 
         @Setup
@@ -332,24 +448,123 @@ public class PubSubSource implements SourceModule {
         public void processElement(ProcessContext c) {
             final byte[] content = c.element().getPayload();
             final String json = new String(content, StandardCharsets.UTF_8);
-            c.output(JsonToRecordConverter.convert(schema, json));
+            try {
+                final GenericRecord record = JsonToRecordConverter.convert(schema, json);
+                c.output(record);
+            } catch (Exception e) {
+                if(sendDeadletter) {
+                    c.output(failuresTag, c.element());
+                    LOG.error("Failed to parse json: " + json);
+                } else {
+                    throw e;
+                }
+            }
         }
 
     }
 
-    private static class JsonToRowDoFn extends DoFn<PubsubMessage, Row> {
+    private static class ProtoToRowDoFn extends DoFn<PubsubMessage, Row> {
 
-        private final org.apache.beam.sdk.schemas.Schema schema;
+        private final TupleTag<PubsubMessage> failuresTag;
+        private final boolean sendDeadletter;
 
-        JsonToRowDoFn(final org.apache.beam.sdk.schemas.Schema schema) {
-            this.schema = schema;
+        private final String messageName;
+        private final String descriptorPath;
+
+        private transient org.apache.beam.sdk.schemas.Schema schema;
+        private transient Descriptors.Descriptor descriptor;
+        private transient JsonFormat.Printer printer;
+
+        ProtoToRowDoFn(final boolean sendDeadletter,
+                       final String messageName,
+                       final String descriptorPath,
+                       final TupleTag<PubsubMessage> failuresTag) {
+
+            this.sendDeadletter = sendDeadletter;
+            this.messageName = messageName;
+            this.descriptorPath = descriptorPath;
+            this.failuresTag = failuresTag;
+        }
+
+        @Setup
+        public void setup() {
+            final byte[] bytes = StorageUtil.readBytes(descriptorPath);
+            final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(bytes);
+            this.descriptor = descriptors.get(messageName);
+            this.schema = ProtoToRowConverter.convertSchema(descriptor);
+
+            final JsonFormat.TypeRegistry.Builder builder = JsonFormat.TypeRegistry.newBuilder();
+            descriptors.forEach((k, v) -> builder.add(v));
+            this.printer = JsonFormat.printer().usingTypeRegistry(builder.build());
         }
 
         @ProcessElement
         public void processElement(ProcessContext c) {
             final byte[] content = c.element().getPayload();
-            final String json = new String(content, StandardCharsets.UTF_8);
-            c.output(JsonToRowConverter.convert(schema, json));
+            try {
+                final Row row = ProtoToRowConverter.convert(schema, descriptor, content, printer);
+                c.output(row);
+            } catch (Exception e) {
+                LOG.error("Failed to deserialize protobuf. messageId: " + c.element().getMessageId());
+                if(sendDeadletter) {
+                    c.output(failuresTag, c.element());
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+    }
+
+    private static class ProtoToRecordDoFn extends DoFn<PubsubMessage, GenericRecord> {
+
+        private final TupleTag<PubsubMessage> failuresTag;
+        private final boolean sendDeadletter;
+
+        private final String messageName;
+        private final String descriptorPath;
+
+        private transient Schema schema;
+        private transient Descriptors.Descriptor descriptor;
+        private transient JsonFormat.Printer printer;
+
+        ProtoToRecordDoFn(final boolean sendDeadletter,
+                          final String messageName,
+                          final String descriptorPath,
+                          final TupleTag<PubsubMessage> failuresTag) {
+
+            this.sendDeadletter = sendDeadletter;
+            this.messageName = messageName;
+            this.descriptorPath = descriptorPath;
+            this.failuresTag = failuresTag;
+        }
+
+        @Setup
+        public void setup() {
+            final byte[] bytes = StorageUtil.readBytes(descriptorPath);
+            final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(bytes);
+            this.descriptor = descriptors.get(messageName);
+            this.schema = ProtoToRecordConverter.convertSchema(descriptor);
+
+            final JsonFormat.TypeRegistry.Builder builder = JsonFormat.TypeRegistry.newBuilder();
+            descriptors.forEach((k, v) -> builder.add(v));
+            this.printer = JsonFormat.printer().usingTypeRegistry(builder.build());
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final byte[] content = c.element().getPayload();
+            try {
+                final GenericRecord row = ProtoToRecordConverter.convert(schema, descriptor, content, printer);
+                c.output(row);
+            } catch (Exception e) {
+                LOG.error("Failed to deserialize protobuf. messageId: " + c.element().getMessageId());
+                if(sendDeadletter) {
+                    c.output(failuresTag, c.element());
+                } else {
+                    throw e;
+                }
+            }
         }
 
     }
@@ -368,41 +583,6 @@ public class PubSubSource implements SourceModule {
             c.output(PubSubToRecordConverter.convertMessage(schema, c.element()));
         }
 
-    }
-
-    private static class WithEventTimeFieldDoFn<T, TimestampT> extends DoFn<T, T> {
-
-        private final String eventTimeField;
-        private final FieldSetter<T> setter;
-        private final TimestampConverter<TimestampT> timestampConverter;
-
-        WithEventTimeFieldDoFn(final String eventTimeField,
-                               final FieldSetter<T> setter,
-                               final TimestampConverter<TimestampT> timestampConverter) {
-
-            this.eventTimeField = eventTimeField;
-            this.setter = setter;
-            this.timestampConverter = timestampConverter;
-        }
-
-        @ProcessElement
-        public void processElement(ProcessContext c) {
-            final T input = c.element();
-            final Map<String, Object> values = new HashMap<>();
-            final TimestampT timestampValue = timestampConverter.convert(c.timestamp());
-            values.put(eventTimeField, timestampValue);
-            final T output = setter.merge(input, values);
-            c.output(output);
-        }
-
-    }
-
-    private interface FieldSetter<T> extends Serializable {
-        T merge(final T base, final Map<String, Object> values);
-    }
-
-    private interface TimestampConverter<T> extends Serializable {
-        T convert(final Instant timestamp);
     }
 
 }
