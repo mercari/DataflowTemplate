@@ -173,6 +173,70 @@ public class EntitySchemaUtil {
         }
     }
 
+    public static Long getAsLong(final Entity entity, final String fieldName) {
+        final Value value = entity.getPropertiesOrDefault(fieldName, null);
+        if(value == null) {
+            return null;
+        }
+        switch(value.getValueTypeCase()) {
+            case BOOLEAN_VALUE:
+                return value.getBooleanValue() ? 1L : 0L;
+            case INTEGER_VALUE:
+                return value.getIntegerValue();
+            case DOUBLE_VALUE:
+                return Double.valueOf(value.getDoubleValue()).longValue();
+            case STRING_VALUE: {
+                try {
+                    return Long.valueOf(value.getStringValue());
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case KEY_VALUE:
+            case BLOB_VALUE:
+            case TIMESTAMP_VALUE:
+            case GEO_POINT_VALUE:
+            case ENTITY_VALUE:
+            case ARRAY_VALUE:
+            case VALUETYPE_NOT_SET:
+            case NULL_VALUE:
+            default:
+                return null;
+        }
+    }
+
+    public static Double getAsDouble(final Entity entity, final String fieldName) {
+        final Value value = entity.getPropertiesOrDefault(fieldName, null);
+        if(value == null) {
+            return null;
+        }
+        switch(value.getValueTypeCase()) {
+            case BOOLEAN_VALUE:
+                return value.getBooleanValue() ? 1D : 0D;
+            case INTEGER_VALUE:
+                return Long.valueOf(value.getIntegerValue()).doubleValue();
+            case DOUBLE_VALUE:
+                return value.getDoubleValue();
+            case STRING_VALUE: {
+                try {
+                    return Double.valueOf(value.getStringValue());
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case KEY_VALUE:
+            case BLOB_VALUE:
+            case TIMESTAMP_VALUE:
+            case GEO_POINT_VALUE:
+            case ENTITY_VALUE:
+            case ARRAY_VALUE:
+            case VALUETYPE_NOT_SET:
+            case NULL_VALUE:
+            default:
+                return null;
+        }
+    }
+
     public static Date convertDate(final Value value) {
         if(Value.ValueTypeCase.STRING_VALUE.equals(value.getValueTypeCase())) {
             final String datestr = value.getStringValue();

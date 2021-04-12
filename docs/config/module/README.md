@@ -23,6 +23,7 @@
 | [partition](transform/partition.md) | ○ | ○ | Splits a data collection into separate data collections based on specified conditions |
 | [eventtime](transform/eventtime.md) | ○ | ○ | Extracts the event time from a record into a specified field, or sets the time value of a specified field as the event time of the record |
 | [protobuf](transform/protobuf.md) | ○ | ○ | Deserialize a value serialized in ProtocolBuffer format. |
+| [bandit](transform/bandit.md) | ○ | ○ | Outputs information about the arm to be selected by the [multi-arm bandit algorithm](https://en.wikipedia.org/wiki/Multi-armed_bandit). |
 | [crypto](transform/crypto.md) | ○ | ○ | Encrypts or decrypts the value of a specified field.(Currently, only decryption is supported) |
 | [pdfextract](transform/pdfextract.md) | ○ | ○ | Extract text and metadata from PDF files |
 

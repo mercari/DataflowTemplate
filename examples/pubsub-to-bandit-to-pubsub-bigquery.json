@@ -1,0 +1,65 @@
+{
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "page", "type": "string", "mode": "nullable" },
+          { "name": "arm", "type": "string", "mode": "required" },
+          { "name": "count", "type": "long", "mode": "required" },
+          { "name": "reward", "type": "double", "mode": "required" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/input"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "banditTransform",
+      "module": "bandit",
+      "inputs": ["pubsubInput"],
+      "parameters": {
+        "armField": "arm",
+        "countField": "count",
+        "rewardField": "reward",
+        "initialArms": ["A","B","C","D","E"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutputRewards",
+      "module": "bigquery",
+      "input": "pubsubInput",
+      "parameters": {
+        "table": "myproject:mydataset.rewards",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    },
+    {
+      "name": "bigqueryOutputArms",
+      "module": "bigquery",
+      "input": "banditTransform",
+      "parameters": {
+        "table": "myproject:mydataset.arms",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    },
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "banditTransform",
+      "parameters": {
+        "topic": "projects/myproject/topics/output",
+        "format": "json",
+        "attributes": ["page"]
+      }
+    }
+  ]
+}

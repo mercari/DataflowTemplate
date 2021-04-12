@@ -380,6 +380,100 @@ public class RowSchemaUtil {
         return row.getValue(field).toString();
     }
 
+    public static Long getAsLong(final Row row, final String fieldName) {
+        if(row == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        if(row.getValue(fieldName) == null) {
+            return null;
+        }
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        switch (field.getType().getTypeName()) {
+            case BOOLEAN:
+                return row.getBoolean(fieldName) ? 1L : 0L;
+            case STRING: {
+                try {
+                    return Long.valueOf(row.getString(fieldName));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case BYTE:
+                return row.getByte(fieldName).longValue();
+            case INT16:
+                return row.getInt16(fieldName).longValue();
+            case INT32:
+                return row.getInt32(fieldName).longValue();
+            case INT64:
+                return row.getInt64(fieldName);
+            case FLOAT:
+                return row.getFloat(fieldName).longValue();
+            case DOUBLE:
+                return row.getDouble(fieldName).longValue();
+            case DECIMAL:
+                return row.getDecimal(fieldName).longValue();
+            case LOGICAL_TYPE:
+            case DATETIME:
+            case BYTES:
+            case ARRAY:
+            case ITERABLE:
+            case ROW:
+            case MAP:
+            default:
+                return null;
+        }
+    }
+
+    public static Double getAsDouble(final Row row, final String fieldName) {
+        if(row == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        if(row.getValue(fieldName) == null) {
+            return null;
+        }
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        switch (field.getType().getTypeName()) {
+            case BOOLEAN:
+                return row.getBoolean(fieldName) ? 1D : 0D;
+            case STRING: {
+                try {
+                    return Double.valueOf(row.getString(fieldName));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case BYTE:
+                return row.getByte(fieldName).doubleValue();
+            case INT16:
+                return row.getInt16(fieldName).doubleValue();
+            case INT32:
+                return row.getInt32(fieldName).doubleValue();
+            case INT64:
+                return row.getInt64(fieldName).doubleValue();
+            case FLOAT:
+                return row.getFloat(fieldName).doubleValue();
+            case DOUBLE:
+                return row.getDouble(fieldName);
+            case DECIMAL:
+                return row.getDecimal(fieldName).doubleValue();
+            case LOGICAL_TYPE:
+            case DATETIME:
+            case BYTES:
+            case ARRAY:
+            case ITERABLE:
+            case ROW:
+            case MAP:
+            default:
+                return null;
+        }
+    }
+
     public static byte[] getBytes(final Row row, final String fieldName) {
         if(row == null) {
             return null;

@@ -666,6 +666,106 @@ public class AvroSchemaUtil {
         }
     }
 
+    public static Long getAsLong(final GenericRecord record, final String fieldName) {
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return null;
+        }
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Schema fieldSchema = unnestUnion(field.schema());
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+                return (Boolean) value ? 1L : 0L;
+            case FLOAT:
+                return ((Float) value).longValue();
+            case DOUBLE:
+                return ((Double) value).longValue();
+            case ENUM:
+            case STRING: {
+                try {
+                    return Long.valueOf(value.toString());
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case FIXED:
+            case BYTES: {
+                final ByteBuffer byteBuffer = (ByteBuffer) value;
+                if(isLogicalTypeDecimal(fieldSchema)) {
+                    final int scale = fieldSchema.getObjectProp("scale") != null ?
+                            Integer.valueOf(fieldSchema.getObjectProp("scale").toString()) : 0;
+                    return BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale).longValue();
+                }
+                return null;
+            }
+            case INT:
+                return ((Integer) value).longValue();
+            case LONG:
+                return (Long) value;
+            case RECORD:
+            case MAP:
+            case ARRAY:
+            case UNION:
+            case NULL:
+            default:
+                return null;
+        }
+    }
+
+    public static Double getAsDouble(final GenericRecord record, final String fieldName) {
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return null;
+        }
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Schema fieldSchema = unnestUnion(field.schema());
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+                return (Boolean) value ? 1D : 0D;
+            case FLOAT:
+                return ((Float) value).doubleValue();
+            case DOUBLE:
+                return ((Double) value);
+            case ENUM:
+            case STRING: {
+                try {
+                    return Double.valueOf(value.toString());
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case FIXED:
+            case BYTES: {
+                final ByteBuffer byteBuffer = (ByteBuffer) value;
+                if(isLogicalTypeDecimal(fieldSchema)) {
+                    final int scale = fieldSchema.getObjectProp("scale") != null ?
+                            Integer.valueOf(fieldSchema.getObjectProp("scale").toString()) : 0;
+                    return BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale).doubleValue();
+                }
+                return null;
+            }
+            case INT:
+                return ((Integer) value).doubleValue();
+            case LONG:
+                return ((Long) value).doubleValue();
+            case RECORD:
+            case MAP:
+            case ARRAY:
+            case UNION:
+            case NULL:
+            default:
+                return null;
+        }
+    }
+
     public static Date convertEpochDaysToGDate(final Integer epochDays) {
         if(epochDays == null) {
             return null;

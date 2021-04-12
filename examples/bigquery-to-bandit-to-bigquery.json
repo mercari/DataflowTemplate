@@ -1,0 +1,38 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "table": "myproject.mydataset.rewards",
+        "fields": ["page", "arm", "count", "reward"]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "banditTransform",
+      "module": "bandit",
+      "inputs": ["bigqueryInput"],
+      "parameters": {
+        "armField": "arm",
+        "countField": "count",
+        "rewardField": "reward",
+        "intervalSeconds": 3600,
+        "initialArms": ["A","B","C","D","E"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutput",
+      "module": "bigquery",
+      "input": "banditTransform",
+      "parameters": {
+        "table": "myproject:mydataset.arms",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}
