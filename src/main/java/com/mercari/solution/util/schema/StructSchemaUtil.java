@@ -178,6 +178,62 @@ public class StructSchemaUtil {
         }
     }
 
+    public static Long getAsLong(final Struct struct, final String field) {
+        if(struct.isNull(field)) {
+            return null;
+        }
+        switch (struct.getColumnType(field).getCode()) {
+            case BOOL:
+                return struct.getBoolean(field) ? 1L: 0L;
+            case STRING: {
+                try {
+                    return Long.valueOf(struct.getString(field));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case INT64:
+                return struct.getLong(field);
+            case FLOAT64:
+                return Double.valueOf(struct.getDouble(field)).longValue();
+            case NUMERIC:
+                return struct.getBigDecimal(field).longValue();
+            case DATE:
+            case TIMESTAMP:
+            case BYTES:
+            default:
+                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        }
+    }
+
+    public static Double getAsDouble(final Struct struct, final String field) {
+        if(struct.isNull(field)) {
+            return null;
+        }
+        switch (struct.getColumnType(field).getCode()) {
+            case BOOL:
+                return struct.getBoolean(field) ? 1D: 0D;
+            case STRING: {
+                try {
+                    return Double.valueOf(struct.getString(field));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case INT64:
+                return Long.valueOf(struct.getLong(field)).doubleValue();
+            case FLOAT64:
+                return struct.getDouble(field);
+            case NUMERIC:
+                return struct.getBigDecimal(field).doubleValue();
+            case DATE:
+            case TIMESTAMP:
+            case BYTES:
+            default:
+                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        }
+    }
+
     public static byte[] getBytes(final Struct struct, final String fieldName) {
         final Type.StructField field = struct.getType().getStructFields().stream()
                 .filter(f -> f.getName().equals(fieldName))

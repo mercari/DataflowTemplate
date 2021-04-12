@@ -31,6 +31,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Protobuf deserialize](spanner-to-protobuf-to-avro.json)
     * [Decrypt secret data](spanner-to-decrypt-to-avro.json)
     * [SetOperation: Replace Spanner Table](setoperation-replace-spanner.json)
+    * [Multi-armed bandit](pubsub-to-bandit-to-pubsub-bigquery.json)
 * Streaming processing
   * Data Transfer
     * [Cloud PubSub(Avro) to BigQuery](pubsub-avro-to-bigquery.json)
