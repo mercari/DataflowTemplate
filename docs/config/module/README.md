@@ -21,6 +21,7 @@
 | [window](transform/window.md) | ○ | ○ | Assign to the specified type of Window from the time of the specified field |
 | [filter](transform/filter.md) | ○ | ○ | Filter rows by specified criteria or to retrieve only specified columns |
 | [partition](transform/partition.md) | ○ | ○ | Splits a data collection into separate data collections based on specified conditions |
+| [eventtime](transform/eventtime.md) | ○ | ○ | Extracts the event time from a record into a specified field, or sets the time value of a specified field as the event time of the record |
 | [protobuf](transform/protobuf.md) | ○ | ○ | Deserialize a value serialized in ProtocolBuffer format. |
 | [crypto](transform/crypto.md) | ○ | ○ | Encrypts or decrypts the value of a specified field.(Currently, only decryption is supported) |
 | [pdfextract](transform/pdfextract.md) | ○ | ○ | Extract text and metadata from PDF files |

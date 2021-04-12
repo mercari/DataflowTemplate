@@ -317,7 +317,9 @@ public class AvroSchemaUtil {
                         break;
                 }
             } else {
-                builder.set(field, null);
+                if(isNullable(field.schema())) {
+                    builder.set(field, null);
+                }
             }
         }
         return builder;
