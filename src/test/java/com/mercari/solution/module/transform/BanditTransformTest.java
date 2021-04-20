@@ -114,6 +114,8 @@ public class BanditTransformTest {
 
         PAssert.that(outputArms2).satisfies(arms -> {
             final List<GenericRecord> armsList = Lists.newArrayList(arms);
+            armsList.sort((r1, r2) -> Long.valueOf((long)r1.get("timestamp") - (long)r2.get("timestamp")).intValue());
+
             Assert.assertEquals(1, armsList.size());
             Assert.assertEquals("", (armsList.get(0)).get("target").toString());
             Assert.assertEquals("ts", (armsList.get(0)).get("algorithm").toString());
@@ -180,6 +182,7 @@ public class BanditTransformTest {
         PAssert.that(outputArms1).satisfies(arms -> {
             final List<GenericRecord> armsList = Lists.newArrayList(arms);
             armsList.sort((r1, r2) -> Long.valueOf((long)r1.get("timestamp") - (long)r2.get("timestamp")).intValue());
+
             Assert.assertEquals(10, armsList.size());
             // Last result
             Assert.assertEquals("", (armsList.get(0)).get("target").toString());
@@ -272,6 +275,8 @@ public class BanditTransformTest {
 
         PAssert.that(outputArms2).satisfies(arms -> {
             final List<GenericRecord> armsList = Lists.newArrayList(arms);
+            armsList.sort((r1, r2) -> Long.valueOf((long)r1.get("timestamp") - (long)r2.get("timestamp")).intValue());
+
             Assert.assertEquals(1, armsList.size());
             Assert.assertEquals("", (armsList.get(0)).get("target").toString());
             Assert.assertEquals("ucb", (armsList.get(0)).get("algorithm").toString());
