@@ -23,9 +23,10 @@ PubSub sink module publishes record to the specified PubSub topic.
 | timestampAttribute | optional | String | Specify the attribute name when you want to save the event time of the record as attribute value. |
 | maxBatchSize | optional | Integer | Specify the number of buffers to send to PubSub at one time. |
 | maxBatchBytesSize | optional | Integer | Specifies the buffer byte size to be sent to PubSub at one time. |
-| protobufDescriptorPath | optional | String | When `protobuf` is specified as the `format`, specify the path of the GCS where the descriptor file for serialization is located. |
+| protobufDescriptor | optional | String | When `protobuf` is specified as the `format`, specify the path of the GCS where the descriptor file for serialization is located. |
 | protobufMessageName | optional | String | When `protobuf` is specified as the `format`, Specify the full name(contains package name) of the target message. |
 
 ## Related example config files
 
 * [BigQuery to Cloud PubSub](../../../../examples/bigquery-to-pubsub.json)
+* [Cloud PubSub(protobuf) to BeamSQL to Cloud PubSub(protobuf)](../../../../examples/pubsub-protobuf-to-beamsql-to-pubsub-protobuf.json)

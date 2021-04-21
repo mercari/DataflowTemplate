@@ -48,7 +48,7 @@ public class PubSubSink implements SinkModule {
         private String idAttribute;
         private String timestampAttribute;
 
-        private String protobufDescriptorPath;
+        private String protobufDescriptor;
         private String protobufMessageName;
 
         private Integer maxBatchSize;
@@ -94,12 +94,12 @@ public class PubSubSink implements SinkModule {
             this.timestampAttribute = timestampAttribute;
         }
 
-        public String getProtobufDescriptorPath() {
-            return protobufDescriptorPath;
+        public String getProtobufDescriptor() {
+            return protobufDescriptor;
         }
 
-        public void setProtobufDescriptorPath(String protobufDescriptorPath) {
-            this.protobufDescriptorPath = protobufDescriptorPath;
+        public void setProtobufDescriptor(String protobufDescriptor) {
+            this.protobufDescriptor = protobufDescriptor;
         }
 
         public String getProtobufMessageName() {
@@ -250,7 +250,7 @@ public class PubSubSink implements SinkModule {
                             return rows.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                     parameters.getAttributes(),
                                     parameters.getIdAttribute(),
-                                    parameters.getProtobufDescriptorPath(),
+                                    parameters.getProtobufDescriptor(),
                                     parameters.getProtobufMessageName(),
                                     RowSchemaUtil::getAsString,
                                     RowToProtoConverter::convert)))
@@ -261,7 +261,7 @@ public class PubSubSink implements SinkModule {
                             return records.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                     parameters.getAttributes(),
                                     parameters.getIdAttribute(),
-                                    parameters.getProtobufDescriptorPath(),
+                                    parameters.getProtobufDescriptor(),
                                     parameters.getProtobufMessageName(),
                                     AvroSchemaUtil::getAsString,
                                     RecordToProtoConverter::convert)))
@@ -272,7 +272,7 @@ public class PubSubSink implements SinkModule {
                             return structs.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                     parameters.getAttributes(),
                                     parameters.getIdAttribute(),
-                                    parameters.getProtobufDescriptorPath(),
+                                    parameters.getProtobufDescriptor(),
                                     parameters.getProtobufMessageName(),
                                     StructSchemaUtil::getAsString,
                                     StructToProtoConverter::convert)))
@@ -283,7 +283,7 @@ public class PubSubSink implements SinkModule {
                             return entities.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                     parameters.getAttributes(),
                                     parameters.getIdAttribute(),
-                                    parameters.getProtobufDescriptorPath(),
+                                    parameters.getProtobufDescriptor(),
                                     parameters.getProtobufMessageName(),
                                     EntitySchemaUtil::getAsString,
                                     EntityToProtoConverter::convert)))
@@ -313,8 +313,8 @@ public class PubSubSink implements SinkModule {
             }
             if(parameters.getFormat() != null) {
                 if(parameters.getFormat().equals(Format.protobuf)) {
-                    if(parameters.getProtobufDescriptorPath() == null) {
-                        errorMessages.add("PubSub sink module parameter must contain protobufDescriptorPath when set format `protobuf`");
+                    if(parameters.getProtobufDescriptor() == null) {
+                        errorMessages.add("PubSub sink module parameter must contain protobufDescriptor when set format `protobuf`");
                     }
                     if(parameters.getProtobufMessageName() == null) {
                         errorMessages.add("PubSub sink module parameter must contain protobufMessageName when set format `protobuf`");
