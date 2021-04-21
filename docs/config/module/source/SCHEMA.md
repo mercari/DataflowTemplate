@@ -2,9 +2,9 @@
 
 | name | optional | type | description |
 | --- | --- | --- | --- |
-| avroSchema | selective required | String | GCS path where you put the Avro schema file. |
 | fields |  selective required | Array<Field\> | Specify an array of type Field below. |
-
+| avroSchema | selective required | String | GCS path where you put the Avro schema file. |
+| protobufDescriptor | selective required | String | GCS path where you put the protobuf descriptor file. |
 
 ## Field
 

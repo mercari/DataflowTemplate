@@ -145,7 +145,28 @@ public class PubSubSource implements SourceModule {
                         return FCollection.of(config.getName(), output, DataType.ROW, rowSchema);
                     }
                     default:
-                        throw new IllegalStateException();
+                        throw new IllegalStateException("PubSub source module does not support outputType: " + parameters.getOutputType());
+                }
+            }
+            case protobuf: {
+                final byte[] descriptorBytes = StorageUtil.readBytes(config.getSchema().getProtobufDescriptor());
+                final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descriptorBytes);
+                final Descriptors.Descriptor messageDescriptor = descriptors.get(parameters.getMessageName());
+                switch (parameters.getOutputType()) {
+                    case avro: {
+                        final Schema avroSchema = ProtoToRecordConverter.convertSchema(messageDescriptor);
+                        final PubSubStream<GenericRecord> stream = new PubSubStream<>(config, parameters);
+                        final PCollection<GenericRecord> output = begin.apply(config.getName(), stream);
+                        return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
+                    }
+                    case row: {
+                        final org.apache.beam.sdk.schemas.Schema rowSchema = ProtoToRowConverter.convertSchema(messageDescriptor);
+                        final PubSubStream<Row> stream = new PubSubStream<>(config, parameters);
+                        final PCollection<Row> output = begin.apply(config.getName(), stream);
+                        return FCollection.of(config.getName(), output, DataType.ROW, rowSchema);
+                    }
+                    default:
+                        throw new IllegalStateException("PubSub source module does not support outputType: " + parameters.getOutputType());
                 }
             }
             case message: {
@@ -155,7 +176,7 @@ public class PubSubSource implements SourceModule {
                 return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
             }
             default:
-                throw new IllegalStateException();
+                throw new IllegalStateException("PubSub source module does not support format: " + parameters.getFormat());
         }
 
     }
@@ -191,6 +212,7 @@ public class PubSubSource implements SourceModule {
                     parameters.setOutputType(OutputType.avro);
                     break;
                 }
+                case protobuf:
                 case json: {
                     parameters.setOutputType(OutputType.row);
                     break;
@@ -222,10 +244,8 @@ public class PubSubSource implements SourceModule {
                     read = PubsubIO.readAvroGenericRecords(SourceConfig.convertAvroSchema(schema));
                     break;
                 }
-                case json: {
-                    read = PubsubIO.readMessagesWithAttributesAndMessageId();
-                    break;
-                }
+                case protobuf:
+                case json:
                 case message: {
                     read = PubsubIO.readMessagesWithAttributesAndMessageId();
                     break;
