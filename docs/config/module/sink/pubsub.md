@@ -17,13 +17,16 @@ PubSub sink module publishes record to the specified PubSub topic.
 | parameter | optional | type | description |
 | --- | --- | --- | --- |
 | topic | required | String | Specify the PubSub topic name of the destination. (projects/{gcp project}/topics/{topic name}) |
-| format | required | String | Specifies the format of the records to publish. Currently supporting `json` and `avro`. |
+| format | required | String | Specifies the format of the records to publish. Currently supporting `json`, `avro` and `protobuf`. |
 | attributes | optional | Array<String\> | Specify the field names you want to register as attributes in the PubSub message. |
 | idAttribute | optional | String | Specify a field name with a value when you want to give an ID to a PubSub message to ensure uniqueness. |
 | timestampAttribute | optional | String | Specify the attribute name when you want to save the event time of the record as attribute value. |
 | maxBatchSize | optional | Integer | Specify the number of buffers to send to PubSub at one time. |
 | maxBatchBytesSize | optional | Integer | Specifies the buffer byte size to be sent to PubSub at one time. |
+| protobufDescriptor | optional | String | When `protobuf` is specified as the `format`, specify the path of the GCS where the descriptor file for serialization is located. |
+| protobufMessageName | optional | String | When `protobuf` is specified as the `format`, Specify the full name(contains package name) of the target message. |
 
 ## Related example config files
 
 * [BigQuery to Cloud PubSub](../../../../examples/bigquery-to-pubsub.json)
+* [Cloud PubSub(protobuf) to BeamSQL to Cloud PubSub(protobuf)](../../../../examples/pubsub-protobuf-to-beamsql-to-pubsub-protobuf.json)

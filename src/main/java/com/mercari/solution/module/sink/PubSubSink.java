@@ -3,15 +3,15 @@ package com.mercari.solution.module.sink;
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.DynamicMessage;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -47,6 +47,9 @@ public class PubSubSink implements SinkModule {
         private List<String> attributes;
         private String idAttribute;
         private String timestampAttribute;
+
+        private String protobufDescriptor;
+        private String protobufMessageName;
 
         private Integer maxBatchSize;
         private Integer maxBatchBytesSize;
@@ -91,6 +94,22 @@ public class PubSubSink implements SinkModule {
             this.timestampAttribute = timestampAttribute;
         }
 
+        public String getProtobufDescriptor() {
+            return protobufDescriptor;
+        }
+
+        public void setProtobufDescriptor(String protobufDescriptor) {
+            this.protobufDescriptor = protobufDescriptor;
+        }
+
+        public String getProtobufMessageName() {
+            return protobufMessageName;
+        }
+
+        public void setProtobufMessageName(String protobufMessageName) {
+            this.protobufMessageName = protobufMessageName;
+        }
+
         public Integer getMaxBatchSize() {
             return maxBatchSize;
         }
@@ -112,7 +131,8 @@ public class PubSubSink implements SinkModule {
 
     private enum Format {
         avro,
-        json
+        json,
+        protobuf
     }
 
     public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
@@ -223,6 +243,56 @@ public class PubSubSink implements SinkModule {
                             throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
                     }
                 }
+                case protobuf: {
+                    switch (collection.getDataType()) {
+                        case ROW: {
+                            final PCollection<Row> rows = (PCollection<Row>)input;
+                            return rows.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    parameters.getProtobufDescriptor(),
+                                    parameters.getProtobufMessageName(),
+                                    RowSchemaUtil::getAsString,
+                                    RowToProtoConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        case AVRO: {
+                            final PCollection<GenericRecord> records = (PCollection<GenericRecord>)input;
+                            return records.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    parameters.getProtobufDescriptor(),
+                                    parameters.getProtobufMessageName(),
+                                    AvroSchemaUtil::getAsString,
+                                    RecordToProtoConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        case STRUCT: {
+                            final PCollection<Struct> structs = (PCollection<Struct>)input;
+                            return structs.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    parameters.getProtobufDescriptor(),
+                                    parameters.getProtobufMessageName(),
+                                    StructSchemaUtil::getAsString,
+                                    StructToProtoConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        case ENTITY: {
+                            final PCollection<Entity> entities = (PCollection<Entity>)input;
+                            return entities.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                                    parameters.getAttributes(),
+                                    parameters.getIdAttribute(),
+                                    parameters.getProtobufDescriptor(),
+                                    parameters.getProtobufMessageName(),
+                                    EntitySchemaUtil::getAsString,
+                                    EntityToProtoConverter::convert)))
+                                    .apply("PublishPubSub", write);
+                        }
+                        default:
+                            throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
+                    }
+                }
                 default:
                     throw new IllegalArgumentException("PubSubSink module not support format: " + parameters.getFormat());
             }
@@ -236,10 +306,20 @@ public class PubSubSink implements SinkModule {
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
             if(parameters.getTopic() == null) {
-                errorMessages.add("PubSub module parameter must contain topic");
+                errorMessages.add("PubSub sink module parameter must contain topic");
             }
             if(parameters.getFormat() == null) {
-                errorMessages.add("PubSub module parameter must contain format");
+                errorMessages.add("PubSub sink module parameter must contain format");
+            }
+            if(parameters.getFormat() != null) {
+                if(parameters.getFormat().equals(Format.protobuf)) {
+                    if(parameters.getProtobufDescriptor() == null) {
+                        errorMessages.add("PubSub sink module parameter must contain protobufDescriptor when set format `protobuf`");
+                    }
+                    if(parameters.getProtobufMessageName() == null) {
+                        errorMessages.add("PubSub sink module parameter must contain protobufMessageName when set format `protobuf`");
+                    }
+                }
             }
             if(errorMessages.size() > 0) {
                 throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
@@ -330,6 +410,52 @@ public class PubSubSink implements SinkModule {
 
         }
 
+        private static class ProtobufPubsubMessageDoFn<T> extends PubsubMessageDoFn<T> {
+
+            private final String descriptorPath;
+            private final String messageName;
+            private final FieldGetter<T> getter;
+            private final ProtoConverter<T> converter;
+
+            private transient Descriptors.Descriptor descriptor;
+
+            ProtobufPubsubMessageDoFn(final List<String> attributes,
+                                      final String idAttribute,
+                                      final String descriptorPath,
+                                      final String messageName,
+                                      final FieldGetter<T> getter,
+                                      final ProtoConverter<T> converter) {
+
+                super(attributes, idAttribute);
+                this.descriptorPath = descriptorPath;
+                this.messageName = messageName;
+                this.getter = getter;
+                this.converter = converter;
+            }
+
+            @Setup
+            public void setup() {
+                final byte[] bytes = StorageUtil.readBytes(descriptorPath);
+                final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(bytes);
+                this.descriptor = descriptors.get(messageName);
+            }
+
+            @Override
+            String getString(T element, String fieldName) {
+                return getter.getString(element, fieldName);
+            }
+
+            @Override
+            byte[] encode(T element) {
+                final DynamicMessage message = converter.convert(descriptor, element);
+                if(message == null) {
+                    return null;
+                }
+                return message.toByteArray();
+            }
+
+        }
+
         private static abstract class PubsubMessageDoFn<T> extends DoFn<T, PubsubMessage> {
 
             private final List<String> attributes;
@@ -385,6 +511,10 @@ public class PubSubSink implements SinkModule {
 
     private interface JsonConverter<T> extends Serializable {
         String convert(final T value);
+    }
+
+    private interface ProtoConverter<T> extends Serializable {
+        DynamicMessage convert(final Descriptors.Descriptor messageDescriptor, final T value);
     }
 
 }

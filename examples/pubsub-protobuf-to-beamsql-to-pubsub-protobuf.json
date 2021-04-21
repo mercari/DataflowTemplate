@@ -1,0 +1,51 @@
+{
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "parameters": {
+        "subscription": "projects/myproject/subscriptions/mysubscription",
+        "format": "protobuf",
+        "messageName": "com.example.entity.MyMessage"
+      },
+      "schema": {
+        "protobufDescriptor": "gs://example-bucket/mymessage.desc"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "withEventTime",
+      "module": "eventtime",
+      "inputs": [
+        "pubsubInput"
+      ],
+      "parameters": {
+        "eventtimeField": "CreatedAt"
+      }
+    },
+    {
+      "name": "beamsqlTransform",
+      "module": "beamsql",
+      "inputs": [
+        "withEventTime"
+      ],
+      "parameters": {
+        "sql": "SELECT UserID, COUNT(UserID) AS Count, SUM(Count) AS SumCount, MIN(CreatedAt) AS EarliestTime, MAX(CreatedAt) AS LatestTime FROM withEventTime GROUP BY UserID, TUMBLE(CreatedAt, 'INTERVAL 10 SECOND') HAVING SumCount > 1"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "beamsqlTransform",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "protobuf",
+        "protobufDescriptor": "gs://example-bucket/resultmessage.desc",
+        "protobufMessageName": "com.example.entity.ResultMessage"
+      }
+    }
+  ]
+}
