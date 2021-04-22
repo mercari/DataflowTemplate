@@ -1,0 +1,49 @@
+{
+  "sources": [
+    {
+      "name": "pubsubInput",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "MarketID", "type": "string", "mode": "required" },
+          { "name": "Symbol", "type": "string", "mode": "required" },
+          { "name": "CurrentPrice", "type": "double", "mode": "required" },
+          { "name": "TradingVolume", "type": "double", "mode": "required" },
+          { "name": "RecievedAt", "type": "timestamp", "mode": "required" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscription"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "barTransform",
+      "module": "bar",
+      "inputs": ["pubsubInput"],
+      "parameters": {
+        "priceField": "CurrentPrice",
+        "volumeField": "TradingVolume",
+        "timestampField": "RecievedAt",
+        "symbolFields": ["MarketID", "Symbol"],
+        "type": "time",
+        "unit": "minute",
+        "size": 1
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutput",
+      "module": "bigquery",
+      "input": "barTransform",
+      "parameters": {
+        "table": "myproject:mydataset.bars",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}
