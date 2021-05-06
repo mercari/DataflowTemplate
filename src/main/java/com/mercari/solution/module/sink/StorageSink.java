@@ -4,40 +4,40 @@ import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.module.sink.fileio.TextFileSink;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.FixedFileNaming;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.coders.NullableCoder;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.avro.reflect.Nullable;
+import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.WriteFilesResult;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.values.KV;
-import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.Row;
-import org.apache.beam.sdk.values.TypeDescriptors;
+import org.apache.beam.sdk.values.*;
+import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.commons.math3.stat.StatUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class StorageSink implements SinkModule {
 
@@ -573,6 +573,487 @@ public class StorageSink implements SinkModule {
                     LOG.info("OutputNotifyFile: " + outputNotify);
                     StorageUtil.writeString(outputNotify, filePaths == null ? "" : filePaths);
                 }
+            }
+
+        }
+
+    }
+
+    public static class JsonSchemaDetector extends PTransform<PCollection<String>, PCollection<String>> {
+
+        private final Double mapRate;
+
+        JsonSchemaDetector(final Double mapRate) {
+            this.mapRate = mapRate;
+        }
+
+        public PCollection<String> expand(final PCollection<String> input) {
+            final PCollectionView<Long> counts = input
+                    .apply("Count", Count.globally())
+                    .apply("AsSingletonView", View.asSingleton());
+            return input
+                    .apply("JsonToColumns", ParDo.of(new ColumnDoFn()))
+                    .apply("ColumnsToColumnSchema", Combine.perKey(new JsonAvroSchemaDetectorPerKeyFn()))
+                    .apply("GlobalKey", WithKeys.of(""))
+                    .apply("GroupByKey", GroupByKey.create())
+                    .apply("ConvertToSchema", ParDo
+                            .of(new SchemaDoFn(mapRate, counts))
+                            .withSideInputs(counts));
+        }
+
+        private static class ColumnDoFn extends DoFn<String, KV<String, Column>> {
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final String line = c.element();
+                final List<Column> columns = new ArrayList<>();
+                final JsonObject jsonObject = new Gson().fromJson(line, JsonObject.class);
+                setJsonObject(columns, "", "", jsonObject);
+                for(final Column column : columns) {
+                    c.output(KV.of(column.path, column));
+                }
+            }
+
+            private void setJsonObject(final List<Column> columns, final String id, final String path, final JsonObject jsonObject) {
+                for(final Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
+                    setJsonElement(columns, id, path + "/" + entry.getKey(), entry.getValue());
+                }
+            }
+
+            private void setJsonElement(final List<Column> columns, final String id, final String path, final JsonElement jsonElement) {
+                setJsonElement(columns, id, path, jsonElement, false);
+            }
+
+            private void setJsonElement(final List<Column> columns, final String id, final String path, final JsonElement jsonElement, boolean inArray) {
+                if(jsonElement.isJsonNull()) {
+                    if(!inArray) {
+                        columns.add(Column.of(id, path, "null", null));
+                    }
+                } else if(jsonElement.isJsonPrimitive()) {
+                    if(!inArray) {
+                        columns.add(Column.of(id, path, "primitive", jsonElement.getAsString()));
+                    }
+                } else if(jsonElement.isJsonObject()) {
+                    if(!inArray) {
+                        columns.add(Column.of(id, path, "object", null));
+                    }
+                    setJsonObject(columns, id, path, jsonElement.getAsJsonObject());
+                } else if(jsonElement.isJsonArray()) {
+                    final HashSet<String> elementTypes = new HashSet<>();
+                    final List<Column> childColumns = new ArrayList<>();
+                    for(final JsonElement jsonElementChild : jsonElement.getAsJsonArray()) {
+                        final String elementType = getElementType(jsonElementChild);
+                        if("array".equals(elementType)) {
+                            elementTypes.add("object");
+                            for(final JsonElement jsonElementGrandChild : jsonElementChild.getAsJsonArray()) {
+                                final JsonObject jsonObject = new JsonObject();
+                                jsonObject.add("value", jsonElementGrandChild);
+                                setJsonElement(childColumns, id, path, jsonObject, true);
+                            }
+                        } else {
+                            elementTypes.add(elementType);
+                            setJsonElement(childColumns, id, path, jsonElementChild, true);
+                        }
+                    }
+                    columns.addAll(childColumns);
+                    columns.add(Column.of(id, path, "array", null, elementTypes));
+                }
+            }
+
+            private String getElementType(final JsonElement element) {
+                if(element.isJsonNull()) {
+                    return "null";
+                } else if(element.isJsonPrimitive()) {
+                    return "primitive";
+                } else if(element.isJsonObject()) {
+                    return "object";
+                } else if(element.isJsonArray()) {
+                    return "array";
+                } else {
+                    throw new IllegalArgumentException("Illegal " + element.toString());
+                }
+            }
+        }
+
+        private static class JsonAvroSchemaDetectorPerKeyFn extends Combine.CombineFn<Column, ColumnSchema, ColumnSchema> {
+
+            @Override
+            public ColumnSchema createAccumulator() { return new ColumnSchema(); }
+
+            @Override
+            public ColumnSchema addInput(final ColumnSchema accum, final Column input) {
+                if(accum.getPath() == null) {
+                    accum.setPath(input.getPath());
+                }
+                accum.getTypes().add(input.getType());
+                accum.getDataTypes().add(input.getDataType());
+                if(input.getElementTypes() != null) {
+                    accum.getElementTypes().addAll(input.getElementTypes());
+                }
+                accum.setCount(accum.getCount() + 1);
+                return accum;
+            }
+
+            @Override
+            public ColumnSchema mergeAccumulators(final Iterable<ColumnSchema> accums) {
+                final ColumnSchema merged = createAccumulator();
+                for(final ColumnSchema columnSchema : accums) {
+                    if(merged.getPath() == null) {
+                        merged.setPath(columnSchema.getPath());
+                    }
+                    merged.getTypes().addAll(columnSchema.getTypes());
+                    merged.getDataTypes().addAll(columnSchema.getDataTypes());
+                    merged.getElementTypes().addAll(columnSchema.getElementTypes());
+                    merged.setCount(merged.getCount() + columnSchema.getCount());
+                }
+                return merged;
+            }
+
+            @Override
+            public ColumnSchema extractOutput(final ColumnSchema accum) {
+                return accum;
+            }
+
+        }
+
+        private static class SchemaDoFn extends DoFn<KV<String, Iterable<KV<String, ColumnSchema>>>, String> {
+
+            private static final Logger LOG = LoggerFactory.getLogger(SchemaDoFn.class);
+
+            private static final org.apache.avro.Schema SCHEMA_NULL = org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL);
+
+
+            private final Double mapRate;
+            private final PCollectionView<Long> countsView;
+
+            SchemaDoFn(final Double mapRate, final PCollectionView<Long> countsView) {
+                this.mapRate = mapRate;
+                this.countsView = countsView;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+
+                final Long count = c.sideInput(countsView);
+
+                final List<ColumnSchema> columnSchemas = new ArrayList<>();
+                for(final KV<String, ColumnSchema> kv : c.element().getValue()) {
+                    columnSchemas.add(kv.getValue());
+                }
+
+                final ColumnSchema root = new ColumnSchema();
+                root.setPath("");
+                root.setTypes(new HashSet<>());
+                root.getTypes().add("object");
+                root.setDataTypes(new HashSet<>());
+                root.setElementTypes(new HashSet<>());
+
+                LOG.info("ColumnSize: " + columnSchemas.size());
+                for(ColumnSchema cs : columnSchemas) {
+                    LOG.info(cs.path + " " + cs.types + " " + cs.dataTypes + " " + cs.elementTypes + " " + cs.count);
+                }
+
+                final org.apache.avro.Schema schema = convertSchema(root, columnSchemas, count);
+                final String schemaString = schema.toString();
+                LOG.info(schemaString);
+                c.output(schemaString);
+            }
+
+            private org.apache.avro.Schema convertSchema(
+                    final ColumnSchema parentColumn,
+                    final List<ColumnSchema> descendantColumns,
+                    final Long count) {
+
+                final String type = mergeTypes(parentColumn.getTypes());
+                switch (type) {
+                    case "null": {
+                        return AvroSchemaUtil.NULLABLE_STRING;
+                    }
+                    case "primitive": {
+                        final String dataType = mergeDataTypes(parentColumn.getDataTypes());
+                        switch (dataType) {
+                            case "STRING":
+                                return AvroSchemaUtil.NULLABLE_STRING;
+                            case "BOOLEAN":
+                                return AvroSchemaUtil.NULLABLE_BOOLEAN;
+                            case "INT64":
+                                return AvroSchemaUtil.NULLABLE_LONG;
+                            case "FLOAT64":
+                                return AvroSchemaUtil.NULLABLE_DOUBLE;
+                            case "DATE":
+                                return AvroSchemaUtil.NULLABLE_LOGICAL_DATE_TYPE;
+                            case "TIME":
+                                return AvroSchemaUtil.NULLABLE_LOGICAL_TIME_MILLI_TYPE;
+                            case "TIMESTAMP":
+                                return AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE;
+                            default:
+                                return AvroSchemaUtil.NULLABLE_STRING;
+                        }
+                    }
+                    case "object": {
+                        final List<ColumnSchema> childrenColumns = descendantColumns.stream()
+                                .filter(cs -> cs.getPath().startsWith(parentColumn.getPath()))
+                                .filter(cs -> !cs.getPath().replaceFirst(parentColumn.getPath() + "/", "").contains("/"))
+                                .collect(Collectors.toList());
+
+                        final double countMean = StatUtils.mean(childrenColumns.stream().mapToDouble(ColumnSchema::getCount).toArray());
+                        final boolean containsInvalidName = childrenColumns.stream()
+                                .map(ColumnSchema::getPath)
+                                .anyMatch(c -> !AvroSchemaUtil.isValidFieldName(c));
+
+                        final boolean isMap = containsInvalidName || (countMean / count) < mapRate;
+                        if(isMap) {
+                            return AvroSchemaUtil.NULLABLE_MAP_STRING;
+                        } else {
+                            final List<org.apache.avro.Schema.Field> fields = childrenColumns.stream()
+                                    .map(cs -> new org.apache.avro.Schema.Field(
+                                            getName(cs.getPath()),
+                                            convertSchema(cs, descendantColumns.stream()
+                                                    .filter(ccs -> ccs.getPath().startsWith(cs.getPath() + "/"))
+                                                    .collect(Collectors.toList()), count),
+                                            null,
+                                            (Object)null,
+                                            org.apache.avro.Schema.Field.Order.IGNORE))
+                                    .collect(Collectors.toList());
+                            if(fields.size() == 0) {
+                                return SCHEMA_NULL;
+                            }
+                            final String name = getName(parentColumn.getPath());
+                            final String namespace = getNamespace(parentColumn.getPath());
+                            return org.apache.avro.Schema.createRecord(name, "", namespace, false, fields);
+                        }
+                    }
+                    case "array": {
+                        final List<org.apache.avro.Schema> elementSchemas = new ArrayList<>();
+                        for(final String elementType : parentColumn.getElementTypes()) {
+                            final ColumnSchema elementColumnSchema = new ColumnSchema();
+                            elementColumnSchema.setPath(parentColumn.getPath());
+                            elementColumnSchema.setTypes(new HashSet<>());
+                            elementColumnSchema.getTypes().add(elementType);
+                            final org.apache.avro.Schema elementSchema = convertSchema(elementColumnSchema, descendantColumns.stream()
+                                    .filter(cs -> cs.getPath().startsWith(elementColumnSchema.getPath() + "/"))
+                                    .collect(Collectors.toList()), count);
+                            elementSchemas.add(elementSchema);
+                        }
+                        return org.apache.avro.Schema.createArray(elementSchemas.get(0));
+                    }
+                    default: {
+                        return AvroSchemaUtil.NULLABLE_STRING;
+                    }
+                }
+            }
+
+            private static String getName(final String path) {
+                if(path.length() == 0) {
+                    return "root";
+                }
+                final String[] paths = path.replaceFirst("/", "").split("/");
+                return paths[paths.length - 1];
+            }
+
+            private static String getNamespace(final String path) {
+                if(path.length() == 0) {
+                    return "";
+                }
+                final String namespace = path.replaceAll("/", ".");
+                if(namespace.startsWith(".")) {
+                    return namespace.substring(1);
+                }
+                return namespace;
+            }
+
+            private static String mergeTypes(final Set<String> types) {
+                if(types.contains("primitive")) {
+                    return "primitive";
+                } else if(types.containsAll(Set.of("object", "null")) && types.size() == 2) {
+                    return "object";
+                } else if(types.containsAll(Set.of("array", "null")) && types.size() == 2) {
+                    return "array";
+                } else if(types.contains("object")  && types.size() == 1) {
+                    return "object";
+                } else if(types.contains("array")  && types.size() == 1) {
+                    return "array";
+                } else {
+                    return "primitive";
+                }
+            }
+
+            private static String mergeDataTypes(final Set<String> dataTypes) {
+                if(dataTypes.contains("STRING")) {
+                    return "STRING";
+                } else if(dataTypes.containsAll(Set.of("FLOAT64", "INT64")) && dataTypes.size() == 2) {
+                    return "FLOAT64";
+                } else if(dataTypes.containsAll(Set.of("TIMESTAMP", "DATE")) && dataTypes.size() == 2) {
+                    return "TIMESTAMP";
+                } else if(dataTypes.contains("INT64")  && dataTypes.size() == 1) {
+                    return "INT64";
+                } else if(dataTypes.contains("FLOAT64")  && dataTypes.size() == 1) {
+                    return "FLOAT64";
+                } else if(dataTypes.contains("BOOLEAN")  && dataTypes.size() == 1) {
+                    return "BOOLEAN";
+                } else if(dataTypes.contains("DATE")  && dataTypes.size() == 1) {
+                    return "DATE";
+                } else if(dataTypes.contains("TIME")  && dataTypes.size() == 1) {
+                    return "TIME";
+                } else {
+                    return "STRING";
+                }
+            }
+
+        }
+
+        @DefaultCoder(AvroCoder.class)
+        private static class Column {
+
+            private String id;
+            private String path;
+            private String type;
+            @Nullable
+            private String dataType;
+            @Nullable
+            private HashSet<String> elementTypes;
+
+            public String getId() {
+                return id;
+            }
+
+            public void setId(String id) {
+                this.id = id;
+            }
+
+            public String getPath() {
+                return path;
+            }
+
+            public void setPath(String path) {
+                this.path = path;
+            }
+
+            public String getType() {
+                return type;
+            }
+
+            public void setType(String type) {
+                this.type = type;
+            }
+
+            public String getDataType() {
+                return dataType;
+            }
+
+            public void setDataType(String dataType) {
+                this.dataType = dataType;
+            }
+
+            public Set<String> getElementTypes() {
+                return elementTypes;
+            }
+
+            public void setElementTypes(HashSet<String> elementTypes) {
+                this.elementTypes = elementTypes;
+            }
+
+            public static Column of(final String id, final String path, final String type, final String value) {
+                return of(id, path, type, value, null);
+            }
+
+            public static Column of(final String id, final String path, final String type, final String value, final HashSet<String> elementTypes) {
+                final Column column = new Column();
+                column.setId(id);
+                column.setPath(path);
+                column.setType(type);
+                column.setElementTypes(elementTypes);
+                column.setDataType(getDataType(value));
+                return column;
+            }
+
+            private static String getDataType(final String value) {
+                if(value == null) {
+                    return "NULL";
+                }
+                final String v = value.trim().toLowerCase();
+                if(NumberUtils.isParsable(v)) {
+                    if(NumberUtils.isDigits(v)) {
+                        return "INT64";
+                    } else {
+                        return "FLOAT64";
+                    }
+                } else if("true".equals(v) || "false".equals(v)) {
+                    return "BOOLEAN";
+                } else if(DateTimeUtil.isTimestamp(v)) {
+                    return "TIMESTAMP";
+                } else if(DateTimeUtil.isDate(v)) {
+                    return "DATE";
+                } else if(DateTimeUtil.isTime(v)) {
+                    return "TIME";
+                } else if("null".equals(v)) {
+                    return "NULL";
+                } else {
+                    return "STRING";
+                }
+            }
+
+        }
+
+        @DefaultCoder(AvroCoder.class)
+        private static class ColumnSchema {
+
+            @Nullable
+            private String path;
+            private HashSet<String> types;
+            @Nullable
+            private HashSet<String> elementTypes;
+            @Nullable
+            private HashSet<String> dataTypes;
+
+            @Nullable
+            private Long count;
+
+            public String getPath() {
+                return path;
+            }
+
+            public void setPath(String path) {
+                this.path = path;
+            }
+
+            public Set<String> getTypes() {
+                return types;
+            }
+
+            public void setTypes(HashSet<String> types) {
+                this.types = types;
+            }
+
+            public HashSet<String> getElementTypes() {
+                return elementTypes;
+            }
+
+            public void setElementTypes(HashSet<String> elementTypes) {
+                this.elementTypes = elementTypes;
+            }
+
+            public Set<String> getDataTypes() {
+                return dataTypes;
+            }
+
+            public void setDataTypes(HashSet<String> dataTypes) {
+                this.dataTypes = dataTypes;
+            }
+
+            public Long getCount() {
+                return count;
+            }
+
+            public void setCount(Long count) {
+                this.count = count;
+            }
+
+            public ColumnSchema() {
+                this.types = new HashSet<>();
+                this.elementTypes = new HashSet<>();
+                this.dataTypes = new HashSet<>();
+                this.count = 0L;
             }
 
         }
