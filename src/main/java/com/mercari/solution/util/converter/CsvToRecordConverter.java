@@ -1,5 +1,6 @@
 package com.mercari.solution.util.converter;
 
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.generic.GenericRecord;
@@ -17,6 +18,8 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 public class CsvToRecordConverter {
@@ -66,9 +69,11 @@ public class CsvToRecordConverter {
                     return ByteBuffer.wrap(value.getBytes());
                 case INT: {
                     if (LogicalTypes.date().equals(schema.getLogicalType())) {
-                        return AvroSchemaUtil.convertDateStringToInteger(value);
+                        final LocalDate localDate = DateTimeUtil.toLocalDate(value);
+                        return localDate != null ? Long.valueOf(localDate.toEpochDay()).intValue() : null;
                     } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                        return AvroSchemaUtil.convertTimeStringToInteger(value);
+                        final LocalTime localTime = DateTimeUtil.toLocalTime(value);
+                        return DateTimeUtil.toMilliOfDay(localTime);
                     }
                     return Integer.valueOf(value);
                 }
@@ -87,7 +92,8 @@ public class CsvToRecordConverter {
                             return Instant.parse(value.trim()).getMillis() * 1000;
                         }
                     } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
-                        return (long)(AvroSchemaUtil.convertTimeStringToInteger(value) * 1000);
+                        final LocalTime localTime = DateTimeUtil.toLocalTime(value);
+                        return DateTimeUtil.toMicroOfDay(localTime);
                     }
                     return Long.valueOf(value);
                 }

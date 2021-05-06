@@ -1,5 +1,6 @@
 package com.mercari.solution.util.converter;
 
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.avro.LogicalTypes;
@@ -11,6 +12,7 @@ import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
 import org.apache.beam.sdk.values.Row;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -109,7 +111,8 @@ public class RowToRecordConverter {
             case INT:
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     if(value instanceof String) {
-                        return AvroSchemaUtil.convertDateStringToInteger(value.toString());
+                        final LocalDate localDate = DateTimeUtil.toLocalDate(value.toString());
+                        return localDate != null ? Long.valueOf(localDate.toEpochDay()).intValue() : null;
                     } else if(value instanceof LocalDate) {
                         return ((Long)((LocalDate) value).toEpochDay()).intValue();
                     } else if(value instanceof Integer) {
@@ -119,7 +122,8 @@ public class RowToRecordConverter {
                     }
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     if(value instanceof String) {
-                        return AvroSchemaUtil.convertTimeStringToInteger(value.toString());
+                        final LocalTime localTime = DateTimeUtil.toLocalTime(value.toString());
+                        return DateTimeUtil.toMilliOfDay(localTime);
                     } else {
                         throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for time");
                     }

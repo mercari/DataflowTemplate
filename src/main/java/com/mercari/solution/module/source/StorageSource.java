@@ -19,14 +19,12 @@ import org.apache.beam.sdk.io.parquet.ParquetIO;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.values.PBegin;
-import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.Row;
-import org.apache.beam.sdk.values.TypeDescriptor;
+import org.apache.beam.sdk.values.*;
 
 import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class StorageSource implements SourceModule {
 
@@ -137,6 +135,10 @@ public class StorageSource implements SourceModule {
         if(errorMessages.size() > 0) {
             throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
         }
+    }
+
+    private static void setDefaultParameters(final StorageSourceParameters parameters) {
+
     }
 
     public static StorageMicrobatchRead microbatch(final SourceConfig config) {

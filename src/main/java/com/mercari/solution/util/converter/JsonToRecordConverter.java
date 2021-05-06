@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.generic.GenericRecord;
@@ -15,6 +16,8 @@ import org.joda.time.format.DateTimeFormat;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -71,7 +74,8 @@ public class JsonToRecordConverter {
                         if (jsonElement.isJsonPrimitive()) {
                             final JsonPrimitive jsonPrimitive = jsonElement.getAsJsonPrimitive();
                             if (jsonPrimitive.isString()) {
-                                return AvroSchemaUtil.convertDateStringToInteger(jsonPrimitive.getAsString());
+                                final LocalDate localDate = DateTimeUtil.toLocalDate(jsonPrimitive.getAsString());
+                                return localDate != null ? Long.valueOf(localDate.toEpochDay()).intValue() : null;
                             } else if (jsonPrimitive.isNumber()) {
                                 return jsonPrimitive.getAsInt();
                             } else {
@@ -84,7 +88,8 @@ public class JsonToRecordConverter {
                         if (jsonElement.isJsonPrimitive()) {
                             final JsonPrimitive jsonPrimitive = jsonElement.getAsJsonPrimitive();
                             if (jsonPrimitive.isString()) {
-                                return AvroSchemaUtil.convertTimeStringToInteger(jsonPrimitive.getAsString());
+                                final LocalTime localTime = DateTimeUtil.toLocalTime(jsonPrimitive.getAsString());
+                                return DateTimeUtil.toMilliOfDay(localTime);
                             } else if (jsonPrimitive.isNumber()) {
                                 return jsonPrimitive.getAsInt();
                             } else {
@@ -126,7 +131,8 @@ public class JsonToRecordConverter {
                         if (jsonElement.isJsonPrimitive()) {
                             final JsonPrimitive jsonPrimitive = jsonElement.getAsJsonPrimitive();
                             if (jsonPrimitive.isString()) {
-                                return (long) (AvroSchemaUtil.convertTimeStringToInteger(jsonPrimitive.getAsString()) * 1000);
+                                final LocalTime localTime = DateTimeUtil.toLocalTime(jsonPrimitive.getAsString());
+                                return DateTimeUtil.toMicroOfDay(localTime);
                             } else if (jsonPrimitive.isNumber()) {
                                 return jsonPrimitive.getAsLong();
                             } else {

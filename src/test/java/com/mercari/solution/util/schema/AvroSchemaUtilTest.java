@@ -155,4 +155,27 @@ public class AvroSchemaUtilTest {
         }
     }
 
+    @Test
+    public void testIsValidFieldName() {
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("myfield"));
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("Field"));
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("a1234"));
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("_a1234"));
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("f"));
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("_"));
+        Assert.assertTrue(AvroSchemaUtil.isValidFieldName("_1"));
+
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("@field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("1field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("1"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName(""));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName(" "));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName(" field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("parent.field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("parent-field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("parent/field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName("parent@field"));
+        Assert.assertFalse(AvroSchemaUtil.isValidFieldName(null));
+    }
+
 }
