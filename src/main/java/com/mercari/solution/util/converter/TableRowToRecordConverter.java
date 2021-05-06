@@ -4,6 +4,7 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.gson.*;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -19,6 +20,7 @@ import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.text.ParseException;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -155,7 +157,8 @@ public class TableRowToRecordConverter {
             case INT: {
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     if(value instanceof String) {
-                        return AvroSchemaUtil.convertDateStringToInteger(value.toString());
+                        final LocalDate localDate = DateTimeUtil.toLocalDate(value.toString());
+                        return localDate != null ? Long.valueOf(localDate.toEpochDay()).intValue() : null;
                     } else if(value instanceof LocalDate) {
                         return ((Long)((LocalDate) value).toEpochDay()).intValue();
                     } else if(value instanceof Integer) {
@@ -165,7 +168,8 @@ public class TableRowToRecordConverter {
                     }
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     if(value instanceof String) {
-                        return AvroSchemaUtil.convertTimeStringToInteger(value.toString());
+                        final LocalTime localTime = DateTimeUtil.toLocalTime(value.toString());
+                        return DateTimeUtil.toMilliOfDay(localTime);
                     } else {
                         throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for time");
                     }
@@ -232,9 +236,11 @@ public class TableRowToRecordConverter {
             case INT: {
                 final JsonPrimitive primitive = value.getAsJsonPrimitive();
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
-                    return AvroSchemaUtil.convertDateStringToInteger(value.getAsString());
+                    final LocalDate localDate = DateTimeUtil.toLocalDate(value.toString());
+                    return localDate != null ? Long.valueOf(localDate.toEpochDay()).intValue() : null;
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    return AvroSchemaUtil.convertTimeStringToInteger(value.getAsString());
+                    final LocalTime localTime = DateTimeUtil.toLocalTime(value.getAsString());
+                    return DateTimeUtil.toMilliOfDay(localTime);
                 } else {
                     if (primitive.isString()) {
                         return parseInt(primitive.getAsString());

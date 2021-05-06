@@ -12,7 +12,9 @@ import org.apache.solr.common.SolrInputDocument;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
@@ -93,8 +95,13 @@ public class RecordToSolrDocumentConverter {
             case INT: {
                 final Integer intValue = (Integer) value;
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
-                    final Date date = AvroSchemaUtil.convertEpochDaysToDate(intValue);
-                    doc.addField(name, isNullField ? "" : date);
+                    if(intValue == null) {
+                        doc.addField(name, "");
+                    } else {
+                        final LocalDate ld = LocalDate.ofEpochDay(intValue);
+                        final Date date = Date.from(ld.atStartOfDay().toInstant(ZoneOffset.UTC));
+                        doc.addField(name, date);
+                    }
                     return;
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     doc.addField(name, isNullField ? "" : new Date(intValue).toString());
@@ -189,8 +196,11 @@ public class RecordToSolrDocumentConverter {
                 if(LogicalTypes.date().equals(schema.getLogicalType())) {
                     ((List<Integer>) value).stream()
                             .filter(Objects::nonNull)
-                            .map(AvroSchemaUtil::convertEpochDaysToDate)
-                            .forEach(s -> doc.addField(name, s));
+                            .map(LocalDate::ofEpochDay)
+                            .map(LocalDate::atStartOfDay)
+                            .map(ldt -> ldt.toInstant(ZoneOffset.UTC))
+                            .map(Date::from)
+                            .forEach(d -> doc.addField(name, d));
                     return;
                 } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     ((List<Integer>) value).stream()
