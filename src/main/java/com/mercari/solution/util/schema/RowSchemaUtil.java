@@ -9,6 +9,7 @@ import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
 import org.joda.time.ReadableDateTime;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -462,6 +463,53 @@ public class RowSchemaUtil {
                 return row.getDouble(fieldName);
             case DECIMAL:
                 return row.getDecimal(fieldName).doubleValue();
+            case LOGICAL_TYPE:
+            case DATETIME:
+            case BYTES:
+            case ARRAY:
+            case ITERABLE:
+            case ROW:
+            case MAP:
+            default:
+                return null;
+        }
+    }
+
+    public static BigDecimal getAsBigDecimal(final Row row, final String fieldName) {
+        if(row == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        if(row.getValue(fieldName) == null) {
+            return null;
+        }
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        switch (field.getType().getTypeName()) {
+            case BOOLEAN:
+                return BigDecimal.valueOf(row.getBoolean(fieldName) ? 1D : 0D);
+            case STRING: {
+                try {
+                    return BigDecimal.valueOf(Double.valueOf(row.getString(fieldName)));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case BYTE:
+                return BigDecimal.valueOf(row.getByte(fieldName).longValue());
+            case INT16:
+                return BigDecimal.valueOf(row.getInt16(fieldName).longValue());
+            case INT32:
+                return BigDecimal.valueOf(row.getInt32(fieldName).longValue());
+            case INT64:
+                return BigDecimal.valueOf(row.getInt64(fieldName));
+            case FLOAT:
+                return BigDecimal.valueOf(row.getFloat(fieldName).doubleValue());
+            case DOUBLE:
+                return BigDecimal.valueOf(row.getDouble(fieldName));
+            case DECIMAL:
+                return row.getDecimal(fieldName);
             case LOGICAL_TYPE:
             case DATETIME:
             case BYTES:

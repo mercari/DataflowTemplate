@@ -13,6 +13,7 @@ import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -220,6 +221,38 @@ public class EntitySchemaUtil {
             case STRING_VALUE: {
                 try {
                     return Double.valueOf(value.getStringValue());
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case KEY_VALUE:
+            case BLOB_VALUE:
+            case TIMESTAMP_VALUE:
+            case GEO_POINT_VALUE:
+            case ENTITY_VALUE:
+            case ARRAY_VALUE:
+            case VALUETYPE_NOT_SET:
+            case NULL_VALUE:
+            default:
+                return null;
+        }
+    }
+
+    public static BigDecimal getAsBigDecimal(final Entity entity, final String fieldName) {
+        final Value value = entity.getPropertiesOrDefault(fieldName, null);
+        if(value == null) {
+            return null;
+        }
+        switch(value.getValueTypeCase()) {
+            case BOOLEAN_VALUE:
+                return BigDecimal.valueOf(value.getBooleanValue() ? 1D : 0D);
+            case INTEGER_VALUE:
+                return BigDecimal.valueOf(value.getIntegerValue());
+            case DOUBLE_VALUE:
+                return BigDecimal.valueOf(value.getDoubleValue());
+            case STRING_VALUE: {
+                try {
+                    return BigDecimal.valueOf(Double.valueOf(value.getStringValue()));
                 } catch (Exception e) {
                     return null;
                 }

@@ -28,7 +28,7 @@ public class RowToEntityConverter {
         if(keyFields != null) {
             final StringBuilder sb = new StringBuilder();
             for (final String keyField : keyFields) {
-                final Object keyValue = row.getValue(keyField);
+                final String keyValue = RowSchemaUtil.getAsString(row, keyField);
                 sb.append(keyValue);
                 sb.append(splitter);
             }
