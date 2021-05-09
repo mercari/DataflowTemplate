@@ -29,7 +29,7 @@ public class RecordToEntityConverter {
             if(keyFields.size() > 1) {
                 final StringBuilder sb = new StringBuilder();
                 for (final String keyField : keyFields) {
-                    final Object keyValue = record.get(keyField);
+                    final String keyValue = AvroSchemaUtil.getAsString(record, keyField);
                     sb.append(keyValue);
                     sb.append(keySplitter);
                 }

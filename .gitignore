@@ -19,3 +19,4 @@ buildNumber.properties
 
 # for development
 scripts
+src/test/resources/debug

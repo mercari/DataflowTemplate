@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+
 public class WindowTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(WindowTransform.class);
@@ -37,6 +38,8 @@ public class WindowTransform implements TransformModule {
         private Integer startingDay;
 
         private Boolean discardingFiredPanes;
+
+        private TimestampCombiner timestampCombiner;
 
         public Type getType() {
             return type;
@@ -132,6 +135,14 @@ public class WindowTransform implements TransformModule {
 
         public void setDiscardingFiredPanes(Boolean discardingFiredPanes) {
             this.discardingFiredPanes = discardingFiredPanes;
+        }
+
+        public TimestampCombiner getTimestampCombiner() {
+            return timestampCombiner;
+        }
+
+        public void setTimestampCombiner(TimestampCombiner timestampCombiner) {
+            this.timestampCombiner = timestampCombiner;
         }
 
     }
@@ -265,6 +276,11 @@ public class WindowTransform implements TransformModule {
                     window = window.accumulatingFiredPanes();
                 }
             }
+
+            if(parameters.getTimestampCombiner() != null) {
+                window = window.withTimestampCombiner(parameters.getTimestampCombiner());
+            }
+
             return input.apply("WithWindow", window);
         }
 

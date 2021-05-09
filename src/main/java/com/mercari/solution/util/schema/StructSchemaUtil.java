@@ -234,6 +234,34 @@ public class StructSchemaUtil {
         }
     }
 
+    public static BigDecimal getAsBigDecimal(final Struct struct, final String field) {
+        if(struct.isNull(field)) {
+            return null;
+        }
+        switch (struct.getColumnType(field).getCode()) {
+            case BOOL:
+                return BigDecimal.valueOf(struct.getBoolean(field) ? 1D: 0D);
+            case STRING: {
+                try {
+                    return BigDecimal.valueOf(Double.valueOf(struct.getString(field)));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case INT64:
+                return BigDecimal.valueOf(struct.getLong(field));
+            case FLOAT64:
+                return BigDecimal.valueOf(struct.getDouble(field));
+            case NUMERIC:
+                return struct.getBigDecimal(field);
+            case DATE:
+            case TIMESTAMP:
+            case BYTES:
+            default:
+                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        }
+    }
+
     public static byte[] getBytes(final Struct struct, final String fieldName) {
         final Type.StructField field = struct.getType().getStructFields().stream()
                 .filter(f -> f.getName().equals(fieldName))

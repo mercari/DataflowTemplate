@@ -39,3 +39,4 @@
 | [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
 | [pubsub](sink/pubsub.md) | ○ | ○ | Publish data to specified PubSub topic |
 | [text](sink/text.md) | ○ | ○(TBA) | Create text files with the template specified for each row |
+| [debug](sink/debug.md) | ○ | ○ | Outputting data to the log |

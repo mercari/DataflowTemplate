@@ -250,6 +250,9 @@ public class AvroSchemaUtil {
         return builder;
     }
 
+    public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema) {
+        return toBuilder(schema, schema.getNamespace(), null);
+    }
     public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema,  final String namespace, final Collection<String> fieldNames) {
         final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").namespace(namespace).fields();
         schema.getFields().forEach(f -> {
@@ -327,6 +330,14 @@ public class AvroSchemaUtil {
             schemaFields.name(field.name()).type(field.schema()).noDefault();
         }
         return builder;
+    }
+
+    public static GenericRecord merge(final Schema schema, final GenericRecord record, final Map<String, ? extends Object> values) {
+        final GenericRecordBuilder builder = toBuilder(schema, record);
+        for(var entry : values.entrySet()) {
+            builder.set(entry.getKey(), entry.getValue());
+        }
+        return builder.build();
     }
 
     public static Schema selectFields(final Schema schema, final List<String> fields) {
@@ -716,6 +727,56 @@ public class AvroSchemaUtil {
                 return ((Integer) value).doubleValue();
             case LONG:
                 return ((Long) value).doubleValue();
+            case RECORD:
+            case MAP:
+            case ARRAY:
+            case UNION:
+            case NULL:
+            default:
+                return null;
+        }
+    }
+
+    public static BigDecimal getAsBigDecimal(final GenericRecord record, final String fieldName) {
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return null;
+        }
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Schema fieldSchema = unnestUnion(field.schema());
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+                return BigDecimal.valueOf((Boolean) value ? 1D : 0D);
+            case FLOAT:
+                return BigDecimal.valueOf(((Float) value).doubleValue());
+            case DOUBLE:
+                return BigDecimal.valueOf((Double) value);
+            case ENUM:
+            case STRING: {
+                try {
+                    return BigDecimal.valueOf(Double.valueOf(value.toString()));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            case FIXED:
+            case BYTES: {
+                final ByteBuffer byteBuffer = (ByteBuffer) value;
+                if(isLogicalTypeDecimal(fieldSchema)) {
+                    final int scale = fieldSchema.getObjectProp("scale") != null ?
+                            Integer.valueOf(fieldSchema.getObjectProp("scale").toString()) : 0;
+                    return BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale);
+                }
+                return null;
+            }
+            case INT:
+                return BigDecimal.valueOf(((Integer) value).longValue());
+            case LONG:
+                return BigDecimal.valueOf((Long) value);
             case RECORD:
             case MAP:
             case ARRAY:
