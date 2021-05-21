@@ -6,6 +6,7 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.joda.time.ReadableDateTime;
+import org.joda.time.ReadableInstant;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 
@@ -47,7 +48,7 @@ public class RowToMapConverter {
             case BYTES:
                 return Base64.getEncoder().encodeToString(((ByteBuffer) value).array());
             case DATETIME:
-                return ((ReadableDateTime) value).toInstant();
+                return ((ReadableInstant) value).toInstant();
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(type)) {
                     final LocalDate localDate = (LocalDate) value;
