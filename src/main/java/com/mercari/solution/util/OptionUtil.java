@@ -1,6 +1,7 @@
 package com.mercari.solution.util;
 
 import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.StreamingOptions;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
@@ -60,6 +61,10 @@ public class OptionUtil {
 
     public static boolean isDirectRunner(final PipelineOptions options) {
         return PipelineOptions.DirectRunner.class.getSimpleName().equals(options.getRunner().getSimpleName());
+    }
+
+    public static boolean isStreaming(final PipelineOptions options) {
+        return options.as(StreamingOptions.class).isStreaming();
     }
 
     public static String replaceParameter(final String text) {
