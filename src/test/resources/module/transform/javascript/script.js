@@ -4,6 +4,9 @@ function myFunc1(input) {
 function myFunc2(input) {
    return "Hello" + input.stringValue;
 }
+function myFunc3(input) {
+   return input.outputFloatField * 2;
+}
 function myFuncWithState1(input, states) {
    var prev = states.getOrDefault("prevFloatValue", 0);
    return prev + input.floatValue;

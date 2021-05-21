@@ -139,6 +139,12 @@ public class JavaScriptTransformTest {
         mappingStateless2.addProperty("outputField", "outputStringField");
         mappings.add(mappingStateless2);
 
+        final JsonObject mappingStateless3 = new JsonObject();
+        mappingStateless3.addProperty("function", "myFunc3");
+        mappingStateless3.addProperty("outputType", "float64");
+        mappingStateless3.addProperty("outputField", "outputDoubleField");
+        mappings.add(mappingStateless3);
+
         final JsonObject parameters = new JsonObject();
         parameters.addProperty("script", script);
         parameters.add("mappings", mappings);
@@ -162,6 +168,7 @@ public class JavaScriptTransformTest {
 
         Assert.assertEquals(org.apache.avro.Schema.Type.FLOAT, AvroSchemaUtil.unnestUnion(outputSchema.getField("outputFloatField").schema()).getType());
         Assert.assertEquals(org.apache.avro.Schema.Type.STRING, AvroSchemaUtil.unnestUnion(outputSchema.getField("outputStringField").schema()).getType());
+        Assert.assertEquals(org.apache.avro.Schema.Type.DOUBLE, AvroSchemaUtil.unnestUnion(outputSchema.getField("outputDoubleField").schema()).getType());
 
 
         final PCollection<GenericRecord> outputPJS1 = outputJS1.getCollection();
@@ -175,14 +182,17 @@ public class JavaScriptTransformTest {
             GenericRecord row1 = resultsList.get(0);
             Assert.assertEquals(10F, (Float)row1.get("outputFloatField"), DELTA);
             Assert.assertEquals("Hellostring1", row1.get("outputStringField").toString());
+            Assert.assertEquals((Float)row1.get("outputFloatField") * 2, (Double)row1.get("outputDoubleField"), DELTA);
 
             GenericRecord row2 = resultsList.get(1);
             Assert.assertEquals(20F, (Float)row2.get("outputFloatField"), DELTA);
             Assert.assertEquals("Hellostring2", row2.get("outputStringField").toString());
+            Assert.assertEquals((Float)row2.get("outputFloatField") * 2, (Double)row2.get("outputDoubleField"), DELTA);
 
             GenericRecord row3 = resultsList.get(2);
             Assert.assertEquals(30F, (Float)row3.get("outputFloatField"), DELTA);
             Assert.assertEquals("Hellostring3", row3.get("outputStringField").toString());
+            Assert.assertEquals((Float)row3.get("outputFloatField") * 2, (Double)row3.get("outputDoubleField"), DELTA);
 
             return null;
         });

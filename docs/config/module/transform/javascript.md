@@ -22,6 +22,7 @@ In the function, it is possible to refer to the values of past records and proce
 | groupFields | optional | Array<String\> | When using states, and you want to use states separately for each group, specify the name of the field used to divide the records into groups. |
 | failFast | optional | Boolean | When JS processing fails, specify whether to fail the job or output the failed records to another destination and continue processing. Default is `true`.|
 
+* `mappings` can define multiple JavaScript processes. The JavaScript is processed by array order, and each process can use the result of the previous step's processing from the input data.
 * State is available as a Map<String,Double> type.
 * If `stateUpdateFunction` is specified, parallelism will drop for each value of the field specified in groupFields, so be careful to use it only if you need the state.
 
