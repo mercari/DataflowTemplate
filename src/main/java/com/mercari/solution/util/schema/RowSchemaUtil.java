@@ -1,9 +1,12 @@
 package com.mercari.solution.util.schema;
 
+import com.google.protobuf.ByteString;
+import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
@@ -11,6 +14,7 @@ import org.joda.time.ReadableDateTime;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -520,6 +524,79 @@ public class RowSchemaUtil {
             default:
                 return null;
         }
+    }
+
+    // for bigtable
+    public static ByteString getAsByteString(final Row row, final String fieldName) {
+        if(row == null || fieldName == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        final Object value = row.getValue(fieldName);
+        if(value == null) {
+            return null;
+        }
+
+        final byte[] bytes;
+        switch (field.getType().getTypeName()) {
+            case BOOLEAN:
+                bytes = Bytes.toBytes(row.getBoolean(fieldName));
+                break;
+            case STRING:
+                bytes = Bytes.toBytes(row.getString(fieldName));
+                break;
+            case BYTES:
+                bytes = row.getBytes(fieldName);
+                break;
+            case BYTE:
+                bytes = Bytes.toBytes(row.getByte(fieldName));
+                break;
+            case INT16:
+                bytes = Bytes.toBytes(row.getInt16(fieldName));
+                break;
+            case INT32:
+                bytes = Bytes.toBytes(row.getInt32(fieldName));
+                break;
+            case INT64:
+                bytes = Bytes.toBytes(row.getInt64(fieldName));
+                break;
+            case FLOAT:
+                bytes = Bytes.toBytes(row.getFloat(fieldName));
+                break;
+            case DOUBLE:
+                bytes = Bytes.toBytes(row.getDouble(fieldName));
+                break;
+            case DECIMAL:
+                bytes = Bytes.toBytes(row.getDecimal(fieldName));
+                break;
+            case DATETIME: {
+                final Long epochMicroSecond = DateTimeUtil.toEpochMicroSecond(row.getDateTime(fieldName));
+                bytes = Bytes.toBytes(epochMicroSecond);
+                break;
+            }
+            case LOGICAL_TYPE: {
+                if(isLogicalTypeDate(field.getType())) {
+                    final LocalDate localDate = row.getValue(fieldName);
+                    bytes = Bytes.toBytes(((Long)localDate.toEpochDay()).intValue());
+                } else if(isLogicalTypeTime(field.getType())) {
+                    final LocalTime localTime = row.getValue(fieldName);
+                    bytes = Bytes.toBytes(DateTimeUtil.toMilliOfDay(localTime));
+                } else if(isLogicalTypeEnum(field.getType())) {
+                    final EnumerationType.Value enumValue = row.getValue(fieldName);
+                    final String evalue = ((EnumerationType)field.getType().getLogicalType()).getValues().get(enumValue.getValue());
+                    bytes = Bytes.toBytes(evalue);
+                } else {
+                    return null;
+                }
+                break;
+            }
+            default:
+                return null;
+        }
+        return ByteString.copyFrom(bytes);
     }
 
     public static byte[] getBytes(final Row row, final String fieldName) {

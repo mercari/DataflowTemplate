@@ -36,7 +36,8 @@
 | [bigquery](sink/bigquery.md) | ○ | ○ | Inserting Data into BigQuery Table |
 | [spanner](sink/spanner.md) | ○ | ○ | Inserting Data into Cloud Spanner Table |
 | [storage](sink/storage.md) | ○ | ○(TBA) | Write file to Cloud Storage |
-| [datastore](sink/datastore.md) | ○ | ○ | Inserting Data into Cloud Datastore Table |
+| [datastore](sink/datastore.md) | ○ | ○ | Inserting Data into Cloud Datastore kind |
+| [bigtable](sink/bigtable.md) | ○ | ○ | Inserting Data into Cloud Bigtable table |
 | [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
 | [pubsub](sink/pubsub.md) | ○ | ○ | Publish data to specified PubSub topic |
 | [text](sink/text.md) | ○ | ○(TBA) | Create text files with the template specified for each row |

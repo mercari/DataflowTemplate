@@ -6,12 +6,15 @@ import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Value;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.protobuf.ByteString;
 import com.mercari.solution.util.DateTimeUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.*;
 import org.apache.avro.io.*;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.io.*;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
 import org.joda.time.DateTime;
@@ -785,6 +788,127 @@ public class AvroSchemaUtil {
             default:
                 return null;
         }
+    }
+
+    // for bigtable
+    public static ByteString getAsByteString(final GenericRecord record, final String fieldName) {
+        if(record == null || fieldName == null) {
+            return null;
+        }
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return null;
+        }
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Schema fieldSchema = unnestUnion(field.schema());
+        final byte[] bytes;
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+                bytes = Bytes.toBytes((boolean)value);
+                break;
+            case FIXED:
+            case BYTES:
+                bytes = ((ByteBuffer)value).array();
+                break;
+            case ENUM:
+            case STRING:
+                bytes = Bytes.toBytes(value.toString());
+                break;
+            case INT:
+                bytes = Bytes.toBytes((Integer)value);
+                break;
+            case LONG:
+                bytes = Bytes.toBytes((Long) value);
+                break;
+            case FLOAT:
+                bytes = Bytes.toBytes((Float)value);
+                break;
+            case DOUBLE:
+                bytes = Bytes.toBytes((Double)value);
+                break;
+            case ARRAY: {
+                final List values = (List)value;
+                final Schema elementSchema = unnestUnion(fieldSchema.getElementType());
+                final Writable[] array = new Writable[values.size()];
+                for(int i=0; i<values.size(); i++) {
+                    switch (elementSchema.getType()) {
+                        case BOOLEAN:
+                            array[i] = new BooleanWritable((Boolean)values.get(i));
+                            break;
+                        case ENUM:
+                        case STRING:
+                            array[i] = new Text(values.get(i).toString());
+                            break;
+                        case FIXED:
+                        case BYTES:
+                            array[i] = new BytesWritable(((ByteBuffer)values.get(i)).array());
+                            break;
+                        case INT:
+                            array[i] = new IntWritable(((Integer)values.get(i)));
+                            break;
+                        case LONG:
+                            array[i] = new LongWritable(((Long)values.get(i)));
+                            break;
+                        case FLOAT:
+                            array[i] = new FloatWritable(((Float)values.get(i)));
+                            break;
+                        case DOUBLE:
+                            array[i] = new DoubleWritable(((Double)values.get(i)));
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                final ArrayWritable arrayWritable;
+                switch (elementSchema.getType()) {
+                    case BOOLEAN:
+                        arrayWritable = new ArrayWritable(BooleanWritable.class, array);
+                        break;
+                    case ENUM:
+                    case STRING:
+                        arrayWritable = new ArrayWritable(Text.class, array);
+                        break;
+                    case FIXED:
+                    case BYTES:
+                        arrayWritable = new ArrayWritable(BytesWritable.class, array);
+                        break;
+                    case INT:
+                        arrayWritable = new ArrayWritable(IntWritable.class, array);
+                        break;
+                    case LONG:
+                        arrayWritable = new ArrayWritable(LongWritable.class, array);
+                        break;
+                    case FLOAT:
+                        arrayWritable = new ArrayWritable(FloatWritable.class, array);
+                        break;
+                    case DOUBLE:
+                        arrayWritable = new ArrayWritable(DoubleWritable.class, array);
+                        break;
+                    case MAP:
+                    case NULL:
+                    case ARRAY:
+                    case UNION:
+                    case RECORD:
+                    default: {
+                        throw new IllegalStateException();
+                    }
+                }
+                bytes = WritableUtils.toByteArray(arrayWritable);
+                break;
+            }
+            case MAP:
+            case NULL:
+            case RECORD:
+            case UNION:
+            default:
+                bytes = Bytes.toBytes("");
+                break;
+        }
+        return ByteString.copyFrom(bytes);
     }
 
     public static String convertNumericBytesToString(final byte[] bytes, final int scale) {

@@ -1,10 +1,13 @@
 package com.mercari.solution.util;
 
 import org.apache.commons.lang.StringUtils;
+import org.joda.time.ReadableDateTime;
 
+import java.io.Serializable;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -177,6 +180,14 @@ public class DateTimeUtil {
         return org.joda.time.Instant.ofEpochMilli(instant.getEpochSecond() * 1000 + instant.getNano() / 1000_000);
     }
 
+    public static Integer toEpochDay(final Date date) {
+        return Long.valueOf(LocalDate.of(date.getYear(), date.getMonth(), date.getDay()).toEpochDay()).intValue();
+    }
+
+    public static Integer toEpochDay(final com.google.cloud.Date date) {
+        return Long.valueOf(LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()).toEpochDay()).intValue();
+    }
+
     public static Integer toMilliOfDay(final LocalTime localTime) {
         if(localTime == null) {
             return null;
@@ -196,6 +207,33 @@ public class DateTimeUtil {
             return null;
         }
         return instant.getEpochSecond() * 1000_1000 + instant.getNano() / 1000;
+    }
+
+    public static Long toEpochMicroSecond(final ReadableDateTime datetime) {
+        if(datetime == null) {
+            return null;
+        }
+        return datetime.toInstant().getMillis() * 1000;
+    }
+
+    public static class DateTimeTemplateUtils implements Serializable {
+
+        public String formatTimestamp(final Instant instant, final String pattern) {
+            return formatTimestamp(instant, pattern, "UTC");
+        }
+
+        public String formatTimestamp(final Instant instant, final String pattern, final String zoneId) {
+            return DateTimeFormatter.ofPattern(pattern).withZone(ZoneId.of(zoneId)).format(instant);
+        }
+
+        public String formatDate(final LocalDate date, final String pattern) {
+            return DateTimeFormatter.ofPattern(pattern).format(date);
+        }
+
+        public String formatTime(final LocalTime time, final String pattern) {
+            return DateTimeFormatter.ofPattern(pattern).format(time);
+        }
+
     }
 
 }
