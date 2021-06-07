@@ -50,7 +50,7 @@ ${_DateTimeUtil.formatDate(dateField, 'yyyyMMdd')}
 ${_DateTimeUtil.formatTimestamp(timestampField, 'yyyyMMddhhmmss', 'Asia/Tokyo')}
 
 // The event timestamp implicitly assigned to a record can be referenced by _EVENTTIME.
-${_DateTimeUtil.formatTimestamp(_EVENTTIME, 'yyyyMMddhhmmss', 'Asia/Tokyo')}
+${_DateTimeUtil.formatTimestamp(_EVENTTIME, 'yyyyMMddhhmmss')}
 ```
 
 ## Related example config files
