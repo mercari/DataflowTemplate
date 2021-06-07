@@ -4,9 +4,12 @@ import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.*;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.util.Timestamps;
+import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
@@ -260,6 +263,54 @@ public class StructSchemaUtil {
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
+    }
+
+    // for bigtable
+    public static ByteString getAsByteString(final Struct struct, final String fieldName) {
+        if(struct == null || fieldName == null) {
+            return null;
+        }
+        if(!StructSchemaUtil.hasField(struct, fieldName)) {
+            return null;
+        }
+        final Type.StructField field = struct.getType().getStructFields().stream().filter(f -> f.getName().equals(fieldName)).findAny().get();
+
+        final byte[] bytes;
+        switch (field.getType().getCode()) {
+            case BOOL:
+                bytes = Bytes.toBytes(struct.getBoolean(fieldName));
+                break;
+            case STRING:
+                bytes = Bytes.toBytes(struct.getString(fieldName));
+                break;
+            case BYTES:
+                bytes = struct.getBytes(fieldName).toByteArray();
+                break;
+            case INT64:
+                bytes = Bytes.toBytes(struct.getLong(fieldName));
+                break;
+            case FLOAT64:
+                bytes = Bytes.toBytes(struct.getDouble(fieldName));
+                break;
+            case NUMERIC:
+                bytes = Bytes.toBytes(struct.getBigDecimal(fieldName));
+                break;
+            case DATE: {
+                final Date date = struct.getDate(fieldName);
+                bytes = Bytes.toBytes(DateTimeUtil.toEpochDay(date));
+                break;
+            }
+            case TIMESTAMP: {
+                final Timestamp timestamp = struct.getTimestamp(fieldName);
+                bytes = Bytes.toBytes(Timestamps.toMicros(timestamp.toProto()));
+                break;
+            }
+            case STRUCT:
+            case ARRAY:
+            default:
+                return null;
+        }
+        return ByteString.copyFrom(bytes);
     }
 
     public static byte[] getBytes(final Struct struct, final String fieldName) {
@@ -707,24 +758,6 @@ public class StructSchemaUtil {
             case "REPLACE":
                 return Mutation.newReplaceBuilder(table);
             case "DELETE":
-                throw new IllegalArgumentException("MutationOP(for insert) must not be DELETE!");
-            default:
-                return Mutation.newInsertOrUpdateBuilder(table);
-        }
-    }
-
-
-    private static Mutation.WriteBuilder createMutationWriteBuilder(final String table, final Mutation.Op mutationOp) {
-        switch(mutationOp) {
-            case INSERT:
-                return Mutation.newInsertBuilder(table);
-            case UPDATE:
-                return Mutation.newUpdateBuilder(table);
-            case INSERT_OR_UPDATE:
-                return Mutation.newInsertOrUpdateBuilder(table);
-            case REPLACE:
-                return Mutation.newReplaceBuilder(table);
-            case DELETE:
                 throw new IllegalArgumentException("MutationOP(for insert) must not be DELETE!");
             default:
                 return Mutation.newInsertOrUpdateBuilder(table);

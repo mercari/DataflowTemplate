@@ -3,7 +3,6 @@ package com.mercari.solution.util.converter;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
-import com.google.protobuf.ByteString;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
@@ -11,7 +10,6 @@ import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.coders.*;
-import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -48,18 +46,6 @@ public class DataTypeTransform {
                 input, DataType.MUTATION, table, keyFields,
                 mutationOp,
                 excludeFields, maskFields);
-    }
-
-    public static PTransform<PCollection<?>, PCollection<KV<ByteString, Iterable<com.google.bigtable.v2.Mutation>>>> bigtableMutation(
-            final FCollection<?> input,
-            final String columnFamily,
-            final List<String> keyFields,
-            final Set<String> excludeFields) {
-
-        return new TypeTransform<>(
-                input, DataType.BIGTABLE, columnFamily, keyFields,
-                null,
-                excludeFields, null);
     }
 
     public static PTransform<PCollection<?>, PCollection<Entity>> datastoreEntity(
@@ -183,18 +169,6 @@ public class DataTypeTransform {
                                             AvroSchemaUtil::convertSchema,
                                             RecordToEntityConverter::convert)))
                                     .setCoder(SerializableCoder.of(Entity.class));
-                            this.outputCollection = FCollection.of(name, output, outputType, inputCollection.getAvroSchema());
-                            return output;
-                        }
-                        case BIGTABLE: {
-                            output = (PCollection<OutputT>) inputAvro
-                                    .apply("RecordToBigtable", ParDo.of(new BigtableMutationDoFn<>(
-                                            destination, keyFields, excludeFields, "#",
-                                            inputAvroSchema,
-                                            AvroSchemaUtil::convertSchema,
-                                            RecordToBigtableConverter::convert,
-                                            true)))
-                                    .setCoder(KvCoder.of(ByteStringCoder.of(), IterableCoder.of(SerializableCoder.of(com.google.bigtable.v2.Mutation.class))));
                             this.outputCollection = FCollection.of(name, output, outputType, inputCollection.getAvroSchema());
                             return output;
                         }
@@ -448,62 +422,6 @@ public class DataTypeTransform {
 
     }
 
-    private static class BigtableMutationDoFn<InputSchemaT, OutputSchemaT, InputT>
-            extends DoFn<InputT, KV<ByteString, Iterable<com.google.bigtable.v2.Mutation>>> {
-
-        private final String columnFamily;
-        private final List<String> keyFields;
-        private final Set<String> excludeFields;
-        private final String separator;
-
-        private final InputSchemaT schema;
-        private final SchemaConverter<InputSchemaT, OutputSchemaT> schemaConverter;
-        private final BigtableMutationConverter<OutputSchemaT, InputT> recordConverter;
-
-        private final Boolean asBody;
-
-        private transient OutputSchemaT runtimeSchema;
-
-        private BigtableMutationDoFn(final String table, final List<String> keyFields,
-                                     final Set<String> excludeFields, final String separator,
-                                     final BigtableMutationConverter<OutputSchemaT, InputT> recordConverter) {
-
-            this(table, keyFields, excludeFields, separator, null, null, recordConverter, false);
-        }
-
-        private BigtableMutationDoFn(final String columnFamily, final List<String> keyFields,
-                                     final Set<String> excludeFields, final String separator,
-                                     final InputSchemaT schema,
-                                     final SchemaConverter<InputSchemaT, OutputSchemaT> schemaConverter,
-                                     final BigtableMutationConverter<OutputSchemaT, InputT> recordConverter,
-                                     final Boolean asBody) {
-
-            this.columnFamily = columnFamily;
-            this.keyFields = keyFields;
-            this.excludeFields = excludeFields;
-            this.schema = schema;
-            this.schemaConverter = schemaConverter;
-            this.recordConverter = recordConverter;
-            this.separator = separator;
-            this.asBody = asBody;
-        }
-
-        @Setup
-        public void setup() {
-            if(this.schema == null || this.schemaConverter == null) {
-                this.runtimeSchema = null;
-            } else {
-                this.runtimeSchema = this.schemaConverter.convert(schema);
-            }
-        }
-
-        @ProcessElement
-        public void processElement(ProcessContext c) {
-            c.output(recordConverter.convert(runtimeSchema, c.element(), c.timestamp(), columnFamily, keyFields, excludeFields, separator, asBody));
-        }
-
-    }
-
     private static class DatastoreEntityDoFn<InputSchemaT, OutputSchemaT, InputT> extends DoFn<InputT, Entity> {
 
         private final String kind;
@@ -527,7 +445,7 @@ public class DataTypeTransform {
                                     final SchemaConverter<InputSchemaT, OutputSchemaT> schemaConverter,
                                     final DatastoreEntityConverter<OutputSchemaT, InputT> recordConverter) {
             this.kind = kind;
-            this.keyFields = keyFields;// == null ? null : Arrays.asList(keyFields.split(","));
+            this.keyFields = keyFields;
             this.splitter = splitter;
             this.schema = schema;
             this.schemaConverter = schemaConverter;
@@ -710,14 +628,6 @@ public class DataTypeTransform {
         Mutation convert(final SchemaT schema, final InputT element,
                          final String table, final String mutationOp, final Iterable<String> keyFields,
                          final Set<String> excludeFields, final Set<String> maskFields);
-    }
-
-    private interface BigtableMutationConverter<SchemaT, InputT> extends Serializable {
-        KV<ByteString, Iterable<com.google.bigtable.v2.Mutation>> convert(
-                SchemaT schema, InputT element, Instant timestamp,
-                String table, List<String> keyFields,
-                Set<String> excludeFields, String separator,
-                boolean body);
     }
 
     private interface DatastoreEntityConverter<SchemaT, InputT> extends Serializable {

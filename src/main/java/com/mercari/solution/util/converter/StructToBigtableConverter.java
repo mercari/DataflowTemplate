@@ -1,10 +1,12 @@
 package com.mercari.solution.util.converter;
 
 import com.google.bigtable.v2.Mutation;
-import com.google.protobuf.*;
+import com.google.cloud.spanner.Struct;
+import com.google.cloud.spanner.Type;
+import com.google.protobuf.ByteString;
 import com.mercari.solution.module.sink.BigtableSink;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
-import org.apache.avro.Schema;
+import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 
 import java.io.IOException;
@@ -13,30 +15,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+public class StructToBigtableConverter {
 
-public class RecordToBigtableConverter {
-
-    public static Iterable<Mutation> convert(final Schema schema,
-                                             final GenericRecord record,
+    public static Iterable<Mutation> convert(final Type type,
+                                             final Struct struct,
                                              final String defaultColumnFamily,
                                              final BigtableSink.Format defaultFormat,
                                              final Map<String, BigtableSink.ColumnSetting> columnSettings) {
 
         final List<Mutation> mutations = new ArrayList<>();
-        for(final Schema.Field field : schema.getFields()) {
-            final Object value = record.get(field.name());
-            if(value == null) {
+        for(final Type.StructField field : type.getStructFields()) {
+            if(struct.isNull(field.getName())) {
                 continue;
             }
 
-            final BigtableSink.ColumnSetting columnSetting = columnSettings.getOrDefault(field.name(), null);
+            final BigtableSink.ColumnSetting columnSetting = columnSettings.getOrDefault(field.getName(), null);
 
             final String columnFamily;
             final String columnQualifier;
             final BigtableSink.Format format;
             if(columnSetting == null) {
                 columnFamily = defaultColumnFamily;
-                columnQualifier = field.name();
+                columnQualifier = field.getName();
                 format = defaultFormat;
             } else {
                 columnFamily = columnSetting.getColumnFamily();
@@ -50,11 +50,11 @@ public class RecordToBigtableConverter {
             final ByteString bytes;
             switch (format) {
                 case bytes: {
-                    bytes = AvroSchemaUtil.getAsByteString(record, field.name());
+                    bytes = StructSchemaUtil.getAsByteString(struct, field.getName());
                     break;
                 }
                 case string: {
-                    final String stringValue = AvroSchemaUtil.getAsString(record, field.name());
+                    final String stringValue = StructSchemaUtil.getAsString(struct, field.getName());
                     if(stringValue == null) {
                         bytes = null;
                     } else {
@@ -63,15 +63,17 @@ public class RecordToBigtableConverter {
                     break;
                 }
                 case avro: {
-                    if(AvroSchemaUtil.unnestUnion(field.schema()).getType().equals(Schema.Type.RECORD)) {
-                        final GenericRecord fieldRecord = (GenericRecord) value;
+                    if(field.getType().getCode().equals(Type.Code.STRUCT)) {
+                        final Struct fieldStruct = struct.getStruct(field.getName());
+                        final org.apache.avro.Schema fieldSchema = StructToRecordConverter.convertSchema(fieldStruct.getType());
+                        final GenericRecord fieldRecord = StructToRecordConverter.convert(fieldSchema, fieldStruct);
                         try {
                             bytes = ByteString.copyFrom(AvroSchemaUtil.encode(fieldRecord));
                         } catch (IOException e) {
                             throw new IllegalStateException(e);
                         }
                     } else {
-                        bytes = AvroSchemaUtil.getAsByteString(record, field.name());
+                        bytes = StructSchemaUtil.getAsByteString(struct, field.getName());
                     }
                     break;
                 }

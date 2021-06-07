@@ -5,10 +5,12 @@ import com.google.datastore.v1.ArrayValue;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
@@ -268,6 +270,50 @@ public class EntitySchemaUtil {
             default:
                 return null;
         }
+    }
+
+    public static ByteString getAsByteString(final Entity entity, final String fieldName) {
+        if(entity == null || fieldName == null) {
+            return null;
+        }
+
+        if(!entity.getPropertiesMap().containsKey(fieldName)) {
+            return null;
+        }
+
+        final Value value = entity.getPropertiesOrThrow(fieldName);
+        final byte[] bytes;
+        switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE:
+                bytes = Bytes.toBytes(value.getBooleanValue());
+                break;
+            case STRING_VALUE:
+                bytes = Bytes.toBytes(value.getStringValue());
+                break;
+            case BLOB_VALUE:
+                bytes = value.getBlobValue().asReadOnlyByteBuffer().array();
+                break;
+            case INTEGER_VALUE:
+                bytes = Bytes.toBytes(value.getIntegerValue());
+                break;
+            case DOUBLE_VALUE:
+                bytes = Bytes.toBytes(value.getDoubleValue());
+                break;
+            case TIMESTAMP_VALUE: {
+                final Timestamp timestamp = value.getTimestampValue();
+                bytes = Bytes.toBytes(Timestamps.toMicros(timestamp));
+                break;
+            }
+            case KEY_VALUE:
+            case NULL_VALUE:
+            case ARRAY_VALUE:
+            case ENTITY_VALUE:
+            case GEO_POINT_VALUE:
+            case VALUETYPE_NOT_SET:
+            default:
+                return null;
+        }
+        return ByteString.copyFrom(bytes);
     }
 
     public static Date convertDate(final Value value) {

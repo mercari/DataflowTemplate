@@ -7,7 +7,9 @@ import org.apache.commons.csv.CSVRecord;
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TemplateUtil {
 
@@ -57,8 +59,22 @@ public class TemplateUtil {
                 if(te.getBlamedExpressionString() == null) {
                     throw new IllegalArgumentException(te);
                 }
-                out.write("${" + te.getBlamedExpressionString() + "}");
-            } catch (IOException e) {}
+                final List<String> lines = env.getCurrentTemplate().toString().lines().collect(Collectors.toList());
+                final String line = lines.get(te.getLineNumber() - 1);
+                final String prefix = line.substring(te.getColumnNumber()-2, te.getColumnNumber()-1);
+                final String suffix = line.substring(te.getEndColumnNumber(), te.getEndColumnNumber()+1);
+                if("{".equals(prefix) && "}".equals(suffix)) {
+                    out.write("${" + te.getBlamedExpressionString() + "}");
+                } else if("{".equals(prefix) && line.contains("}")) {
+                    final int start = te.getColumnNumber()-1;
+                    final String target = line.substring(start, line.indexOf("}", start));
+                    out.write("${" + target.replaceAll("\"", "'") + "}");
+                } else {
+                    out.write("${" + te.getBlamedExpressionString() + "}");
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
 
     }

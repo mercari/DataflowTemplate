@@ -1,11 +1,14 @@
 package com.mercari.solution.util.converter;
 
 import com.google.bigtable.v2.Mutation;
-import com.google.protobuf.*;
+import com.google.datastore.v1.Entity;
+import com.google.datastore.v1.Value;
+import com.google.protobuf.ByteString;
 import com.mercari.solution.module.sink.BigtableSink;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
-import org.apache.avro.Schema;
+import com.mercari.solution.util.schema.EntitySchemaUtil;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.schemas.Schema;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,30 +16,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-
-public class RecordToBigtableConverter {
+public class EntityToBigtableConverter {
 
     public static Iterable<Mutation> convert(final Schema schema,
-                                             final GenericRecord record,
+                                             final Entity entity,
                                              final String defaultColumnFamily,
                                              final BigtableSink.Format defaultFormat,
                                              final Map<String, BigtableSink.ColumnSetting> columnSettings) {
 
         final List<Mutation> mutations = new ArrayList<>();
         for(final Schema.Field field : schema.getFields()) {
-            final Object value = record.get(field.name());
+            if(!schema.hasField(field.getName())) {
+                continue;
+            }
+            final Value value = entity.getPropertiesOrDefault(field.getName(), null);
             if(value == null) {
                 continue;
             }
 
-            final BigtableSink.ColumnSetting columnSetting = columnSettings.getOrDefault(field.name(), null);
+            final BigtableSink.ColumnSetting columnSetting = columnSettings.getOrDefault(field.getName(), null);
 
             final String columnFamily;
             final String columnQualifier;
             final BigtableSink.Format format;
             if(columnSetting == null) {
                 columnFamily = defaultColumnFamily;
-                columnQualifier = field.name();
+                columnQualifier = field.getName();
                 format = defaultFormat;
             } else {
                 columnFamily = columnSetting.getColumnFamily();
@@ -50,11 +55,11 @@ public class RecordToBigtableConverter {
             final ByteString bytes;
             switch (format) {
                 case bytes: {
-                    bytes = AvroSchemaUtil.getAsByteString(record, field.name());
+                    bytes = EntitySchemaUtil.getAsByteString(entity, field.getName());
                     break;
                 }
                 case string: {
-                    final String stringValue = AvroSchemaUtil.getAsString(record, field.name());
+                    final String stringValue = EntitySchemaUtil.getAsString(entity, field.getName());
                     if(stringValue == null) {
                         bytes = null;
                     } else {
@@ -63,15 +68,17 @@ public class RecordToBigtableConverter {
                     break;
                 }
                 case avro: {
-                    if(AvroSchemaUtil.unnestUnion(field.schema()).getType().equals(Schema.Type.RECORD)) {
-                        final GenericRecord fieldRecord = (GenericRecord) value;
+                    if(field.getType().getTypeName().equals(Schema.TypeName.ROW)) {
+                        final Entity fieldEntity = value.getEntityValue();
+                        final org.apache.avro.Schema fieldSchema = RowToRecordConverter.convertSchema(field.getType().getRowSchema());
+                        final GenericRecord fieldRecord = EntityToRecordConverter.convert(fieldSchema, fieldEntity);
                         try {
                             bytes = ByteString.copyFrom(AvroSchemaUtil.encode(fieldRecord));
                         } catch (IOException e) {
                             throw new IllegalStateException(e);
                         }
                     } else {
-                        bytes = AvroSchemaUtil.getAsByteString(record, field.name());
+                        bytes = EntitySchemaUtil.getAsByteString(entity, field.getName());
                     }
                     break;
                 }
