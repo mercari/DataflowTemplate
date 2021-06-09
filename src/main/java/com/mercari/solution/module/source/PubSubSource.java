@@ -15,7 +15,12 @@ import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryDecoder;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DecoderFactory;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
@@ -238,22 +243,7 @@ public class PubSubSource implements SourceModule {
 
         public PCollection<T> expand(final PBegin begin) {
 
-            PubsubIO.Read read;
-            switch (parameters.getFormat()) {
-                case avro: {
-                    read = PubsubIO.readAvroGenericRecords(SourceConfig.convertAvroSchema(schema));
-                    break;
-                }
-                case protobuf:
-                case json:
-                case message: {
-                    read = PubsubIO.readMessagesWithAttributesAndMessageId();
-                    break;
-                }
-                default:
-                    throw new IllegalArgumentException("PubSubSource must be set format avro or message. " + parameters.getFormat());
-            }
-
+            PubsubIO.Read read = PubsubIO.readMessagesWithAttributesAndMessageId();
             if (parameters.getTopic() != null) {
                 read = read.fromTopic(parameters.getTopic());
             } else if (parameters.getSubscription() != null) {
@@ -277,25 +267,30 @@ public class PubSubSource implements SourceModule {
                 sendDeadletter = deadletterTopic != null;
             }
 
-            final TupleTag<PubsubMessage> failuresTag = new TupleTag<>() {
-            };
+            final TupleTag<PubsubMessage> failuresTag = new TupleTag<>() {};
 
             // Deserialize pubsub messages
+            final PCollection<PubsubMessage> pubsubMessages = begin
+                    .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read);
+
             final PCollection<T> messages;
             final PCollection<PubsubMessage> failures;
             switch (parameters.getFormat()) {
                 case avro: {
-                    messages = (PCollection<T>) begin.apply("ReadPubSubRecord", (PubsubIO.Read<GenericRecord>) read);
-                    failures = null;
+                    final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
+                    final Schema avroSchema = SourceConfig.convertAvroSchema(schema);
+                    final PCollectionTuple tuple = pubsubMessages
+                            .apply("AvroToRecord", ParDo
+                                    .of(new AvroToRecordDoFn(sendDeadletter, avroSchema.toString(), failuresTag))
+                                    .withOutputTags(outputAvroTag, TupleTagList.of(failuresTag)));
+                    messages = (PCollection<T>) tuple.get(outputAvroTag).setCoder(AvroCoder.of(avroSchema));
+                    failures = tuple.get(failuresTag);
                     break;
                 }
                 case json: {
-                    final PCollection<PubsubMessage> pubsubMessages = begin
-                            .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read);
                     switch (parameters.getOutputType()) {
                         case avro: {
-                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
-                            };
+                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
                             final Schema avroSchema = SourceConfig.convertAvroSchema(schema);
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("JsonToRecord", ParDo
@@ -307,8 +302,7 @@ public class PubSubSource implements SourceModule {
                             break;
                         }
                         case row: {
-                            final TupleTag<Row> outputRowTag = new TupleTag<>() {
-                            };
+                            final TupleTag<Row> outputRowTag = new TupleTag<>() {};
                             final org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(schema);
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("JsonToRow", ParDo
@@ -325,13 +319,10 @@ public class PubSubSource implements SourceModule {
                     break;
                 }
                 case protobuf: {
-                    final PCollection<PubsubMessage> pubsubMessages = begin
-                            .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read);
                     final Map<String, Descriptors.Descriptor> descriptors = SourceConfig.convertProtobufDescriptors(schema);
                     switch (parameters.getOutputType()) {
                         case avro: {
-                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
-                            };
+                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("ProtobufToRecord", ParDo
                                             .of(new ProtoToRecordDoFn(sendDeadletter,
@@ -346,8 +337,7 @@ public class PubSubSource implements SourceModule {
                             break;
                         }
                         case row: {
-                            final TupleTag<Row> outputRowTag = new TupleTag<>() {
-                            };
+                            final TupleTag<Row> outputRowTag = new TupleTag<>() {};
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("ProtobufToRow", ParDo
                                             .of(new ProtoToRowDoFn(sendDeadletter, parameters.getMessageName(),
@@ -366,8 +356,7 @@ public class PubSubSource implements SourceModule {
                     break;
                 }
                 case message: {
-                    messages = (PCollection<T>) begin
-                            .apply("ReadPubSubMessage", (PubsubIO.Read<PubsubMessage>) read)
+                    messages = (PCollection<T>) pubsubMessages
                             .apply("MessageToRecord", ParDo.of(new MessageToRecordDoFn()))
                             .setCoder(AvroCoder.of(PubSubToRecordConverter.createMessageSchema()));
                     failures = null;
@@ -402,6 +391,53 @@ public class PubSubSource implements SourceModule {
                 throw new RuntimeException(e);
             } catch (IOException e) {
                 throw new RuntimeException(e);
+            }
+        }
+
+    }
+
+
+    private static class AvroToRecordDoFn extends DoFn<PubsubMessage, GenericRecord> {
+
+        private final TupleTag<PubsubMessage> failuresTag;
+
+        private final boolean sendDeadletter;
+        private final String schemaString;
+
+        private transient Schema schema;
+        // https://beam.apache.org/documentation/programming-guide/#user-code-thread-compatibility
+        private transient DatumReader<GenericRecord> datumReader;
+        private transient BinaryDecoder decoder = null;
+
+        AvroToRecordDoFn(final boolean sendDeadletter,
+                         final String schemaString,
+                         final TupleTag<PubsubMessage> failuresTag) {
+
+            this.sendDeadletter = sendDeadletter;
+            this.schemaString = schemaString;
+            this.failuresTag = failuresTag;
+        }
+
+        @Setup
+        public void setup() {
+            this.schema = AvroSchemaUtil.convertSchema(schemaString);
+            this.datumReader = new GenericDatumReader<>(schema);
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) throws Exception {
+            final byte[] bytes = c.element().getPayload();
+            decoder = DecoderFactory.get().binaryDecoder(bytes, decoder);
+            final GenericRecord record = new GenericData.Record(schema);
+            try {
+                c.output(datumReader.read(record, decoder));
+            } catch (Exception e) {
+                LOG.error("Failed to parse avro record: " + c.element());
+                if(sendDeadletter) {
+                    c.output(failuresTag, c.element());
+                } else {
+                    throw e;
+                }
             }
         }
 

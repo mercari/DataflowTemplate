@@ -11,6 +11,8 @@ import org.apache.avro.generic.GenericRecord;
 import org.joda.time.DateTime;
 import org.joda.time.Instant;
 import org.joda.time.format.ISODateTimeFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -24,6 +26,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class RecordToTableRowConverter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RecordToTableRowConverter.class);
 
     public static TableSchema convertSchema(final Schema schema) {
         final List<TableFieldSchema> tableFieldSchemas = new ArrayList<>();
