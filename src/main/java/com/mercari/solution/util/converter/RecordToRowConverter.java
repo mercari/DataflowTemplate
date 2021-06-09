@@ -12,14 +12,27 @@ import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class RecordToRowConverter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RecordToRowConverter.class);
+
+    public static Row convert(final Schema schema, final GenericRecord record) {
+        final Row.Builder builder = Row.withSchema(schema);
+        Row.FieldValueBuilder fieldBuilder = builder.withFieldValues(new HashMap<>());
+        for(final org.apache.avro.Schema.Field field : record.getSchema().getFields()) {
+            fieldBuilder = fieldBuilder.withFieldValue(field.name(),
+                        convertValue(field.schema(), schema.getField(field.name()).getType(), record.get(field.name())));
+        }
+        return fieldBuilder.build();
+    }
 
     public static Row convert(final org.apache.avro.Schema avroSchema, final Schema schema, final GenericRecord record) {
         final Row.Builder builder = Row.withSchema(schema);
@@ -74,15 +87,21 @@ public class RecordToRowConverter {
             case STRING:
                 return value.toString();
             case FIXED:
-            case BYTES:
-                final byte[] bytes = ((ByteBuffer)value).array();
+            case BYTES: {
+                final byte[] bytes = ((ByteBuffer) value).array();
+                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+                    final int scale = schema.getObjectProp("scale") != null ?
+                            Integer.valueOf(schema.getObjectProp("scale").toString()) : 0;
+                    return BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale);
+                }
                 return Arrays.copyOf(bytes, bytes.length);
+            }
             case INT: {
                 final Integer intValue = (Integer) value;
                 if(LogicalTypes.date().equals(schema.getLogicalType())) {
                     return LocalDate.ofEpochDay(intValue.longValue());
                 } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    //return Instant.ofEpochMilli(longValue);
+                    return LocalTime.ofNanoOfDay(intValue * 1000_1000L);
                 }
                 return intValue;
             }
@@ -91,9 +110,9 @@ public class RecordToRowConverter {
                 if(LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
                     return Instant.ofEpochMilli(longValue);
                 } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
-                    return Instant.ofEpochMilli(longValue * 1000);
+                    return Instant.ofEpochMilli(longValue / 1000);
                 } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
-                    //return Instant.ofEpochMilli(longValue);
+                    return LocalTime.ofNanoOfDay(longValue * 1000L);
                 }
                 return longValue;
             }
