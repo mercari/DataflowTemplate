@@ -66,7 +66,7 @@ public class RecordToMapConverter {
                 return convert((GenericRecord) value);
             case ARRAY:
                 return ((List<Object>) value).stream()
-                        .map(o -> getValue(schema.getElementType(), o))
+                        .map(o -> getValue(unnestedSchema.getElementType(), o))
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
             case MAP:

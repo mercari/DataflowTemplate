@@ -313,7 +313,7 @@ public class WindowTransform implements TransformModule {
                 parameters.setTimezone("UTC");
             }
             if(parameters.getStartingYear() == null) {
-                parameters.setStartingYear(0);
+                parameters.setStartingYear(1970);
             }
             if(parameters.getStartingMonth() == null) {
                 parameters.setStartingMonth(1);
