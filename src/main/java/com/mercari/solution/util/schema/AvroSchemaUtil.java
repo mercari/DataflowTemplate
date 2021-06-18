@@ -78,6 +78,7 @@ public class AvroSchemaUtil {
     public static final Schema REQUIRED_LOGICAL_DECIMAL_TYPE = LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES));
     public static final Schema REQUIRED_SQL_DATETIME_TYPE = SchemaBuilder.builder().stringBuilder().prop("sqlType", "DATETIME").endString();
     public static final Schema REQUIRED_SQL_GEOGRAPHY_TYPE = SchemaBuilder.builder().stringBuilder().prop("sqlType", "GEOGRAPHY").endString();
+    public static final Schema REQUIRED_ARRAY_DOUBLE_TYPE = Schema.createArray(Schema.create(Schema.Type.DOUBLE));
 
     public static final Schema NULLABLE_STRING = Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.STRING));
     public static final Schema NULLABLE_BYTES = Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.BYTES));
@@ -101,6 +102,9 @@ public class AvroSchemaUtil {
             .stringBuilder().prop("sqlType", "GEOGRAPHY").endString().and()
             .nullType()
             .endUnion();
+    public static final Schema NULLABLE_ARRAY_DOUBLE_TYPE = Schema.createUnion(
+            Schema.createArray(Schema.create(Schema.Type.DOUBLE)),
+            Schema.create(Schema.Type.NULL));
 
     public static final Schema NULLABLE_MAP_STRING = Schema.createUnion(
             Schema.create(Schema.Type.NULL),
