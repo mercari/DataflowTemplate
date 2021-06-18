@@ -11,7 +11,7 @@ Sink module to write the input data to a specified Cloud Bigtable table.
 | input | required | String | Step name whose data you want to write from |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters. |
 
-## BigQuery sink module parameters
+## Bigtable sink module parameters
 
 | parameter | optional | type | description |
 | --- | --- | --- | --- |
@@ -24,6 +24,8 @@ Sink module to write the input data to a specified Cloud Bigtable table.
 | format | optional | String | Specify the serialization format.　One of `bytes`, `string` or `avro`. The default is `string`. If you choose `avro`, then the entire record will be serialized and saved in Avro format as a single field, not field by field |
 | columnSettings | optional | Array<ColumnSetting\> | Specify the settings for each column. If you don't specify anything here, the values specified in `format` and `columnFamily` will be applied to all fields in the record, and the field name will be columnQualifier as it is |
 | columnQualifier | optional | String | Specify the columnQualifier to be saved when `avro` is selected for `format`. The default is `body` |
+| columnFamilyTemplate | required | String | Specify the template text when you want to specify the `columnFamily` value by conversion using template engine [FreeMarker](https://freemarker.apache.org/) |
+| columnQualifierTemplate | optional | String | Specify the template text when you want to specify the `columnQualifier` value by conversion using template engine [FreeMarker](https://freemarker.apache.org/) |
 
 ## ColumnSetting parameters
 
