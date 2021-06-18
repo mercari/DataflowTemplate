@@ -130,7 +130,11 @@ public class RowSchemaUtil {
         final Row.Builder builder = Row.withSchema(schema);
         for(Schema.Field field : schema.getFields()) {
             if(values.containsKey(field.getName())) {
-                builder.addValue(values.get(field.getName()));
+                if(field.getType().getTypeName().isCollectionType()) {
+                    builder.addArray(values.get(field.getName()));
+                } else {
+                    builder.addValue(values.get(field.getName()));
+                }
             } else {
                 builder.addValue(row.getValue(field.getName()));
             }
