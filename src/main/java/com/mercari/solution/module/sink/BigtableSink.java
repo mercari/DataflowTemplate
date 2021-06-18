@@ -50,10 +50,13 @@ public class BigtableSink implements SinkModule {
         private String tableId;
 
         private List<String> rowKeyFields;
-        private String rowKeyTemplate;
-
         private String columnFamily;
         private String columnQualifier;
+
+        private String rowKeyTemplate;
+        private String columnFamilyTemplate;
+        private String columnQualifierTemplate;
+
         private Format format;
         private List<ColumnSetting> columnSettings;
         private String separator;
@@ -90,22 +93,6 @@ public class BigtableSink implements SinkModule {
             this.rowKeyFields = rowKeyFields;
         }
 
-        public String getRowKeyTemplate() {
-            return rowKeyTemplate;
-        }
-
-        public void setRowKeyTemplate(String rowKeyTemplate) {
-            this.rowKeyTemplate = rowKeyTemplate;
-        }
-
-        public Format getFormat() {
-            return format;
-        }
-
-        public void setFormat(Format format) {
-            this.format = format;
-        }
-
         public String getColumnFamily() {
             return columnFamily;
         }
@@ -120,6 +107,38 @@ public class BigtableSink implements SinkModule {
 
         public void setColumnQualifier(String columnQualifier) {
             this.columnQualifier = columnQualifier;
+        }
+
+        public String getRowKeyTemplate() {
+            return rowKeyTemplate;
+        }
+
+        public void setRowKeyTemplate(String rowKeyTemplate) {
+            this.rowKeyTemplate = rowKeyTemplate;
+        }
+
+        public String getColumnFamilyTemplate() {
+            return columnFamilyTemplate;
+        }
+
+        public void setColumnFamilyTemplate(String columnFamilyTemplate) {
+            this.columnFamilyTemplate = columnFamilyTemplate;
+        }
+
+        public String getColumnQualifierTemplate() {
+            return columnQualifierTemplate;
+        }
+
+        public void setColumnQualifierTemplate(String columnQualifierTemplate) {
+            this.columnQualifierTemplate = columnQualifierTemplate;
+        }
+
+        public Format getFormat() {
+            return format;
+        }
+
+        public void setFormat(Format format) {
+            this.format = format;
         }
 
         public String getSeparator() {
@@ -171,8 +190,8 @@ public class BigtableSink implements SinkModule {
             if((rowKeyFields == null || rowKeyFields.size() == 0) && rowKeyTemplate == null) {
                 errorMessages.add("BigtableSink module requires `rowKeyFields` or `rowKeyTemplate` parameter.");
             }
-            if(columnFamily == null) {
-                errorMessages.add("BigtableSink module requires `columnFamily` parameter.");
+            if(columnFamily == null && columnFamilyTemplate == null) {
+                errorMessages.add("BigtableSink module requires `columnFamily` or `columnFamilyTemplate` parameter.");
             }
             if(columnSettings != null) {
                 for(var setting : columnSettings) {
@@ -382,8 +401,8 @@ public class BigtableSink implements SinkModule {
 
             final PCollection<BigtableWriteResult> writeResults = input
                     .apply("ToMutation", ParDo.of(new MutationDoFn<>(
-                            parameters.getRowKeyFields(), parameters.getRowKeyTemplate(),
-                            parameters.getColumnFamily(), parameters.getColumnQualifier(),
+                            parameters.getRowKeyFields(), parameters.getColumnFamily(), parameters.getColumnQualifier(),
+                            parameters.getRowKeyTemplate(), parameters.getColumnFamilyTemplate(), parameters.getColumnQualifierTemplate(),
                             parameters.getFormat(), parameters.getColumnSettings(), parameters.getSeparator(),
                             inputSchema, schemaConverter, stringGetter, mapConverter, mutationConverter, avroConverter, avroSchemaConverter)))
                     .apply("WriteBigtable", BigtableIO.write()
@@ -403,12 +422,15 @@ public class BigtableSink implements SinkModule {
         private static final DateTimeUtil.DateTimeTemplateUtils datetimeUtils = new DateTimeUtil.DateTimeTemplateUtils();
 
         private final List<String> rowKeyFields;
-        private final String rowKeyTemplate;
-
         private final String columnFamily;
         private final String columnQualifier;
-        private final String separator;
+
+        private final String rowKeyTemplate;
+        private final String columnFamilyTemplate;
+        private final String columnQualifierTemplate;
+
         private final Format format;
+        private final String separator;
         private final Map<String, ColumnSetting> columnSettings;
 
         private final InputSchemaT inputSchema;
@@ -421,12 +443,18 @@ public class BigtableSink implements SinkModule {
 
         private transient RuntimeSchemaT runtimeSchema;
         private transient Schema avroSchema;
-        private transient Template template;
+
+        private transient Template templateRowKey;
+        private transient Template templateColumnFamily;
+        private transient Template templateColumnQualifier;
+
 
         public MutationDoFn(final List<String> rowKeyFields,
-                            final String rowKeyTemplate,
                             final String columnFamily,
                             final String columnQualifier,
+                            final String rowKeyTemplate,
+                            final String columnFamilyTemplate,
+                            final String columnQualifierTemplate,
                             final Format format,
                             final List<ColumnSetting> columnSettings,
                             final String separator,
@@ -439,9 +467,12 @@ public class BigtableSink implements SinkModule {
                             final AvroSchemaConverter<InputSchemaT> avroSchemaConverter) {
 
             this.rowKeyFields = rowKeyFields;
-            this.rowKeyTemplate = rowKeyTemplate;
             this.columnFamily = columnFamily;
             this.columnQualifier = columnQualifier;
+            this.rowKeyTemplate = rowKeyTemplate;
+            this.columnFamilyTemplate = columnFamilyTemplate;
+            this.columnQualifierTemplate = columnQualifierTemplate;
+
             this.format = format;
             this.columnSettings = columnSettings.stream().collect(Collectors.toMap(ColumnSetting::getField, c -> c));
             this.separator = separator;
@@ -459,9 +490,19 @@ public class BigtableSink implements SinkModule {
         public void setup() {
             this.runtimeSchema = schemaConverter.convert(inputSchema);
             if(rowKeyTemplate != null) {
-                this.template = TemplateUtil.createStrictTemplate("rowKeyTemplate", rowKeyTemplate);
+                this.templateRowKey = TemplateUtil.createStrictTemplate("rowKeyTemplate", rowKeyTemplate);
             } else {
-                this.template = null;
+                this.templateRowKey = null;
+            }
+            if(columnFamilyTemplate != null) {
+                this.templateColumnFamily = TemplateUtil.createStrictTemplate("columnFamilyTemplate", columnFamilyTemplate);
+            } else {
+                this.templateColumnFamily = null;
+            }
+            if(columnQualifierTemplate != null) {
+                this.templateColumnQualifier = TemplateUtil.createStrictTemplate("columnQualifierTemplate", columnQualifierTemplate);;
+            } else {
+                this.templateColumnQualifier = null;
             }
             this.avroSchema = avroSchemaConverter.convert(inputSchema);
         }
@@ -469,20 +510,47 @@ public class BigtableSink implements SinkModule {
         @ProcessElement
         public void processElement(final ProcessContext c) throws IOException {
 
+            // Generate template data
             final T element = c.element();
+            final Map<String,Object> data;
+            if(templateRowKey == null && templateColumnFamily == null && templateColumnQualifier == null) {
+                data = null;
+            } else {
+                data = mapConverter.convert(element);
+                data.put("_DateTimeUtil", datetimeUtils);
+                data.put("_EVENTTIME", Instant.ofEpochMilli(c.timestamp().getMillis()));
+            }
+
+            // Generate columnFamily
+            final String cf;
+            if(templateColumnFamily == null) {
+                cf = columnFamily;
+            } else {
+                cf = TemplateUtil.executeStrictTemplate(templateColumnFamily, data);
+            }
+
+            // Generate columnQualifier
+            final String cq;
+            if(templateColumnQualifier == null) {
+                cq = columnQualifier;
+            } else {
+                cq = TemplateUtil.executeStrictTemplate(templateColumnQualifier, data);
+            }
+
+            // Generate mutations
             final Iterable<Mutation> mutations;
             switch (format) {
                 case bytes:
                 case string: {
-                    mutations = mutationConverter.convert(runtimeSchema, element, columnFamily, format, columnSettings);
+                    mutations = mutationConverter.convert(runtimeSchema, element, cf, format, columnSettings);
                     break;
                 }
                 case avro: {
                     final GenericRecord record = avroConverter.convert(avroSchema, element);
                     final byte[] bytes = AvroSchemaUtil.encode(record);
                     final Mutation.SetCell cell = Mutation.SetCell.newBuilder()
-                            .setFamilyName(columnFamily)
-                            .setColumnQualifier(ByteString.copyFrom(columnQualifier, StandardCharsets.UTF_8))
+                            .setFamilyName(cf)
+                            .setColumnQualifier(ByteString.copyFrom(cq, StandardCharsets.UTF_8))
                             .setValue(ByteString.copyFrom(bytes))
                             .build();
                     final Mutation mutation = Mutation.newBuilder().setSetCell(cell).build();
@@ -494,6 +562,7 @@ public class BigtableSink implements SinkModule {
                 }
             }
 
+            // Generate rowKey
             final String rowKeyString;
             if(rowKeyFields != null && rowKeyFields.size() > 0) {
                 final StringBuilder sb = new StringBuilder();
@@ -503,19 +572,16 @@ public class BigtableSink implements SinkModule {
                     sb.append(separator);
                 }
                 if(sb.length() > 0) {
-                    sb.deleteCharAt(sb.length() - 1);
+                    sb.deleteCharAt(sb.length() - separator.length());
                 }
                 rowKeyString = sb.toString();
             } else if(rowKeyTemplate != null) {
-                final Map<String,Object> data = mapConverter.convert(element);
-                data.put("_DateTimeUtil", datetimeUtils);
-                data.put("_EVENTTIME", Instant.ofEpochMilli(c.timestamp().getMillis()));
-                rowKeyString = TemplateUtil.executeStrictTemplate(template, data);
+                rowKeyString = TemplateUtil.executeStrictTemplate(templateRowKey, data);
             } else {
-                throw new IllegalStateException("");
+                throw new IllegalStateException("Both rowKeyFields and rowKeyTemplate are null!");
             }
-
             final ByteString rowKey = ByteString.copyFrom(rowKeyString, StandardCharsets.UTF_8);
+
             final KV<ByteString, Iterable<Mutation>> output = KV.of(rowKey, mutations);
             c.output(output);
         }
