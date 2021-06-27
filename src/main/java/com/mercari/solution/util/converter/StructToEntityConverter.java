@@ -17,6 +17,14 @@ import java.util.stream.Collectors;
 
 public class StructToEntityConverter {
 
+    public static Entity.Builder convertBuilder(final Type type, final Struct struct) {
+
+        final Entity.Builder builder = Entity.newBuilder();
+        for(Type.StructField field : type.getStructFields()) {
+            builder.putProperties(field.getName(), convertValue(field, struct));
+        }
+        return builder;
+    }
 
     public static Entity convert(final Type type, final Struct struct,
                                  final String kind, final Iterable<String> keyFields, final String splitter) {

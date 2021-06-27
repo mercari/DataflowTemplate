@@ -9,9 +9,11 @@ import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
-import org.joda.time.LocalTime;
 
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -20,10 +22,23 @@ public class RecordToEntityConverter {
 
     private static final String KEY_FIELD_NAME = "__key__";
 
+    public static Entity.Builder convertBuilder(final Schema schema, final GenericRecord record) {
+        final Entity.Builder builder = Entity.newBuilder();
+        for(final Schema.Field field : schema.getFields()) {
+            if(KEY_FIELD_NAME.equals(field.name()) && field.schema().getType().equals(Schema.Type.RECORD)) {
+                final GenericRecord keyRecord = (GenericRecord) record.get(KEY_FIELD_NAME);
+                final Key key = createPathElement(KEY_FIELD_NAME, keyRecord);
+                builder.setKey(key);
+            } else {
+                builder.putProperties(field.name(), convertValue(field.schema(), record.get(field.name())));
+            }
+        }
+        return builder;
+    }
+
     public static Entity convert(final Schema schema, final GenericRecord record,
                                  final String kind, final List<String> keyFields, final String keySplitter) {
 
-        //final Key.PathElement pathElement;
         final Key key;
         if(keyFields != null && keyFields.size() > 0) {
             if(keyFields.size() > 1) {
@@ -116,13 +131,15 @@ public class RecordToEntityConverter {
                 final int intValue = (int) value;
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     return Value.newBuilder()
-                            .setStringValue((new org.joda.time.LocalDate(1970, 1, 1))
-                                    .plusDays(1)
-                                    .toString("yyyy-MM-dd"))
+                            .setStringValue(LocalDate
+                                    .ofEpochDay(intValue)
+                                    .format(DateTimeFormatter.ISO_LOCAL_DATE))
                             .build();
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     return Value.newBuilder()
-                            .setStringValue(LocalTime.fromMillisOfDay(intValue).toString())
+                            .setStringValue(LocalTime
+                                    .ofNanoOfDay(intValue * 1000_000)
+                                    .format(DateTimeFormatter.ISO_LOCAL_TIME))
                             .build();
                 } else {
                     return Value.newBuilder().setIntegerValue(intValue).build();
@@ -134,7 +151,9 @@ public class RecordToEntityConverter {
                     return Value.newBuilder().setTimestampValue(Timestamp.ofTimeMicroseconds((long) value).toProto()).build();
                 } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     return Value.newBuilder()
-                            .setStringValue(LocalTime.fromMillisOfDay(((long) value)/1000).toString())
+                            .setStringValue(LocalTime
+                                    .ofNanoOfDay(((long) value) * 1000)
+                                    .format(DateTimeFormatter.ISO_LOCAL_TIME))
                             .build();
                 }
                 return Value.newBuilder().setIntegerValue((Long) value).build();
