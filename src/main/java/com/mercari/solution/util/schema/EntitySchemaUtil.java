@@ -9,6 +9,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
+import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
@@ -453,36 +454,14 @@ public class EntitySchemaUtil {
         }
         switch (value.getValueTypeCase()) {
             case STRING_VALUE: {
-                final String stringValue = value.toString();
+                final String stringValue = value.getStringValue();
                 try {
-                    return Instant.parse(stringValue);
+                    final java.time.Instant instant = DateTimeUtil.toInstant(stringValue);
+                    if(instant == null) {
+                        return timestampDefault;
+                    }
+                    return DateTimeUtil.toJodaInstant(instant);
                 } catch (Exception e) {
-                    if(PATTERN_DATE1.matcher(stringValue).find()) {
-                        return new DateTime(
-                                Integer.valueOf(stringValue.substring(0, 4)),
-                                Integer.valueOf(stringValue.substring(4, 6)),
-                                Integer.valueOf(stringValue.substring(6, 8)),
-                                0, 0, DateTimeZone.UTC).toInstant();
-                    }
-
-                    Matcher matcher = PATTERN_DATE2.matcher(stringValue);
-                    if(matcher.find()) {
-                        final String[] values = matcher.group().split("-");
-                        return new DateTime(
-                                Integer.valueOf(values[0]),
-                                Integer.valueOf(values[1]),
-                                Integer.valueOf(values[2]),
-                                0, 0, DateTimeZone.UTC).toInstant();
-                    }
-                    matcher = PATTERN_DATE3.matcher(stringValue);
-                    if(matcher.find()) {
-                        final String[] values = matcher.group().split("/");
-                        return new DateTime(
-                                Integer.valueOf(values[0]),
-                                Integer.valueOf(values[1]),
-                                Integer.valueOf(values[2]),
-                                0, 0, DateTimeZone.UTC).toInstant();
-                    }
                     return timestampDefault;
                 }
             }
@@ -506,7 +485,7 @@ public class EntitySchemaUtil {
             case NULL_VALUE:
             case VALUETYPE_NOT_SET:
             default:
-                return null;
+                return timestampDefault;
         }
     }
 
