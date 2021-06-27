@@ -99,9 +99,7 @@ public class BeamSQLTransform implements TransformModule {
                 query = parameters.getSql();
             }
 
-            return beamsqlInputs.apply("SQLTransform", SqlTransform
-                    .query(query)
-                    .registerUdf("JSON_EXTRACT", JsonFunctions.JsonExtractFn.class));
+            return beamsqlInputs.apply("SQLTransform", SqlTransform.query(query));
         }
 
         private void validate() {

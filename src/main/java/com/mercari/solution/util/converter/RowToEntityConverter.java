@@ -21,6 +21,15 @@ import java.util.stream.Collectors;
 
 public class RowToEntityConverter {
 
+    public static Entity.Builder convertBuilder(final Schema schema, final Row row) {
+
+        final Entity.Builder builder = Entity.newBuilder();
+        for(Schema.Field field : schema.getFields()) {
+            builder.putProperties(field.getName(), convertValue(field.getType(), row.getValue(field.getName())));
+        }
+        return builder;
+    }
+
     public static Entity convert(final Schema schema, final Row row,
                                  final String kind, final Iterable<String> keyFields, final String splitter) {
 
