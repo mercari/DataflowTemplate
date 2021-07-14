@@ -8,18 +8,24 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
-import org.joda.time.format.DateTimeFormatter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class RowToTableRowConverter {
 
-    private static final DateTimeFormatter FORMATTER_YYYY_MM_DD = DateTimeFormat.forPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter FORMATTER_HH_MM_SS   = DateTimeFormat.forPattern("HH:mm:ss");
-    private static final DateTimeFormatter FORMATTER_TIMESTAMP = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+    private static final Logger LOG = LoggerFactory.getLogger(RowToTableRowConverter.class);
+
+    private static final DateTimeFormatter FORMATTER_YYYY_MM_DD = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter FORMATTER_HH_MM_SS   = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final org.joda.time.format.DateTimeFormatter FORMATTER_TIMESTAMP = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
 
     public static TableRow convert(final Row row) {
         return convert(row.getSchema(), row);
@@ -53,8 +59,8 @@ public class RowToTableRowConverter {
             case BOOLEAN:
             case INT64:
             case DOUBLE:
-                return value;
             case DECIMAL:
+                return value;
             case BYTES:
                 return ByteBuffer.wrap((byte[]) value);
             case INT32:
@@ -65,15 +71,12 @@ public class RowToTableRowConverter {
                 return ((Instant) value).toString(FORMATTER_TIMESTAMP);
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return ((Instant) value).toString(FORMATTER_YYYY_MM_DD);
+                    return ((LocalDate) value).format(FORMATTER_YYYY_MM_DD);
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return ((Instant) value).toString(FORMATTER_HH_MM_SS);
-                //} else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-
+                    return ((LocalTime) value).format(FORMATTER_HH_MM_SS);
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
-
                 }
             case ROW:
                 return convert(fieldType.getRowSchema(), (Row) value);
@@ -122,23 +125,38 @@ public class RowToTableRowConverter {
                     return tableFieldSchema.setName(fieldName).setType("DATE");
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return tableFieldSchema.setName(fieldName).setType("STRING");
-                //} else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-                    //
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
-            case ROW:
+            case ROW: {
                 final List<TableFieldSchema> childTableFieldSchemas = fieldType.getRowSchema().getFields().stream()
                         .map(RowToTableRowConverter::convertTableFieldSchema)
                         .collect(Collectors.toList());
                 return tableFieldSchema.setName(fieldName).setType("RECORD").setFields(childTableFieldSchemas);
+            }
             case ITERABLE:
-            case ARRAY:
-                return tableFieldSchema
-                        .setName(fieldName)
-                        .setType(convertTableFieldSchema(fieldType.getCollectionElementType(), "").getType())
-                        .setMode("REPEATED");
+            case ARRAY: {
+                final List<TableFieldSchema> childTableFieldSchemas = fieldType
+                        .getCollectionElementType()
+                        .getRowSchema()
+                        .getFields()
+                        .stream()
+                        .map(RowToTableRowConverter::convertTableFieldSchema)
+                        .collect(Collectors.toList());
+                if(Schema.TypeName.ROW.equals(fieldType.getCollectionElementType().getTypeName())) {
+                    return tableFieldSchema
+                            .setName(fieldName)
+                            .setType("RECORD")
+                            .setFields(childTableFieldSchemas)
+                            .setMode("REPEATED");
+                } else {
+                    return tableFieldSchema
+                            .setName(fieldName)
+                            .setType(convertTableFieldSchema(fieldType.getCollectionElementType(), "").getType())
+                            .setMode("REPEATED");
+                }
+            }
             case MAP:
             case BYTE:
             default:

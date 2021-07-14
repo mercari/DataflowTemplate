@@ -11,6 +11,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class StructToTableRowConverter {
@@ -56,19 +57,33 @@ public class StructToTableRowConverter {
                 return tableFieldSchema.setType("INTEGER");
             case FLOAT64:
                 return tableFieldSchema.setType("FLOAT");
+            case NUMERIC:
+                return tableFieldSchema.setType("NUMERIC");
             case DATE:
                 return tableFieldSchema.setType("DATE");
             case TIMESTAMP:
                 return tableFieldSchema.setType("TIMESTAMP");
-            case STRUCT:
+            case STRUCT: {
                 final List<TableFieldSchema> childTableFieldSchemas = fieldType.getStructFields().stream()
                         .map(StructToTableRowConverter::convertTableFieldSchema)
                         .collect(Collectors.toList());
                 return tableFieldSchema.setType("RECORD").setFields(childTableFieldSchemas);
-            case ARRAY:
-                return tableFieldSchema
-                        .setType(convertTableFieldSchema(fieldType.getArrayElementType(), fieldName).getType())
-                        .setMode("REPEATED");
+            }
+            case ARRAY: {
+                if(Type.Code.STRUCT.equals(fieldType.getArrayElementType().getCode())) {
+                    final List<TableFieldSchema> childTableFieldSchemas = fieldType.getStructFields().stream()
+                            .map(StructToTableRowConverter::convertTableFieldSchema)
+                            .collect(Collectors.toList());
+                    return tableFieldSchema
+                            .setType("RECORD")
+                            .setFields(childTableFieldSchemas)
+                            .setMode("REPEATED");
+                } else {
+                    return tableFieldSchema
+                            .setType(convertTableFieldSchema(fieldType.getArrayElementType(), fieldName).getType())
+                            .setMode("REPEATED");
+                }
+            }
             default:
                 throw new IllegalArgumentException(fieldType.toString() + " is not supported for bigquery.");
         }
@@ -89,6 +104,8 @@ public class StructToTableRowConverter {
                 return row.set(fieldName, struct.getLong(fieldName));
             case FLOAT64:
                 return row.set(fieldName, struct.getDouble(fieldName));
+            case NUMERIC:
+                return row.set(fieldName, struct.getBigDecimal(fieldName));
             case DATE:
                 final Date date = struct.getDate(fieldName);
                 final LocalDate localDate = LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
@@ -116,34 +133,38 @@ public class StructToTableRowConverter {
         switch (type.getCode()) {
             case STRING:
                 return row.set(fieldName, struct.getStringList(fieldName).stream()
-                        .filter(s -> s != null)
+                        .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
             case BYTES:
                 return row.set(fieldName, struct.getBytesList(fieldName).stream()
-                        .filter(b -> b != null)
+                        .filter(Objects::nonNull)
                         .map(bytes -> bytes.toByteArray())
                         .collect(Collectors.toList()));
             case BOOL:
                 return row.set(fieldName, struct.getBooleanList(fieldName).stream()
-                        .filter(b -> b != null)
+                        .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
             case INT64:
                 return row.set(fieldName, struct.getLongList(fieldName).stream()
-                        .filter(l -> l != null)
+                        .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
             case FLOAT64:
                 return row.set(fieldName, struct.getDoubleList(fieldName).stream()
-                        .filter(d -> d != null)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList()));
+            case NUMERIC:
+                return row.set(fieldName, struct.getBigDecimalList(fieldName).stream()
+                        .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
             case DATE:
                 return row.set(fieldName, struct.getDateList(fieldName).stream()
-                        .filter(d -> d != null)
+                        .filter(Objects::nonNull)
                         .map(date -> LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()))
                         .map(localDate -> localDate.format(DateTimeFormatter.ISO_LOCAL_DATE))
                         .collect(Collectors.toList()));
             case TIMESTAMP:
                 final List<String> timestampList = struct.getTimestampList(fieldName).stream()
-                        .filter(t -> t != null)
+                        .filter(Objects::nonNull)
                         .map(timestamp -> timestamp.toString())
                         .collect(Collectors.toList());
                 return row.set(fieldName, timestampList);
