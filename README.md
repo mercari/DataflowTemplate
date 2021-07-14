@@ -153,12 +153,26 @@ gcloud docker --project {deploy_project} -- push gcr.io/{deploy_project}/{repo_n
 
 ## Run Pipeline locally
 
+### Mac OS
+
 ```sh
 docker run \
   -v ~/.config/gcloud:/mnt/gcloud:ro \
+  -v /{your_work_dir}:/mnt/config:ro \  
   --rm gcr.io/{deploy_project}/{repo_name_local} \
   --project={project} \
-  --config="$(cat config.json)"
+  --config=/mnt/config/{my_config}.json
+```
+
+### Windows OS
+
+```sh
+docker run ^
+  -v C:\Users\{YourUserName}\AppData\Roaming\gcloud:/mnt/gcloud:ro ^
+  -v C:\Users\{YourWorkingDirPath}\:/mnt/config:ro ^
+  --rm gcr.io/{deploy_project}/{repo_name_local} ^
+  --project={project} ^
+  --config=/mnt/config/{MyConfig}.json
 ```
 
 ## Committers
