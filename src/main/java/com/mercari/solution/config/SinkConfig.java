@@ -16,6 +16,7 @@ public class SinkConfig implements Serializable {
     private List<String> wait;
     private String outputAvroSchema;
     private JsonObject parameters;
+    private Boolean skip;
 
     public String getName() {
         return name;
@@ -63,6 +64,14 @@ public class SinkConfig implements Serializable {
 
     public void setParameters(JsonObject parameters) {
         this.parameters = parameters;
+    }
+
+    public Boolean getSkip() {
+        return skip;
+    }
+
+    public void setSkip(Boolean skip) {
+        this.skip = skip;
     }
 
     public void outputAvroSchema(final Schema schema) {

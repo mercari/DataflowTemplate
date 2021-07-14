@@ -41,6 +41,7 @@ The common settings of the three types of modules are as follows.
 | name | String | required | Set unique name in Config JSON |
 | module | String | required | Set [module](module/README.md) name |
 | parameters | Map<String, Object\> | required | Specify the parameters defined in each module. |
+| skip | Boolean | optional | Specify true if you want to ignore this module. |
 
 
 ## Source modules

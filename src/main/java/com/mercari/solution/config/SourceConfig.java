@@ -26,6 +26,7 @@ public class SourceConfig implements Serializable {
     private List<String> wait;
     private String timestampAttribute;
     private String timestampDefault;
+    private Boolean skip;
 
     // template args
     private Map<String, Object> args;
@@ -96,6 +97,14 @@ public class SourceConfig implements Serializable {
 
     public void setTimestampDefault(String timestampDefault) {
         this.timestampDefault = timestampDefault;
+    }
+
+    public Boolean getSkip() {
+        return skip;
+    }
+
+    public void setSkip(Boolean skip) {
+        this.skip = skip;
     }
 
     public Map<String, Object> getArgs() {

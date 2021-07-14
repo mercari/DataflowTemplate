@@ -4,7 +4,6 @@ import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.mercari.solution.config.*;
 import com.mercari.solution.module.*;
-import com.mercari.solution.module.sink.SpannerSink;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
@@ -15,7 +14,6 @@ import org.apache.beam.sdk.io.aws.options.AwsOptions;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.StreamingOptions;
-import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.joda.time.Duration;
@@ -64,6 +62,7 @@ public class FlexPipeline {
 
         LOG.info("DataflowRunner mode.");
         final FlexDataflowPipelineOptions flexOptions = localOptions.as(FlexDataflowPipelineOptions.class);
+        flexOptions.setAppName("Mercari Dataflow Template");
         if(flexOptions.isStreaming()) {
             flexOptions.setEnableStreamingEngine(true);
         } else {
@@ -180,14 +179,17 @@ public class FlexPipeline {
         final Set<String> moduleNames = new HashSet<>();
         moduleNames.addAll(config.getSources().stream()
                 .filter(Objects::nonNull)
+                .filter(c -> c.getSkip() == null || !c.getSkip())
                 .map(SourceConfig::getName)
                 .collect(Collectors.toSet()));
         moduleNames.addAll(config.getTransforms().stream()
                 .filter(Objects::nonNull)
+                .filter(c -> c.getSkip() == null || !c.getSkip())
                 .map(TransformConfig::getName)
                 .collect(Collectors.toSet()));
         moduleNames.addAll(config.getSinks().stream()
                 .filter(Objects::nonNull)
+                .filter(c -> c.getSkip() == null || !c.getSkip())
                 .map(SinkConfig::getName)
                 .collect(Collectors.toSet()));
         return moduleNames;
@@ -204,10 +206,17 @@ public class FlexPipeline {
 
         final List<SourceConfig> notDoneModules = new ArrayList<>();
         for (final SourceConfig sourceConfig : sourceConfigs) {
+            // Skip null config(ketu comma)
             if(sourceConfig == null) {
                 continue;
             }
 
+            // Skip if parameter skip is true
+            if(sourceConfig.getSkip() != null && sourceConfig.getSkip()) {
+                continue;
+            }
+
+            // Skip already done module.
             if(executedModuleNames.contains(sourceConfig.getName())) {
                 continue;
             }
@@ -226,7 +235,6 @@ public class FlexPipeline {
                         .collect(Collectors.toList());
             }
 
-            //
             if(!isStreaming && sourceConfig.getMicrobatch() != null && sourceConfig.getMicrobatch()) {
                 throw new IllegalArgumentException("Config batch mode must be set batch mode for all inputs");
             }
@@ -257,6 +265,11 @@ public class FlexPipeline {
         for(final TransformConfig transformConfig : transformConfigs) {
             // Skip null config(ketu comma)
             if(transformConfig == null) {
+                continue;
+            }
+
+            // Skip if parameter skip is true
+            if(transformConfig.getSkip() != null && transformConfig.getSkip()) {
                 continue;
             }
 
@@ -319,6 +332,11 @@ public class FlexPipeline {
                 continue;
             }
 
+            // Skip if parameter skip is true
+            if(sinkConfig.getSkip() != null && sinkConfig.getSkip()) {
+                continue;
+            }
+
             // Skip already done module.
             if(executedModuleNames.contains(sinkConfig.getName())) {
                 continue;
@@ -369,49 +387,6 @@ public class FlexPipeline {
                 .map(SourceConfig::getMicrobatch)
                 .filter(Objects::nonNull)
                 .anyMatch(s -> s);
-    }
-
-    public static void mergeSpannerOutput(final List<SinkConfig> sinks) {
-
-        //INTERLEAVE
-        final String spannerSinkName = new SpannerSink().getName();
-        final List<KV<String, String>> interleaves = sinks.stream()
-                .filter(sink -> spannerSinkName.equals(sink.getModule()))
-                .filter(sink -> sink.getParameters() != null)
-                .filter(sink -> sink.getParameters().has("interleavedIn"))
-                .filter(sink -> sink.getParameters().get("interleavedIn").isJsonPrimitive())
-                .filter(sink -> sink.getParameters().getAsJsonPrimitive("interleavedIn").isString())
-                .map(sink -> KV.of(sink.getName(), sink.getParameters().get("interleavedIn").getAsString()))
-                .collect(Collectors.toList());
-
-        int change = 1;
-        while (change > 0) {
-            final List<KV<String, String>> next = interleaves.stream()
-                    .flatMap(p -> interleaves.stream()
-                            .filter(pp -> pp.getKey().equals(p.getValue()))
-                            .map(pp -> KV.of(p.getKey(), pp.getValue())))
-                    .distinct()
-                    .filter(p -> !interleaves.contains(p))
-                    .collect(Collectors.toList());
-            interleaves.addAll(next);
-            change = next.size();
-        }
-
-        final Map<String, Set<KV<String, String>>> parentsMap = interleaves.stream()
-                .collect(Collectors.groupingBy(KV::getKey, Collectors.toSet()));
-
-        final Set<String> parentsNames = parentsMap
-                .values()
-                .stream()
-                .flatMap(s -> s.stream().map(KV::getValue))
-                .collect(Collectors.toSet());
-
-        for(SinkConfig sink : sinks) {
-            if(parentsNames.contains(sink.getName())) {
-                continue;
-            }
-        }
-
     }
 
 }

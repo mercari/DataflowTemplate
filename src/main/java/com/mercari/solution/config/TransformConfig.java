@@ -14,6 +14,7 @@ public class TransformConfig implements Serializable {
     private List<String> inputs;
     private JsonObject parameters;
     private List<String> wait;
+    private Boolean skip;
 
     // template args
     private Map<String, Object> args;
@@ -57,6 +58,14 @@ public class TransformConfig implements Serializable {
 
     public void setWait(List<String> wait) {
         this.wait = wait;
+    }
+
+    public Boolean getSkip() {
+        return skip;
+    }
+
+    public void setSkip(Boolean skip) {
+        this.skip = skip;
     }
 
     public Map<String, Object> getArgs() {
