@@ -143,6 +143,10 @@ public class RowSchemaUtil {
     }
 
     public static Schema selectFields(Schema schema, final List<String> fields) {
+        return selectFieldsBuilder(schema, fields).build();
+    }
+
+    public static Schema.Builder selectFieldsBuilder(Schema schema, final List<String> fields) {
         final Schema.Builder builder = Schema.builder();
         final Map<String, List<String>> childFields = new HashMap<>();
         for(String field : fields) {
@@ -181,7 +185,7 @@ public class RowSchemaUtil {
                 }
             }
         }
-        return builder.build();
+        return builder;
     }
 
     public static Schema flatten(final Schema schema, final String path, final boolean addPrefix) {
