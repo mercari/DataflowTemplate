@@ -4,7 +4,7 @@ import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.BackOff;
 import com.google.api.client.util.BackOffUtils;
 import com.google.api.client.util.Sleeper;
@@ -75,7 +75,7 @@ public class BigQueryUtil {
 
     private static Job getQueryDryRunJob(final String projectId, final String query) {
         final HttpTransport transport = new NetHttpTransport();
-        final JsonFactory jsonFactory = new JacksonFactory();
+        final JsonFactory jsonFactory = GsonFactory.getDefaultInstance();
         try {
             final Credentials credential = GoogleCredentials.getApplicationDefault();
             final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(
@@ -193,7 +193,7 @@ public class BigQueryUtil {
 
     public static Bigquery getBigquery() {
         final HttpTransport transport = new NetHttpTransport();
-        final JsonFactory jsonFactory = new JacksonFactory();
+        final JsonFactory jsonFactory = GsonFactory.getDefaultInstance();
         try {
             final Credentials credential = GoogleCredentials.getApplicationDefault();
             final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(
