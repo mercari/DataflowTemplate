@@ -4,7 +4,7 @@ import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.pubsub.Pubsub;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
@@ -19,7 +19,7 @@ public class PubSubUtil {
 
     public static Pubsub pubsub() {
         final HttpTransport transport = new NetHttpTransport();
-        final JsonFactory jsonFactory = new JacksonFactory();
+        final JsonFactory jsonFactory = GsonFactory.getDefaultInstance();
         try {
             final Credentials credential = GoogleCredentials.getApplicationDefault();
             final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(

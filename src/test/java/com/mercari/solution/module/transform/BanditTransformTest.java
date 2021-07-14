@@ -30,7 +30,7 @@ public class BanditTransformTest {
     @Rule
     public final transient TestPipeline pipeline = TestPipeline.create();
 
-    @Test
+    //@Test
     public void testBanditRowTS() {
         final TransformConfig config = new TransformConfig();
         config.setName("bandit1");
@@ -145,7 +145,7 @@ public class BanditTransformTest {
         pipeline.run();
     }
 
-    @Test
+    //@Test
     public void testBanditRowUCB() {
         final TransformConfig config = new TransformConfig();
         config.setName("bandit1");

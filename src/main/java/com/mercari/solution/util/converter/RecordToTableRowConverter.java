@@ -23,6 +23,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class RecordToTableRowConverter {
@@ -63,7 +64,7 @@ public class RecordToTableRowConverter {
         if(isArray) {
             return ((List<Object>)value).stream()
                     .map(v -> convertTableRowValue(schema, v))
-                    .filter(v -> v != null)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
         switch(schema.getType()) {
@@ -95,7 +96,7 @@ public class RecordToTableRowConverter {
                             .ofEpochDay((Integer)value)
                             .format(DateTimeFormatter.ISO_LOCAL_DATE);
                 } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    final Long intValue = new Long((Integer)value);
+                    final Long intValue = Integer.valueOf((Integer)value).longValue();
                     return LocalTime
                             .ofNanoOfDay(intValue * 1000 * 1000)
                             .format(DateTimeFormatter.ISO_LOCAL_TIME);
@@ -170,10 +171,7 @@ public class RecordToTableRowConverter {
             case FIXED:
             case BYTES:
                 if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
-                    final LogicalTypes.Decimal decimal = (LogicalTypes.Decimal)schema.getLogicalType();
-                    return tableFieldSchema.setName(name).setType("NUMERIC")
-                            .set("scale", decimal.getScale())
-                            .set("precision", decimal.getPrecision());
+                    return tableFieldSchema.setName(name).setType("NUMERIC");
                 }
                 return tableFieldSchema.setName(name).setType("BYTES");
             case INT:

@@ -615,6 +615,11 @@ public class StructSchemaUtil {
     }
 
     public static Type selectFields(Type type, final List<String> fields) {
+        final List<Type.StructField> structFields = selectFieldsBuilder(type, fields);
+        return Type.struct(structFields);
+    }
+
+    public static List<Type.StructField> selectFieldsBuilder(Type type, final List<String> fields) {
         final List<Type.StructField> structFields = new ArrayList<>();
         final Map<String, List<String>> childFields = new HashMap<>();
         for(String field : fields) {
@@ -652,7 +657,7 @@ public class StructSchemaUtil {
                 }
             }
         }
-        return Type.struct(structFields);
+        return structFields;
     }
 
     public static Schema convertSchemaFromInformationSchema(final List<Struct> structs, final Collection<String> columnNames) {

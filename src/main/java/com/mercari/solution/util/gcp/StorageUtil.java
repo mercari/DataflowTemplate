@@ -5,7 +5,7 @@ import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.storage.Storage;
 import com.google.api.services.storage.model.StorageObject;
 import com.google.auth.Credentials;
@@ -37,7 +37,7 @@ public class StorageUtil {
 
     public static Storage storage() {
         final HttpTransport transport = new NetHttpTransport();
-        final JsonFactory jsonFactory = new JacksonFactory();
+        final JsonFactory jsonFactory = GsonFactory.getDefaultInstance();
         try {
             final Credentials credential = GoogleCredentials.getApplicationDefault();
             final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(

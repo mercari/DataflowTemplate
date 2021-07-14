@@ -348,10 +348,10 @@ public class AvroSchemaUtil {
     }
 
     public static Schema selectFields(final Schema schema, final List<String> fields) {
-        return selectFields(schema, fields, "root");
+        return selectFieldsBuilder(schema, fields, "root").endRecord();
     }
 
-    private static Schema selectFields(final Schema schema, final List<String> fields, final String name) {
+    public static SchemaBuilder.FieldAssembler<Schema> selectFieldsBuilder(final Schema schema, final List<String> fields, final String name) {
         final SchemaBuilder.FieldAssembler<Schema> builder = SchemaBuilder.builder().record(name).fields();
         final Map<String, List<String>> childFields = new HashMap<>();
         for(String field : fields) {
@@ -374,7 +374,7 @@ public class AvroSchemaUtil {
                 final String childName = name + "." + entry.getKey();
                 switch (unnestedChildSchema.getType()) {
                     case RECORD: {
-                        final Schema selectedChildSchema = selectFields(unnestedChildSchema, entry.getValue(), childName);
+                        final Schema selectedChildSchema = selectFieldsBuilder(unnestedChildSchema, entry.getValue(), childName).endRecord();
                         builder.name(entry.getKey()).type(toNullable(selectedChildSchema)).noDefault();
                         break;
                     }
@@ -382,7 +382,7 @@ public class AvroSchemaUtil {
                         if(!unnestUnion(unnestedChildSchema.getElementType()).getType().equals(Schema.Type.RECORD)) {
                             throw new IllegalStateException();
                         }
-                        final Schema childSchema = selectFields(unnestUnion(unnestedChildSchema.getElementType()), entry.getValue(), childName);
+                        final Schema childSchema = selectFieldsBuilder(unnestUnion(unnestedChildSchema.getElementType()), entry.getValue(), childName).endRecord();
                         builder.name(entry.getKey()).type(toNullable(Schema.createArray(toNullable(childSchema)))).noDefault();
                         break;
                     }
@@ -392,7 +392,7 @@ public class AvroSchemaUtil {
             }
         }
 
-        return builder.endRecord();
+        return builder;
     }
 
     public static Schema createMapRecordSchema(final String name, final Schema keySchema, final Schema valueSchema) {

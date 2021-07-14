@@ -14,6 +14,7 @@ import org.joda.time.MutableDateTime;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.sql.*;
 import java.time.LocalDate;
@@ -38,10 +39,11 @@ public class ResultSetToRecordConverter {
                     break;
                 case Types.DECIMAL:
                 case Types.NUMERIC:
-                    schemaFields.name(fieldName).type(Schema.createUnion(
-                            Schema.create(Schema.Type.NULL),
-                            LogicalTypes.decimal(meta.getPrecision(column), meta.getScale(column))
-                                    .addToSchema(Schema.create(Schema.Type.BYTES)))).noDefault();
+                    schemaFields.name(fieldName).type(Schema
+                            .createUnion(
+                                    LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES)),
+                                    Schema.create(Schema.Type.NULL)))
+                            .noDefault();
                     break;
                 case Types.TINYINT:
                 case Types.SMALLINT:
@@ -68,6 +70,7 @@ public class ResultSetToRecordConverter {
                 case Types.DOUBLE:
                     schemaFields.name(fieldName).type(AvroSchemaUtil.NULLABLE_DOUBLE).noDefault();
                     break;
+                case Types.OTHER:
                 case Types.CHAR:
                 case Types.ROWID:
                 case Types.VARCHAR:
@@ -100,10 +103,7 @@ public class ResultSetToRecordConverter {
                     schemaFields.name(fieldName).type(AvroSchemaUtil.NULLABLE_SQL_DATETIME_TYPE).noDefault();
                     break;
                 case Types.STRUCT:
-                    break;
                 case Types.ARRAY:
-                    break;
-                case Types.OTHER:
                 case Types.CLOB:
                 case Types.REF:
                 case Types.SQLXML:
@@ -111,8 +111,9 @@ public class ResultSetToRecordConverter {
                 case Types.REF_CURSOR:
                 case Types.DISTINCT:
                 case Types.DATALINK:
-                case Types.NULL:
+                case Types.NULL: {
                     break;
+                }
             }
         }
         return schemaFields.endRecord();
@@ -131,14 +132,21 @@ public class ResultSetToRecordConverter {
                     builder.set(fieldName, resultSet.getBoolean(column));
                     break;
                 case Types.NUMERIC:
-                case Types.DECIMAL:
-                    BigDecimal decimal = resultSet.getBigDecimal(column);
-                    if(decimal == null) {
+                case Types.DECIMAL: {
+                    final BigDecimal decimal = resultSet.getBigDecimal(column);
+                    if (decimal == null) {
                         builder.set(fieldName, null);
+                    } else if(decimal.scale() > 9) {
+                        final BigDecimal newDecimal = decimal
+                                .setScale(9, RoundingMode.HALF_UP)
+                                .scaleByPowerOfTen(9);
+                        builder.set(fieldName, ByteBuffer.wrap(newDecimal.toBigInteger().toByteArray()));
                     } else {
-                        builder.set(fieldName, ByteBuffer.wrap(decimal.unscaledValue().toByteArray()));
+                        final BigDecimal newDecimal = decimal.scaleByPowerOfTen(9);
+                        builder.set(fieldName, ByteBuffer.wrap(newDecimal.toBigInteger().toByteArray()));
                     }
                     break;
+                }
                 case Types.TINYINT:
                 case Types.SMALLINT:
                 case Types.INTEGER:
@@ -146,11 +154,10 @@ public class ResultSetToRecordConverter {
                     break;
                 case Types.BIGINT:
                     if("java.math.BigInteger".equals(meta.getColumnClassName(column))) {
-                        BigDecimal bigintDecimal = resultSet.getBigDecimal(column);
+                        final BigDecimal bigintDecimal = resultSet.getBigDecimal(column);
                         if(bigintDecimal == null) {
                             builder.set(fieldName, null);
                         } else {
-                            //builder.set(fieldName, ByteBuffer.wrap(bigintDecimal.unscaledValue().toByteArray()));
                             builder.set(fieldName, bigintDecimal.unscaledValue().longValue());
                         }
                     } else {
@@ -167,6 +174,7 @@ public class ResultSetToRecordConverter {
                 case Types.CHAR:
                 case Types.VARCHAR:
                 case Types.LONGVARCHAR:
+                case Types.OTHER:
                     builder.set(fieldName, resultSet.getString(column));
                     break;
                 case Types.NVARCHAR:
@@ -174,44 +182,50 @@ public class ResultSetToRecordConverter {
                 case Types.LONGNVARCHAR:
                     builder.set(fieldName, resultSet.getNString(column));
                     break;
-                case Types.ROWID:
+                case Types.ROWID: {
                     final RowId rowId = resultSet.getRowId(column);
-                    if(rowId == null) {
+                    if (rowId == null) {
                         builder.set(fieldName, null);
                     } else {
                         builder.set(fieldName, rowId.toString());
                     }
                     break;
+                }
+                case Types.JAVA_OBJECT:
                 case Types.BINARY:
                 case Types.VARBINARY:
-                case Types.LONGVARBINARY:
+                case Types.LONGVARBINARY: {
                     byte[] binary = resultSet.getBytes(column);
-                    if(binary == null) {
+                    if (binary == null) {
                         builder.set(fieldName, null);
                     } else {
                         builder.set(fieldName, ByteBuffer.wrap(binary));
                     }
                     break;
-                case Types.BLOB:
+                }
+                case Types.BLOB: {
                     final Blob blob = resultSet.getBlob(column);
-                    if(blob == null) {
+                    if (blob == null) {
                         builder.set(fieldName, null);
                     } else {
                         byte[] bytes = IOUtils.toByteArray(blob.getBinaryStream());
                         builder.set(fieldName, ByteBuffer.wrap(bytes));
                     }
                     break;
+                }
                 case Types.TIME:
+                case Types.TIME_WITH_TIMEZONE: {
                     final Time time = resultSet.getTime(column);
-                    if(time == null) {
+                    if (time == null) {
                         builder.set(fieldName, null);
                     } else {
                         builder.set(fieldName, time.toLocalTime().format(DateTimeFormatter.ISO_LOCAL_TIME));
                     }
                     break;
-                case Types.DATE:
+                }
+                case Types.DATE: {
                     final java.sql.Date sqlDate = resultSet.getDate(column);
-                    if(sqlDate == null) {
+                    if (sqlDate == null) {
                         builder.set(fieldName, null);
                     } else {
                         final LocalDate localDate = sqlDate.toLocalDate();
@@ -220,42 +234,29 @@ public class ResultSetToRecordConverter {
                         builder.set(fieldName, days.getDays());
                     }
                     break;
+                }
                 case Types.TIMESTAMP:
+                case Types.TIMESTAMP_WITH_TIMEZONE: {
                     final java.sql.Timestamp timestamp = resultSet.getTimestamp(column);
-                    if(timestamp == null) {
+                    if (timestamp == null) {
                         builder.set(fieldName, null);
                     } else {
                         builder.set(fieldName, timestamp.getTime() * 1000);
                     }
                     break;
-                case Types.TIME_WITH_TIMEZONE:
-                    final Time timeWT = resultSet.getTime(column);
-                    if(timeWT == null) {
-                        builder.set(fieldName, null);
-                    } else {
-                        builder.set(fieldName, timeWT.toLocalTime().format(DateTimeFormatter.ISO_LOCAL_TIME));
-                    }
-                    break;
-                case Types.TIMESTAMP_WITH_TIMEZONE:
-                    final java.sql.Timestamp timestampWT = resultSet.getTimestamp(column);
-                    if(timestampWT == null) {
-                        builder.set(fieldName, null);
-                    } else {
-                        builder.set(fieldName, timestampWT.getTime() * 1000);
-                    }
-                    break;
+                }
                 case Types.DATALINK:
-                case Types.JAVA_OBJECT:
                 case Types.DISTINCT:
                 case Types.STRUCT:
                 case Types.ARRAY:
-                    break;
                 case Types.CLOB:
                 case Types.REF:
                 case Types.SQLXML:
                 case Types.NCLOB:
                 case Types.REF_CURSOR:
+                default: {
                     break;
+                }
             }
         }
         return builder.build();
