@@ -55,6 +55,8 @@ public class PubSubSource implements SourceModule {
 
         private String messageName;
 
+        private Boolean validateUnnecessaryJsonField;
+
         public String getTopic() {
             return topic;
         }
@@ -101,6 +103,14 @@ public class PubSubSource implements SourceModule {
 
         public void setMessageName(String messageName) {
             this.messageName = messageName;
+        }
+
+        public Boolean getValidateUnnecessaryJsonField() {
+            return validateUnnecessaryJsonField;
+        }
+
+        public void setValidateUnnecessaryJsonField(Boolean validateUnnecessaryJsonField) {
+            this.validateUnnecessaryJsonField = validateUnnecessaryJsonField;
         }
     }
 
@@ -227,6 +237,9 @@ public class PubSubSource implements SourceModule {
                     break;
             }
         }
+        if(parameters.getValidateUnnecessaryJsonField() == null) {
+            parameters.setValidateUnnecessaryJsonField(false);
+        }
     }
 
     public static class PubSubStream<T> extends PTransform<PBegin, PCollection<T>> {
@@ -294,7 +307,7 @@ public class PubSubSource implements SourceModule {
                             final Schema avroSchema = SourceConfig.convertAvroSchema(schema);
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("JsonToRecord", ParDo
-                                            .of(new JsonToRecordDoFn(sendDeadletter, avroSchema.toString(), failuresTag))
+                                            .of(new JsonToRecordDoFn(sendDeadletter, avroSchema.toString(), failuresTag, parameters.getValidateUnnecessaryJsonField()))
                                             .withOutputTags(outputAvroTag, TupleTagList.of(failuresTag)));
                             messages = (PCollection<T>) tuple.get(outputAvroTag)
                                     .setCoder(AvroCoder.of(avroSchema));
@@ -306,7 +319,7 @@ public class PubSubSource implements SourceModule {
                             final org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(schema);
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("JsonToRow", ParDo
-                                            .of(new JsonToRowDoFn(sendDeadletter, rowSchema, failuresTag))
+                                            .of(new JsonToRowDoFn(sendDeadletter, rowSchema, failuresTag, parameters.getValidateUnnecessaryJsonField()))
                                             .withOutputTags(outputRowTag, TupleTagList.of(failuresTag)));
                             messages = (PCollection<T>) tuple.get(outputRowTag)
                                     .setCoder(RowCoder.of(rowSchema));
@@ -449,14 +462,17 @@ public class PubSubSource implements SourceModule {
 
         private final boolean sendDeadletter;
         private final org.apache.beam.sdk.schemas.Schema schema;
+        private final boolean validateUnnecessaryJsonField;
 
         JsonToRowDoFn(final boolean sendDeadletter,
                       final org.apache.beam.sdk.schemas.Schema schema,
-                      final TupleTag<PubsubMessage> failuresTag) {
+                      final TupleTag<PubsubMessage> failuresTag,
+                      final boolean validateUnnecessaryJsonField) {
 
             this.sendDeadletter = sendDeadletter;
             this.schema = schema;
             this.failuresTag = failuresTag;
+            this.validateUnnecessaryJsonField = validateUnnecessaryJsonField;
         }
 
         @ProcessElement
@@ -464,6 +480,9 @@ public class PubSubSource implements SourceModule {
             final byte[] content = c.element().getPayload();
             final String json = new String(content, StandardCharsets.UTF_8);
             try {
+                if(validateUnnecessaryJsonField && !JsonToRowConverter.validateSchema(schema, json)) {
+                    throw new IllegalStateException("Validation error for json: " + json + " with schema: " + schema);
+                }
                 final Row row = JsonToRowConverter.convert(schema, json);
                 c.output(row);
             } catch (Exception e) {
@@ -485,14 +504,17 @@ public class PubSubSource implements SourceModule {
         private final boolean sendDeadletter;
         private final String schemaString;
         private transient Schema schema;
+        private final boolean validateUnnecessaryJsonField;
 
         JsonToRecordDoFn(final boolean sendDeadletter,
                          final String schemaString,
-                         final TupleTag<PubsubMessage> failuresTag) {
+                         final TupleTag<PubsubMessage> failuresTag,
+                         final boolean validateUnnecessaryJsonField) {
 
             this.sendDeadletter = sendDeadletter;
             this.schemaString = schemaString;
             this.failuresTag = failuresTag;
+            this.validateUnnecessaryJsonField = validateUnnecessaryJsonField;
         }
 
         @Setup
@@ -505,6 +527,9 @@ public class PubSubSource implements SourceModule {
             final byte[] content = c.element().getPayload();
             final String json = new String(content, StandardCharsets.UTF_8);
             try {
+                if(validateUnnecessaryJsonField && !JsonToRecordConverter.validateSchema(schema, json)) {
+                    throw new IllegalStateException("Validation error for json: " + json + " with schema: " + schema);
+                }
                 final GenericRecord record = JsonToRecordConverter.convert(schema, json);
                 c.output(record);
             } catch (Exception e) {
@@ -636,7 +661,7 @@ public class PubSubSource implements SourceModule {
 
         @ProcessElement
         public void processElement(ProcessContext c) {
-            c.output(PubSubToRecordConverter.convertMessage(schema, c.element()));
+            c.output(PubSubToRecordConverter.convertMessage(schema, c.element(), c.timestamp()));
         }
 
     }

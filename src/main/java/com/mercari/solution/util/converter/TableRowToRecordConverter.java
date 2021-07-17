@@ -3,6 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
+import com.google.common.io.BaseEncoding;
 import com.google.gson.*;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
@@ -143,10 +144,12 @@ public class TableRowToRecordConverter {
             case FIXED:
             case BYTES: {
                 if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
-                    final BigDecimal decimal = (BigDecimal)value;
+                    final int scale = AvroSchemaUtil.getLogicalTypeDecimal(schema).getScale();
+                    final BigDecimal decimal = new BigDecimal((String)value).setScale(scale);
                     return ByteBuffer.wrap(decimal.unscaledValue().toByteArray());
                 } else {
-                    final ByteBuffer byteBuffer = (ByteBuffer)value;
+                    final byte[] bytes = BaseEncoding.base64().decode((String) value);
+                    final ByteBuffer byteBuffer = ByteBuffer.wrap(bytes);
                     return byteBuffer;
                 }
             }

@@ -12,6 +12,8 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -20,8 +22,11 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class JsonToRecordConverter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(JsonToRecordConverter.class);
 
     public static GenericRecord convert(final Schema schema, final String text) {
         if(text == null || text.trim().length() < 2) {
@@ -37,6 +42,60 @@ public class JsonToRecordConverter {
             builder.set(field.name(), convertValue(field.schema(), jsonObject.get(field.name())));
         }
         return builder.build();
+    }
+
+    public static boolean validateSchema(final Schema schema, final String json) {
+        if(json == null || json.trim().length() < 2) {
+            return false;
+        }
+        final JsonObject jsonObject = new Gson().fromJson(json, JsonObject.class);
+        return validateSchema(schema, jsonObject);
+    }
+
+    public static boolean validateSchema(final Schema schema, final JsonObject jsonObject) {
+        for(final Map.Entry<String,JsonElement> entry : jsonObject.entrySet()) {
+            if(!schema.getFields().stream().anyMatch(f -> f.name().equals(entry.getKey()))) {
+                LOG.error("Validation error: json field: " + entry.getKey() + " is not present in schema.");
+                return false;
+            }
+            final Schema.Field field = schema.getField(entry.getKey());
+            final JsonElement element = entry.getValue();
+            if(!AvroSchemaUtil.isNullable(field.schema()) && element.isJsonNull()) {
+                LOG.error("Validation error: json field: " + entry.getKey() + " is null but schema is not nullable");
+                return false;
+            }
+            if(element.isJsonNull()) {
+                continue;
+            }
+            final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
+            switch (fieldSchema.getType()) {
+                case RECORD: {
+                    if(!element.isJsonObject()) {
+                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonObject. element: " + element);
+                        return false;
+                    }
+                    if(!validateSchema(fieldSchema, element.getAsJsonObject())) {
+                        return false;
+                    }
+                    break;
+                }
+                case ARRAY: {
+                    if(!element.isJsonArray()) {
+                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonArray. element: " + element);
+                        return false;
+                    }
+                    break;
+                }
+                default: {
+                    if(!element.isJsonPrimitive()) {
+                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonPrimitive. element: " + element);
+                        return false;
+                    }
+                    break;
+                }
+            }
+        }
+        return true;
     }
 
     private static Object convertValue(final Schema schema, final JsonElement jsonElement) {

@@ -1,5 +1,8 @@
 package com.mercari.solution.util.converter;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.mercari.solution.TestDatum;
 import org.apache.beam.sdk.values.Row;
 import org.junit.Assert;
@@ -27,6 +30,31 @@ public class JsonToRowConverterTest {
         for(final Row child : revertedRowChild.<Row>getArray("recordArrayField")) {
             testFlatField(child);
         }
+    }
+
+    @Test
+    public void testValidateSchema() {
+        final Row row = TestDatum.generateRow();
+        final String json = RowToJsonConverter.convert(row);
+        final JsonObject jsonObject = new Gson().fromJson(json, JsonObject.class);
+        Assert.assertTrue(JsonToRowConverter.validateSchema(row.getSchema(), jsonObject));
+
+        // Check existing field
+        jsonObject.remove("stringField");
+        Assert.assertTrue(JsonToRowConverter.validateSchema(row.getSchema(), jsonObject));
+        jsonObject.remove("stringArrayField");
+        Assert.assertTrue(JsonToRowConverter.validateSchema(row.getSchema(), jsonObject));
+
+        // Check additional field
+        jsonObject.addProperty("newStringField", "stringValue");
+        Assert.assertFalse(JsonToRowConverter.validateSchema(row.getSchema(), jsonObject));
+        jsonObject.remove("newStringField");
+        final JsonArray jsonArray = new JsonArray();
+        jsonObject.add("newArrayField", jsonArray);
+        Assert.assertFalse(JsonToRowConverter.validateSchema(row.getSchema(), jsonObject));
+        jsonArray.add("stringValue");
+        jsonObject.add("newArrayField", jsonArray);
+        Assert.assertFalse(JsonToRowConverter.validateSchema(row.getSchema(), jsonObject));
     }
 
     private void testFlatField(final Row row) {
