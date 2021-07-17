@@ -1,5 +1,8 @@
 package com.mercari.solution.util.converter;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.mercari.solution.TestDatum;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
@@ -34,6 +37,32 @@ public class JsonToRecordConverterTest {
         for(final GenericRecord child : (List<GenericRecord>)revertedRecordChild.get("recordArrayField")) {
             testFlatField(child);
         }
+    }
+
+    @Test
+    public void testValidateSchema() {
+        final GenericRecord record = TestDatum.generateRecord();
+        final String json = RecordToJsonConverter.convert(record);
+
+        final JsonObject jsonObject = new Gson().fromJson(json, JsonObject.class);
+        Assert.assertTrue(JsonToRecordConverter.validateSchema(record.getSchema(), jsonObject));
+
+        // Check existing field
+        jsonObject.remove("stringField");
+        Assert.assertTrue(JsonToRecordConverter.validateSchema(record.getSchema(), jsonObject));
+        jsonObject.remove("stringArrayField");
+        Assert.assertTrue(JsonToRecordConverter.validateSchema(record.getSchema(), jsonObject));
+
+        // Check additional field
+        jsonObject.addProperty("newStringField", "stringValue");
+        Assert.assertFalse(JsonToRecordConverter.validateSchema(record.getSchema(), jsonObject));
+        jsonObject.remove("newStringField");
+        final JsonArray jsonArray = new JsonArray();
+        jsonObject.add("newArrayField", jsonArray);
+        Assert.assertFalse(JsonToRecordConverter.validateSchema(record.getSchema(), jsonObject));
+        jsonArray.add("stringValue");
+        jsonObject.add("newArrayField", jsonArray);
+        Assert.assertFalse(JsonToRecordConverter.validateSchema(record.getSchema(), jsonObject));
     }
 
     private void testFlatField(final GenericRecord record) {

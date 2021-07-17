@@ -18,11 +18,22 @@ PubSub source module for receiving message from specified Cloud PubSub topic or 
 | --- | --- | --- | --- |
 | topic | selective required | String | Specify the topic to read data from PubSub; unnecessary if subscription is specified |
 | subscription | selective required | String | Specify the subscription to read data from PubSub; unnecessary if topic is specified |
-| format | required | String | Specify the format. Currently support `avro`, `json` or `protobuf` |
+| format | required | String | Specify the format. Currently support `avro`, `json`, `protobuf` or `message` |
 | idAttribute | optional | String | Specify the Attribute name you want to identify as id. [ref](https://cloud.google.com/dataflow/docs/concepts/streaming-with-cloud-pubsub#efficient_deduplication) |
 | messageName | optional | String | When `protobuf` is specified as the `format`, Specify the full name(contains package name) of the target message. |
+| validateUnnecessaryJsonField | optional | Boolean | When `json` is specified as the `format`, Specify true if you want to raise an error when a field that does not exist in the schema is found in the JSON. The default is false. |
 
 ※ If `protobuf` is specified in the `format`, both `protobufDescriptor` at [Schema](SCHEMA.md) and `messageName` at parameters must be specified.
+
+※ If `message` is specified in the `format`, PubSub messages will be mapped to the following schema.
+
+| field | type |
+| --- | --- |
+| payload | Bytes |
+| messageId | String |
+| attributes | Map<String,String\> |
+| timestamp | Timestamp |
+
 
 ## Related example config files
 

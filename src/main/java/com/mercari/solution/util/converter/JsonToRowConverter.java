@@ -8,18 +8,19 @@ import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class JsonToRowConverter {
-    
+
+    private static final Logger LOG = LoggerFactory.getLogger(JsonToRowConverter.class);
+
     public static Row convert(final Schema schema, final String text) {
         if(text == null || text.trim().length() < 2) {
             return null;
@@ -34,6 +35,60 @@ public class JsonToRowConverter {
             builder.withFieldValue(field.getName(), convertValue(field.getType(), jsonObject.get(field.getName())));
         }
         return builder.build();
+    }
+
+    public static boolean validateSchema(final Schema schema, final String json) {
+        if(json == null || json.trim().length() < 2) {
+            return false;
+        }
+        final JsonObject jsonObject = new Gson().fromJson(json, JsonObject.class);
+        return validateSchema(schema, jsonObject);
+    }
+
+    public static boolean validateSchema(final Schema schema, final JsonObject jsonObject) {
+        for(final Map.Entry<String,JsonElement> entry : jsonObject.entrySet()) {
+            if(!schema.hasField(entry.getKey())) {
+                LOG.error("Validation error: json field: " + entry.getKey() + " is not present in schema.");
+                return false;
+            }
+            final Schema.Field field = schema.getField(entry.getKey());
+            final JsonElement element = entry.getValue();
+            if(field.getType().getNullable() != null && !field.getType().getNullable() && element.isJsonNull()) {
+                LOG.error("Validation error: json field: " + entry.getKey() + " is null but schema is not nullable");
+                return false;
+            }
+            if(element.isJsonNull()) {
+                continue;
+            }
+            switch (field.getType().getTypeName()) {
+                case ROW: {
+                    if(!element.isJsonObject()) {
+                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonObject. element: " + element);
+                        return false;
+                    }
+                    if(!validateSchema(field.getType().getRowSchema(), element.getAsJsonObject())) {
+                        return false;
+                    }
+                    break;
+                }
+                case ITERABLE:
+                case ARRAY: {
+                    if(!element.isJsonArray()) {
+                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonArray. element: " + element);
+                        return false;
+                    }
+                    break;
+                }
+                default: {
+                    if(!element.isJsonPrimitive()) {
+                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonPrimitive. element: " + element);
+                        return false;
+                    }
+                    break;
+                }
+            }
+        }
+        return true;
     }
 
     private static Object convertValue(final Schema.FieldType fieldType, final JsonElement jsonElement) {

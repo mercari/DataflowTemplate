@@ -6,14 +6,32 @@ import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
+import org.joda.time.Instant;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
 
 public class PubSubToRecordConverter {
 
-    public static GenericRecord convertMessage(final Schema schema, final PubsubMessage message) {
+    public static GenericRecord convertMessage(final Schema schema,
+                                               final PubsubMessage message,
+                                               final Instant timestamp) {
+
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
-        builder.set("payload", message.getPayload());
+        if(message.getPayload() == null) {
+            builder.set("payload", null);
+        } else {
+            builder.set("payload", ByteBuffer.wrap(message.getPayload()));
+        }
         builder.set("messageId", message.getMessageId());
-        builder.set("attributes", message.getAttributeMap());
+        if(message.getAttributeMap() == null) {
+            builder.set("attributes", new ArrayList<>());
+        } else {
+            builder.set("attributes", message.getAttributeMap());
+        }
+        if(timestamp != null) {
+            builder.set("timestamp", timestamp.getMillis() * 1000L);
+        }
         return builder.build();
     }
 
@@ -27,6 +45,9 @@ public class PubSubToRecordConverter {
                 .noDefault();
         schemaFields.name("attributes")
                 .type(AvroSchemaUtil.NULLABLE_MAP_STRING)
+                .noDefault();
+        schemaFields.name("timestamp")
+                .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
                 .noDefault();
         return schemaFields.endRecord();
     }
