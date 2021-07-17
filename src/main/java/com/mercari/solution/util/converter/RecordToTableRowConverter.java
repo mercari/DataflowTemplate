@@ -3,6 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
+import com.google.common.io.BaseEncoding;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -72,24 +73,24 @@ public class RecordToTableRowConverter {
             case STRING:
                 return value.toString();
             case FIXED:
-            case BYTES:
-                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+            case BYTES: {
+                if (AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
                     final byte[] bytes;
-                    if(Schema.Type.FIXED.equals(schema.getType())) {
-                        bytes = ((GenericData.Fixed)value).bytes();
+                    if (Schema.Type.FIXED.equals(schema.getType())) {
+                        bytes = ((GenericData.Fixed) value).bytes();
                     } else {
-                        bytes = ((ByteBuffer)value).array();
+                        bytes = ((ByteBuffer) value).array();
                     }
-                    if(bytes.length == 0) {
-                        return BigDecimal.valueOf(0, 0);
+                    if (bytes.length == 0) {
+                        return BigDecimal.valueOf(0, 0).toString();
                     }
                     final int scale = AvroSchemaUtil.getLogicalTypeDecimal(schema).getScale();
-                    return BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale);
+                    return BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale).toString();
+                } else if (Schema.Type.FIXED.equals(schema.getType())) {
+                    return BaseEncoding.base64().encode(((GenericData.Fixed) value).bytes());
                 }
-                if(Schema.Type.FIXED.equals(schema.getType())) {
-                    return ByteBuffer.wrap(((GenericData.Fixed)value).bytes());
-                }
-                return value;
+                return BaseEncoding.base64().encode(((ByteBuffer)value).array());
+            }
             case INT:
                 if(LogicalTypes.date().equals(schema.getLogicalType())) {
                     return LocalDate
@@ -142,6 +143,8 @@ public class RecordToTableRowConverter {
                 return convertTableRowValue(childSchema, value);
             case ARRAY:
                 return convertTableRowValues(schema.getElementType(), value);
+            case NULL:
+                return null;
             default:
                 return value;
         }
@@ -214,9 +217,21 @@ public class RecordToTableRowConverter {
                             .setMode("REPEATED");
                 }
             }
+            case MAP: {
+                final List<TableFieldSchema> fields = new ArrayList<>();
+                fields.add(new TableFieldSchema()
+                        .setName("key")
+                        .setMode("REQUIRED")
+                        .setType("STRING"));
+                fields.add(convertTableFieldSchema("value", AvroSchemaUtil.unnestUnion(schema.getValueType()), AvroSchemaUtil.isNullable(schema.getValueType())));
+                return tableFieldSchema
+                        .setName(name)
+                        .setType("RECORD")
+                        .setFields(fields)
+                        .setMode("REPEATED");
+            }
             case UNION:
                 return convertTableFieldSchema(name, AvroSchemaUtil.unnestUnion(schema), AvroSchemaUtil.isNullable(schema));
-            case MAP:
             case NULL:
             default:
                 throw new IllegalArgumentException(schema.getType().getName() + " is not supported for bigquery.");

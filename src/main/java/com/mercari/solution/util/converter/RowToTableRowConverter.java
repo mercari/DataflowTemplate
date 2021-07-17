@@ -3,6 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
+import com.google.common.io.BaseEncoding;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -11,12 +12,12 @@ import org.joda.time.format.DateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class RowToTableRowConverter {
@@ -59,10 +60,12 @@ public class RowToTableRowConverter {
             case BOOLEAN:
             case INT64:
             case DOUBLE:
-            case DECIMAL:
                 return value;
+            case DECIMAL: {
+                return value.toString();
+            }
             case BYTES:
-                return ByteBuffer.wrap((byte[]) value);
+                return BaseEncoding.base64().encode(((byte[]) value));
             case INT32:
                 return ((Integer) value).longValue();
             case FLOAT:
@@ -85,8 +88,15 @@ public class RowToTableRowConverter {
                 return ((List<?>) value).stream()
                         .map(v -> convertValue(fieldType.getCollectionElementType(), v))
                         .collect(Collectors.toList());
+            case MAP: {
+                final Map<Object, Object> map = (Map)value;
+                return map.entrySet().stream()
+                        .map(entry -> new TableRow()
+                                .set("key", entry.getKey() == null ? "" : entry.getKey().toString())
+                                .set("value", convertValue(fieldType.getMapValueType(), entry.getValue())))
+                        .collect(Collectors.toList());
+            }
             case BYTE:
-            case MAP:
             case INT16:
             default:
                 return value;
@@ -157,7 +167,19 @@ public class RowToTableRowConverter {
                             .setMode("REPEATED");
                 }
             }
-            case MAP:
+            case MAP: {
+                final List<TableFieldSchema> fields = new ArrayList<>();
+                fields.add(new TableFieldSchema()
+                        .setName("key")
+                        .setMode("REQUIRED")
+                        .setType("STRING"));
+                fields.add(convertTableFieldSchema(fieldType.getMapValueType(), "value"));
+                return tableFieldSchema
+                        .setName(fieldName)
+                        .setType("RECORD")
+                        .setFields(fields)
+                        .setMode("REPEATED");
+            }
             case BYTE:
             default:
                 throw new IllegalArgumentException(fieldType.getTypeName().name() + " is not supported for bigquery.");
