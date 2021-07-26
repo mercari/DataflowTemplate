@@ -1,0 +1,25 @@
+{
+  "sources": [
+    {
+      "name": "Read",
+      "module": "datastore",
+      "parameters": {
+        "projectId": "myproject",
+        "kind": "MyKind",
+        "gql": "SELECT __key__ FROM MyKind"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "Delete",
+      "module": "datastore",
+      "input": "Read",
+      "parameters": {
+        "projectId": "myproject",
+        "kind": "MyKind",
+        "delete": true
+      }
+    }
+  ]
+}

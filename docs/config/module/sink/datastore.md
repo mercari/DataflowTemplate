@@ -19,7 +19,7 @@ Sink module to write the input data to a specified Cloud Datastore kind.
 | kind | required | String | Kind name to save |
 | keyFields | optional | Array<String\> | Field names as unique keys when saving. Multiple fields may be specified. If not specified, it is automatically assigned by UUID. |
 | keyTemplate | optional | String | Specify the template text when you want to specify the key value by conversion using template engine [FreeMarker](https://freemarker.apache.org/) |
-| delete | optional | Boolean | true if you want to delete it instead of writing it. If true is specified, keyFields must be specified. |
+| delete | optional | Boolean | true if you want to delete it instead of writing it. If true is specified, `keyFields` or `keyTemplate` must be specified. (No need to specify if the schema contains a `__key__` field) |
 
 ### Signatures of build-in utility functions for template engine
 
@@ -41,3 +41,4 @@ ${_DateTimeUtil.formatTimestamp(_EVENTTIME, 'yyyyMMddhhmmss')}
 * [BigQuery to Cloud Datastore](../../../../examples/bigquery-to-datastore.json)
 * [Cloud Spanner to Cloud Datastore](../../../../examples/spanner-to-datastore.json)
 * [Cloud Storage(Avro) to Cloud Datastore](../../../../examples/avro-to-datastore.json)
+* [Cloud Datestore to Delete](../../../../examples/datastore-to-delete.json)

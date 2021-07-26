@@ -12,7 +12,7 @@ Source Module for loading data by specifying a query into RDB using JDBC.
 | schema | - | [Schema](SCHEMA.md) | Schema of the data to be read. jdbc module does not require specification |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters |
 
-## BigQuery source module parameters
+## JDBC source module parameters
 
 | parameter | optional | type | description |
 | --- | --- | --- | --- |
