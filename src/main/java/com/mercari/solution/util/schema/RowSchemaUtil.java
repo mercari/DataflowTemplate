@@ -57,6 +57,12 @@ public class RowSchemaUtil {
                     builder.withFieldValue(field.getName(), null);
                     continue;
                 }
+                final Schema.Field rowField = row.getSchema().getField(field.getName());
+                if(!field.getType().getTypeName().equals(rowField.getType().getTypeName())) {
+                    builder.withFieldValue(field.getName(), null);
+                    continue;
+                }
+
                 switch (field.getType().getTypeName()) {
                     case ITERABLE:
                     case ARRAY: {

@@ -260,6 +260,11 @@ public class AvroSchemaUtil {
     public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema) {
         return toBuilder(schema, schema.getNamespace(), null);
     }
+
+    public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema, final Collection<String> fieldNames) {
+        return toBuilder(schema, schema.getNamespace(), fieldNames);
+    }
+
     public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema,  final String namespace, final Collection<String> fieldNames) {
         final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").namespace(namespace).fields();
         schema.getFields().forEach(f -> {
@@ -277,13 +282,19 @@ public class AvroSchemaUtil {
     public static GenericRecordBuilder toBuilder(final Schema schema, final GenericRecord record) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
-            if(record.getSchema().getField(field.name()) != null) {
+            final Schema.Field recordField = record.getSchema().getField(field.name());
+            if(recordField != null) {
                 final Schema fieldSchema = unnestUnion(field.schema());
                 final Object fieldValue = record.get(field.name());
                 if(fieldValue == null) {
                     builder.set(field.name(), null);
                     continue;
                 }
+                if(!unnestUnion(recordField.schema()).getType().equals(fieldSchema.getType())) {
+                    builder.set(field.name(), null);
+                    continue;
+                }
+
                 switch (fieldSchema.getType()) {
                     case ARRAY: {
                         final Schema elementSchema = unnestUnion(fieldSchema.getElementType());
@@ -362,8 +373,10 @@ public class AvroSchemaUtil {
                 } else {
                     childFields.put(strs[0], new ArrayList<>(Arrays.asList(strs[1])));
                 }
-            } else {
+            } else if(schema.getField(field) != null) {
                 builder.name(field).type(schema.getField(field).schema()).noDefault();
+            } else {
+                throw new IllegalStateException("Field not found: " + field);
             }
         }
 

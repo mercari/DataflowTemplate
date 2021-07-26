@@ -147,14 +147,14 @@ public class RowToTableRowConverter {
             }
             case ITERABLE:
             case ARRAY: {
-                final List<TableFieldSchema> childTableFieldSchemas = fieldType
-                        .getCollectionElementType()
-                        .getRowSchema()
-                        .getFields()
-                        .stream()
-                        .map(RowToTableRowConverter::convertTableFieldSchema)
-                        .collect(Collectors.toList());
                 if(Schema.TypeName.ROW.equals(fieldType.getCollectionElementType().getTypeName())) {
+                    final List<TableFieldSchema> childTableFieldSchemas = fieldType
+                            .getCollectionElementType()
+                            .getRowSchema()
+                            .getFields()
+                            .stream()
+                            .map(RowToTableRowConverter::convertTableFieldSchema)
+                            .collect(Collectors.toList());
                     return tableFieldSchema
                             .setName(fieldName)
                             .setType("RECORD")
