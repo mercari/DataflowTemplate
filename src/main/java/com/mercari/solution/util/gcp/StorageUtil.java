@@ -30,6 +30,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -154,8 +155,16 @@ public class StorageUtil {
             prefix = object;
         }
         try {
-            return storage().objects()
-                    .list(bucket).setPrefix(prefix).execute().getItems();
+            final List<StorageObject> objects = storage()
+                    .objects()
+                    .list(bucket)
+                    .setPrefix(prefix)
+                    .execute()
+                    .getItems();
+            if(objects == null) {
+                return new ArrayList<>();
+            }
+            return objects;
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -226,8 +235,7 @@ public class StorageUtil {
     }
 
     public static Schema getParquetSchema(final String bucket, final String object) {
-        final byte[] bytes = readBytes(bucket, object);
-        try(final ParquetFileReader f = ParquetFileReader.open(new ParquetStream(bytes))) {
+        try(final ParquetFileReader f = ParquetFileReader.open(new ParquetStream(readBytes(bucket, object)))) {
             return new AvroSchemaConverter().convert(f.getFooter().getFileMetaData().getSchema());
         } catch (Exception e) {
             return null;

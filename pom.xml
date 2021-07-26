@@ -21,6 +21,7 @@
     <iamcredentials.version>1.1.9</iamcredentials.version>
     <automl.version>1.1.2</automl.version>
     <tensorflow.version>1.15.0</tensorflow.version>
+    <hadoop.version>3.3.1</hadoop.version>
     <hbase.version>2.3.2</hbase.version>
     <solr.version>8.7.0</solr.version>
     <mysql-connector.version>8.0.22</mysql-connector.version>
@@ -301,6 +302,14 @@
       <artifactId>beam-sdks-java-io-parquet</artifactId>
       <version>${beam.version}</version>
     </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-client -->
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client</artifactId>
+      <version>${hadoop.version}</version>
+    </dependency>
+
 
     <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
     <dependency>

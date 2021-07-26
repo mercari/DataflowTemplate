@@ -8,7 +8,7 @@ PubSub source module for receiving message from specified Cloud PubSub topic or 
 | --- | --- | --- | --- |
 | name | required | String | Step name. specified to be unique in config file. |
 | module | required | String | Specified `pubsub` |
-| schema | required | [Schema](SCHEMA.md) | Schema of the data to be read |
+| schema | required | [Schema](SCHEMA.md) | Schema of the data to be read. (If you specify a `message` in the `format`, you don't need to specify it) |
 | timestampAttribute | String | optional | If you want to use the value of an attribute of a PubSub message as the event time, specify the name of the attribute. |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters |
 
