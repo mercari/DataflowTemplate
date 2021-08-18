@@ -302,7 +302,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        
+
         <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
         <dependency>
             <groupId>org.apache.hbase</groupId>
