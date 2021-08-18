@@ -105,6 +105,9 @@ public class AvroSchemaUtil {
     public static final Schema NULLABLE_ARRAY_DOUBLE_TYPE = Schema.createUnion(
             Schema.createArray(Schema.create(Schema.Type.DOUBLE)),
             Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_STRING_TYPE = Schema.createUnion(
+            Schema.createArray(Schema.create(Schema.Type.STRING)),
+            Schema.create(Schema.Type.NULL));
 
     public static final Schema NULLABLE_MAP_STRING = Schema.createUnion(
             Schema.create(Schema.Type.NULL),

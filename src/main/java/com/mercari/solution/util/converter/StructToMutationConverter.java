@@ -146,7 +146,7 @@ public class StructToMutationConverter {
                                 List<Struct> children = struct.getStructList(field.getName());
                                 final JsonArray array = new JsonArray();
                                 children.stream()
-                                        .map(StructToJsonConverter::convertStruct)
+                                        .map(StructToJsonConverter::convertObject)
                                         .forEach(array::add);
                                 builder = builder.set(fieldName).to(array.toString());
                             }

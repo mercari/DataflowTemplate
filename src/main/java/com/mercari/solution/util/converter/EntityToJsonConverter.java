@@ -21,10 +21,10 @@ public class EntityToJsonConverter {
     }
 
     public static String convert(final Entity entity) {
-        return convertEntity(entity).toString();
+        return convertObject(entity).toString();
     }
 
-    public static JsonObject convertEntity(final Entity entity) {
+    public static JsonObject convertObject(final Entity entity) {
         final JsonObject obj = new JsonObject();
         if(entity == null) {
             return obj;
@@ -46,9 +46,15 @@ public class EntityToJsonConverter {
             case STRING_VALUE:
                 obj.addProperty(fieldName, value.getStringValue());
                 break;
-            case DOUBLE_VALUE:
-                obj.addProperty(fieldName, value.getDoubleValue());
+            case DOUBLE_VALUE: {
+                final double doubleValue = value.getDoubleValue();
+                if (Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
+                    obj.addProperty(fieldName, (Double) null);
+                } else {
+                    obj.addProperty(fieldName, doubleValue);
+                }
                 break;
+            }
             case TIMESTAMP_VALUE:
                 obj.addProperty(fieldName, Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue())).toString());
                 break;
@@ -64,7 +70,7 @@ public class EntityToJsonConverter {
                 obj.add(fieldName, convertKey(value.getKeyValue()));
                 break;
             case ENTITY_VALUE:
-                obj.add(fieldName, convertEntity(value.getEntityValue()));
+                obj.add(fieldName, convertObject(value.getEntityValue()));
                 break;
             case ARRAY_VALUE: {
                 final JsonArray array = new JsonArray();
@@ -92,7 +98,7 @@ public class EntityToJsonConverter {
                                 case ARRAY_VALUE:
                                     break;
                                 case ENTITY_VALUE:
-                                    array.add(convertEntity(v.getEntityValue()));
+                                    array.add(convertObject(v.getEntityValue()));
                                     break;
                                 case GEO_POINT_VALUE:
                                     final LatLng latLng = v.getGeoPointValue();

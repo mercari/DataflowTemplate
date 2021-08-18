@@ -30,6 +30,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [BeamSQL: Join BigQuery and Spanner table](beamsql-join-bigquery-and-spanner-to-spanner.json)
     * [Filter](avro-to-filter-to-avro.json)
     * [Partition](avro-to-partition-to-spanner.json)
+    * [AutoML(Vertex AI endpoints) batch prediction](bigquery-to-automl-to-spanner.json)
     * [Protobuf deserialize](spanner-to-protobuf-to-avro.json)
     * [Decrypt secret data](spanner-to-decrypt-to-avro.json)
     * [SetOperation: Replace Spanner Table](setoperation-replace-spanner.json)

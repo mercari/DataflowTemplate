@@ -20,18 +20,18 @@ import java.util.List;
 public class RecordToJsonConverter {
 
     public static String convert(final GenericRecord record, final List<String> fields) {
-        return convertRecord(record, fields).toString();
+        return convertObject(record, fields).toString();
     }
 
     public static String convert(final GenericRecord record) {
         return convert(record, null);
     }
 
-    private static JsonObject convertRecord(final GenericRecord record) {
-        return convertRecord(record, null);
+    public static JsonObject convertObject(final GenericRecord record) {
+        return convertObject(record, null);
     }
 
-    private static JsonObject convertRecord(final GenericRecord record, final List<String> fields) {
+    public static JsonObject convertObject(final GenericRecord record, final List<String> fields) {
         final JsonObject obj = new JsonObject();
         if(record == null) {
             return obj;
@@ -98,14 +98,26 @@ public class RecordToJsonConverter {
                 }
                 break;
             }
-            case FLOAT:
-                obj.addProperty(fieldName, (Float) value);
+            case FLOAT: {
+                final Float floatValue = (Float) value;
+                if (isNullField || Float.isNaN(floatValue) || Float.isInfinite(floatValue)) {
+                    obj.addProperty(fieldName, (Float) null);
+                } else {
+                    obj.addProperty(fieldName, floatValue);
+                }
                 break;
-            case DOUBLE:
-                obj.addProperty(fieldName, (Double) value);
+            }
+            case DOUBLE: {
+                final Double doubleValue = (Double) value;
+                if (isNullField || Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
+                    obj.addProperty(fieldName, (Double) null);
+                } else {
+                    obj.addProperty(fieldName, doubleValue);
+                }
                 break;
+            }
             case RECORD:
-                obj.add(fieldName, isNullField ? null : convertRecord((GenericRecord) value));
+                obj.add(fieldName, isNullField ? null : convertObject((GenericRecord) value));
                 break;
             case ARRAY:
                 obj.add(fieldName, isNullField ? null : convertArray(fieldSchema.getElementType(), (List<?>) value));
@@ -225,18 +237,32 @@ public class RecordToJsonConverter {
                 break;
             case FLOAT:
                 arrayValue.stream()
-                        .map(v -> (Float) v)
+                        .map(v -> {
+                            final Float floatValue = (Float) v;
+                            if (v == null || Float.isNaN(floatValue) || Float.isInfinite(floatValue)) {
+                                return null;
+                            } else {
+                                return floatValue;
+                            }
+                        })
                         .forEach(array::add);
                 break;
             case DOUBLE:
                 arrayValue.stream()
-                        .map(v -> (Double) v)
+                        .map(v -> {
+                            final Double doubleValue = (Double) v;
+                            if (v == null || Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
+                                return null;
+                            } else {
+                                return doubleValue;
+                            }
+                        })
                         .forEach(array::add);
                 break;
             case RECORD:
                 arrayValue.stream()
                         .map(o -> (GenericRecord)o)
-                        .map(RecordToJsonConverter::convertRecord)
+                        .map(RecordToJsonConverter::convertObject)
                         .forEach(array::add);
                 break;
             case ARRAY:

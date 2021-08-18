@@ -34,10 +34,10 @@ public class StructToJsonConverter {
      * @return Json row string.
      */
     public static String convert(final Struct struct) {
-        return convertStruct(struct).toString();
+        return convertObject(struct).toString();
     }
 
-    public static JsonObject convertStruct(final Struct struct) {
+    public static JsonObject convertObject(final Struct struct) {
         if(struct == null) {
             return null;
         }
@@ -66,9 +66,19 @@ public class StructToJsonConverter {
             case INT64:
                 obj.addProperty(fieldName, isNullField ? null : struct.getLong(fieldName));
                 break;
-            case FLOAT64:
-                obj.addProperty(fieldName, isNullField ? null : struct.getDouble(fieldName));
+            case FLOAT64: {
+                if (isNullField) {
+                    obj.addProperty(fieldName, (Double) null);
+                } else {
+                    final Double doubleValue = struct.getDouble(fieldName);
+                    if (Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
+                        obj.addProperty(fieldName, (Double) null);
+                    } else {
+                        obj.addProperty(fieldName, doubleValue);
+                    }
+                }
                 break;
+            }
             case STRING:
                 obj.addProperty(fieldName, isNullField ? null : struct.getString(fieldName));
                 break;
@@ -163,7 +173,7 @@ public class StructToJsonConverter {
                 break;
             case STRUCT:
                 struct.getStructList(field.getName()).stream()
-                        .map(StructToJsonConverter::convertStruct)
+                        .map(StructToJsonConverter::convertObject)
                         .forEach(array::add);
                 break;
             case ARRAY:

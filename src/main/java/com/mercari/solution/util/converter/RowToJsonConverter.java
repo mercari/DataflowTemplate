@@ -24,11 +24,11 @@ public class RowToJsonConverter {
     }
 
     public static String convert(final Row row) {
-        return convertRow(row).toString();
+        return convertObject(row).toString();
 
     }
 
-    private static JsonObject convertRow(final Row row) {
+    public static JsonObject convertObject(final Row row) {
         final JsonObject obj = new JsonObject();
         if(row == null) {
             return obj;
@@ -56,12 +56,24 @@ public class RowToJsonConverter {
             case INT64:
                 obj.addProperty(fieldName, isNullField ? null : row.getInt64(fieldName));
                 break;
-            case FLOAT:
-                obj.addProperty(fieldName, isNullField ? null : row.getFloat(fieldName));
+            case FLOAT: {
+                final Float floatValue = row.getFloat(fieldName);
+                if (floatValue == null || Float.isNaN(floatValue) || Float.isInfinite(floatValue)) {
+                    obj.addProperty(fieldName, (Float) null);
+                } else {
+                    obj.addProperty(fieldName, floatValue);
+                }
                 break;
-            case DOUBLE:
-                obj.addProperty(fieldName, isNullField ? null : row.getDouble(fieldName));
+            }
+            case DOUBLE: {
+                final Double doubleValue = row.getDouble(fieldName);
+                if (doubleValue == null || Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
+                    obj.addProperty(fieldName, (Double) null);
+                } else {
+                    obj.addProperty(fieldName, doubleValue);
+                }
                 break;
+            }
             case STRING:
                 obj.addProperty(fieldName, isNullField ? null : row.getString(fieldName));
                 break;
@@ -88,7 +100,7 @@ public class RowToJsonConverter {
                 break;
             }
             case ROW:
-                obj.add(fieldName, isNullField ? null : convertRow(row.getRow(fieldName)));
+                obj.add(fieldName, isNullField ? null : convertObject(row.getRow(fieldName)));
                 break;
             case ITERABLE:
             case ARRAY:
@@ -139,13 +151,27 @@ public class RowToJsonConverter {
             case FLOAT:
                 arrayValue.stream()
                         .filter(Objects::nonNull)
-                        .map(v -> (Float) v)
+                        .map(v -> {
+                            final Float floatValue = (Float) v;
+                            if (Float.isNaN(floatValue) || Float.isInfinite(floatValue)) {
+                                return null;
+                            } else {
+                                return floatValue;
+                            }
+                        })
                         .forEach(array::add);
                 break;
             case DOUBLE:
                 arrayValue.stream()
                         .filter(Objects::nonNull)
-                        .map(v -> (Double) v)
+                        .map(v -> {
+                            final Double doubleValue = (Double) v;
+                            if (Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
+                                return null;
+                            } else {
+                                return doubleValue;
+                            }
+                        })
                         .forEach(array::add);
                 break;
             case STRING:
@@ -184,7 +210,7 @@ public class RowToJsonConverter {
             case ROW:
                 arrayValue.stream()
                         .map(o -> (Row)o)
-                        .map(RowToJsonConverter::convertRow)
+                        .map(RowToJsonConverter::convertObject)
                         .forEach(array::add);
                 break;
             case ITERABLE:

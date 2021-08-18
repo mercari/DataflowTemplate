@@ -1,6 +1,8 @@
 package com.mercari.solution.util.gcp;
 
 import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.auth.oauth2.AccessToken;
+import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.iam.credentials.v1.IamCredentialsClient;
 import com.google.cloud.iam.credentials.v1.IamCredentialsSettings;
 import com.google.cloud.iam.credentials.v1.SignJwtRequest;
@@ -9,8 +11,15 @@ import com.google.gson.JsonObject;
 import org.joda.time.DateTime;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 public class IAMUtil {
+
+    private static final String ENDPOINT_METADATA = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=";
 
     public static String signJwt(final String serviceAccount, final int expiration) {
         final long exp = DateTime.now().plusSeconds(expiration).getMillis() / 1000;
@@ -31,6 +40,26 @@ public class IAMUtil {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static String getIdToken(final HttpClient client, final String endpoint)
+            throws IOException, URISyntaxException, InterruptedException {
+        final String metaserver = ENDPOINT_METADATA + endpoint;
+        final HttpRequest req = HttpRequest.newBuilder()
+                .uri(new URI(metaserver))
+                .header("Metadata-Flavor", "Google")
+                .GET()
+                .build();
+
+        final HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+        return res.body();
+    }
+
+    public static AccessToken getAccessToken() throws IOException {
+        final GoogleCredentials credentials = GoogleCredentials
+                .getApplicationDefault()
+                .createScoped("https://www.googleapis.com/auth/cloud-platform");
+        return credentials.refreshAccessToken();
     }
 
     // TODO Pending as it was not available in the REST API. To be investigated at a later date.
