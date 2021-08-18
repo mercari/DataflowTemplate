@@ -6,7 +6,7 @@
 
   <groupId>com.mercari</groupId>
   <artifactId>solution</artifactId>
-  <version>0.1</version>
+  <version>0.3.0</version>
   <name>Mercari Dataflow Template</name>
 
   <packaging>jar</packaging>
@@ -19,11 +19,10 @@
     <onnx.version>1.7.0-1.5.4</onnx.version>
     <onnxruntime.version>1.5.2</onnxruntime.version>
     <iamcredentials.version>1.1.9</iamcredentials.version>
-    <automl.version>1.1.2</automl.version>
     <tensorflow.version>1.15.0</tensorflow.version>
     <hadoop.version>3.3.1</hadoop.version>
-    <hbase.version>2.3.2</hbase.version>
-    <solr.version>8.7.0</solr.version>
+    <hbase.version>2.4.5</hbase.version>
+    <solr.version>8.9.0</solr.version>
     <mysql-connector.version>8.0.22</mysql-connector.version>
     <postgresql-connector.version>42.2.18</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
@@ -35,7 +34,7 @@
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
     <slf4j.version>1.7.25</slf4j.version>
-    <log4j.version>2.13.3</log4j.version>
+    <log4j.version>2.14.1</log4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
 
@@ -308,8 +307,13 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client</artifactId>
       <version>${hadoop.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>log4j</groupId>
+          <artifactId>log4j</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
-
 
     <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
     <dependency>
@@ -350,13 +354,6 @@
       <groupId>org.bytedeco</groupId>
       <artifactId>onnx-platform</artifactId>
       <version>${onnx.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-automl -->
-    <dependency>
-      <groupId>com.google.cloud</groupId>
-      <artifactId>google-cloud-automl</artifactId>
-      <version>${automl.version}</version>
     </dependency>
 
     <dependency>
