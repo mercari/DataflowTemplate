@@ -1,0 +1,60 @@
+{
+  "sources": [
+    {
+      "name": "BigQueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT * FROM `myproject.mydataset.features` WHERE date < CURRENT_DATE('Asia/Tokyo')",
+        "queryLocation": "US",
+        "queryTempDataset": "temp"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "AutoMLPrediction",
+      "module": "automl",
+      "inputs": ["BigQueryInput"],
+      "parameters": {
+        "endpoint": "projects/MY_PROJECT/locations/us-central1/endpoints/ENDPOINT_ID",
+        "type": "table",
+        "objective": "regression",
+        "batchSize": 32,
+        "failFast": false,
+        "deployModel": true,
+        "undeployModel": true,
+        "parallelNum": 4,
+        "model": {
+          "model": "projects/MY_PROJECT/locations/us-central1/models/MODEL_ID",
+          "machineType": "n1-highmem-2",
+          "minReplicaCount": 2,
+          "maxReplicaCount": 2
+        }
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "BigQueryOutput",
+      "module": "bigquery",
+      "input": "AutoMLPrediction",
+      "parameters": {
+        "table": "myproject:mydataset.predictions",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE",
+        "tempLocation": "gs://example-bucket/temp/"
+      }
+    },
+    {
+      "name": "BigQueryOutputError",
+      "module": "bigquery",
+      "input": "AutoMLPrediction.failures",
+      "parameters": {
+        "table": "myproject:mydataset.errors",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE",
+        "tempLocation": "gs://example-bucket/temp/"
+      }
+    }
+  ]
+}
