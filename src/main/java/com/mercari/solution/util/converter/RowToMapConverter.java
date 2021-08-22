@@ -1,6 +1,5 @@
 package com.mercari.solution.util.converter;
 
-import com.google.cloud.Date;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -11,7 +10,6 @@ import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 
 import java.nio.ByteBuffer;
-import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -51,9 +49,7 @@ public class RowToMapConverter {
                 return ((ReadableInstant) value).toInstant();
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(type)) {
-                    final LocalDate localDate = (LocalDate) value;
-                    return Date.fromYearMonthDay(
-                            localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
+                    return value;
                 } else if(RowSchemaUtil.isLogicalTypeTime(type)) {
                     return ((Instant) value).toString(FORMATTER_HH_MM_SS);
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(type)) {
