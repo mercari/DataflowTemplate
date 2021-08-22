@@ -2,10 +2,13 @@ package com.mercari.solution.util;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import org.joda.time.Instant;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -255,6 +258,12 @@ public class Filter implements Serializable {
                 c = new BigDecimal(value.toString()).compareTo(leaf.getValue().getAsBigDecimal());
             } else if(value instanceof String) {
                 c = ((String)value).compareTo(leaf.getValue().getAsString());
+            } else if(value instanceof Instant) {
+                c = ((Instant)value).compareTo(DateTimeUtil.toJodaInstant(leaf.getValue().getAsString()));
+            } else if(value instanceof LocalDate) {
+                c = ((LocalDate)value).compareTo(DateTimeUtil.toLocalDate(leaf.getValue().getAsString()));
+            } else if(value instanceof LocalTime) {
+                c = ((LocalTime)value).compareTo(DateTimeUtil.toLocalTime(leaf.getValue().getAsString()));
             } else {
                 throw new IllegalArgumentException("Condition compare op must be Number or String. : " + value.getClass());
             }

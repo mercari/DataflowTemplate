@@ -12,14 +12,11 @@ import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.joda.time.DateTime;
-import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -345,11 +342,16 @@ public class EntitySchemaUtil {
     }
 
     public static Entity.Builder toBuilder(final Schema schema, final Entity entity) {
+        return toBuilder(schema, entity, new HashMap<>());
+    }
+
+    public static Entity.Builder toBuilder(final Schema schema, final Entity entity, final Map<String, String> renameFields) {
         final Entity.Builder builder = Entity.newBuilder();
         builder.setKey(entity.getKey());
         final Map<String,Value> values = entity.getPropertiesMap();
         for(final Schema.Field field : schema.getFields()) {
-            if(!values.containsKey(field.getName())) {
+            final String oldName = renameFields.getOrDefault(field.getName(), field.getName());
+            if(!values.containsKey(oldName)) {
                 builder.putProperties(field.getName(), Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
                 continue;
             }
@@ -358,7 +360,7 @@ public class EntitySchemaUtil {
                 case ARRAY: {
                     if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
                         final List<Entity> children = new ArrayList<>();
-                        for(final Value child : values.get(field.getName()).getArrayValue().getValuesList()) {
+                        for(final Value child : values.get(oldName).getArrayValue().getValuesList()) {
                             if(child == null || child.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
                                 children.add(null);
                             } else {
@@ -377,17 +379,17 @@ public class EntitySchemaUtil {
                                 .setArrayValue(ArrayValue.newBuilder().addAllValues(entityValues))
                                 .build());
                     } else {
-                        builder.putProperties(field.getName(), values.get(field.getName()));
+                        builder.putProperties(field.getName(), values.get(oldName));
                     }
                     break;
                 }
                 case ROW: {
-                    final Entity child = toBuilder(field.getType().getRowSchema(), values.get(field.getName()).getEntityValue()).build();
+                    final Entity child = toBuilder(field.getType().getRowSchema(), values.get(oldName).getEntityValue()).build();
                     builder.putProperties(field.getName(), Value.newBuilder().setEntityValue(child).build());
                     break;
                 }
                 default:
-                    builder.putProperties(field.getName(), values.get(field.getName()));
+                    builder.putProperties(field.getName(), values.get(oldName));
                     break;
             }
 
@@ -412,6 +414,26 @@ public class EntitySchemaUtil {
                 continue;
             }
             builder.putProperties(entry.getKey(), entry.getValue());
+        }
+        return builder;
+    }
+
+    public static Entity.Builder convertBuilder(final Schema schema, final Entity entity, final List<String> excludeFromIndexFields) {
+        final Entity.Builder builder = Entity.newBuilder();
+        if (excludeFromIndexFields.size() == 0) {
+            return builder;
+        }
+        for(Schema.Field field : schema.getFields()) {
+            final Value value = entity.getPropertiesOrDefault(field.getName(),
+                    Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+            final boolean excludeFromIndexes = excludeFromIndexFields.contains(field.getName());
+            if (excludeFromIndexes) {
+                builder.putProperties(field.getName(), value.toBuilder()
+                        .setExcludeFromIndexes(true)
+                        .build());
+            } else {
+                builder.putProperties(field.getName(), value);
+            }
         }
         return builder;
     }

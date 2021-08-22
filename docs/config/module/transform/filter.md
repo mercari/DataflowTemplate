@@ -17,6 +17,7 @@ Filter transform module can be used to filter rows by specified criteria or to r
 | --- | --- | --- | --- |
 | filters | selective required | [FilterCondition](filtercondition.md) | Specify the conditions for filtering rows. |
 | fields | selective required | Array<String\> | Specify a list of field names to be passed through. You can also specify nested fields by joining them with dots. |
+| renameFields | optional | Map<String,String\> | To rename fields, specify the original name as the key and the name to be changed as the value. |
 
 * It is not possible to not specify both `filters` and `fields`
 

@@ -283,6 +283,10 @@ public class AvroSchemaUtil {
     }
 
     public static GenericRecordBuilder toBuilder(final Schema schema, final GenericRecord record) {
+        return toBuilder(schema, record, new HashMap<>());
+    }
+
+    public static GenericRecordBuilder toBuilder(final Schema schema, final GenericRecord record, final Map<String, String> renameFields) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
             final Schema.Field recordField = record.getSchema().getField(field.name());
@@ -325,6 +329,9 @@ public class AvroSchemaUtil {
                         builder.set(field.name(), fieldValue);
                         break;
                 }
+            } else if(renameFields.containsKey(field.name())) {
+                final String oldFieldName = renameFields.get(field.name());
+                builder.set(field, record.get(oldFieldName));
             } else {
                 if(isNullable(field.schema())) {
                     builder.set(field, null);
@@ -351,6 +358,20 @@ public class AvroSchemaUtil {
             schemaFields.name(field.name()).type(field.schema()).noDefault();
         }
         return builder;
+    }
+
+    public static Schema renameFields(final Schema schema, final Map<String, String> renameFields) {
+
+        SchemaBuilder.RecordBuilder<Schema> builder = SchemaBuilder.record(schema.getName());
+        final SchemaBuilder.FieldAssembler<Schema> schemaFields = builder.fields();
+        for(final Schema.Field field : schema.getFields()) {
+            if(renameFields.containsKey(field.name())) {
+                schemaFields.name(renameFields.get(field.name())).type(field.schema()).noDefault();
+            } else {
+                schemaFields.name(field.name()).type(field.schema()).noDefault();
+            }
+        }
+        return schemaFields.endRecord();
     }
 
     public static GenericRecord merge(final Schema schema, final GenericRecord record, final Map<String, ? extends Object> values) {
