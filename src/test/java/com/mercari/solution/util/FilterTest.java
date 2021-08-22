@@ -6,9 +6,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.schema.StructSchemaUtil;
+import org.joda.time.Instant;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.time.LocalDate;
 import java.util.Arrays;
 
 
@@ -130,6 +132,67 @@ public class FilterTest {
         leaf5.setOp(Filter.Op.NOT_EQUAL);
         Assert.assertFalse(Filter.is(null, leaf5));
         Assert.assertTrue(Filter.is("b", leaf5));
+
+        // Date
+        var leaf6 = new Filter.ConditionLeaf();
+        leaf6.setKey("");
+        leaf6.setValue(new Gson().fromJson("2021-08-21", JsonElement.class));
+
+        leaf6.setOp(Filter.Op.EQUAL);
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 21), leaf6));
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 20), leaf6));
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 22), leaf6));
+        leaf6.setOp(Filter.Op.NOT_EQUAL);
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 21), leaf6));
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 20), leaf6));
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 22), leaf6));
+        leaf6.setOp(Filter.Op.GREATER);
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 20), leaf6));
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 21), leaf6));
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 22), leaf6));
+        leaf6.setOp(Filter.Op.GREATER_OR_EQUAL);
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 20), leaf6));
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 21), leaf6));
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 22), leaf6));
+        leaf6.setOp(Filter.Op.LESSER);
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 20), leaf6));
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 21), leaf6));
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 22), leaf6));
+        leaf6.setOp(Filter.Op.LESSER_OR_EQUAL);
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 20), leaf6));
+        Assert.assertTrue(Filter.is(LocalDate.of(2021, 8, 21), leaf6));
+        Assert.assertFalse(Filter.is(LocalDate.of(2021, 8, 22), leaf6));
+
+        // Timestamp
+        var leaf7 = new Filter.ConditionLeaf();
+        leaf7.setKey("");
+        leaf7.setValue(new Gson().fromJson("\"2021-08-21T10:30:45Z\"", JsonElement.class));
+
+        leaf7.setOp(Filter.Op.EQUAL);
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-21T10:30:45Z"), leaf7));
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-20T10:30:45Z"), leaf7));
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-22T10:30:45Z"), leaf7));
+        leaf7.setOp(Filter.Op.NOT_EQUAL);
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-21T10:30:45Z"), leaf7));
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-20T10:30:45Z"), leaf7));
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-22T10:30:45Z"), leaf7));
+        leaf7.setOp(Filter.Op.GREATER);
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-20T10:30:45Z"), leaf7));
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-21T10:30:45Z"), leaf7));
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-22T10:30:45Z"), leaf7));
+        leaf7.setOp(Filter.Op.GREATER_OR_EQUAL);
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-20T10:30:45Z"), leaf7));
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-21T10:30:45Z"), leaf7));
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-22T10:30:45Z"), leaf7));
+        leaf7.setOp(Filter.Op.LESSER);
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-20T10:30:45Z"), leaf7));
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-21T10:30:45Z"), leaf7));
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-22T10:30:45Z"), leaf7));
+        leaf7.setOp(Filter.Op.LESSER_OR_EQUAL);
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-20T10:30:45Z"), leaf7));
+        Assert.assertTrue(Filter.is(Instant.parse("2021-08-21T10:30:45Z"), leaf7));
+        Assert.assertFalse(Filter.is(Instant.parse("2021-08-22T10:30:45Z"), leaf7));
+
     }
 
     @Test

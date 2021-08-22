@@ -20,6 +20,7 @@ Sink module to write the input data to a specified Cloud Datastore kind.
 | keyFields | optional | Array<String\> | Field names as unique keys when saving. Multiple fields may be specified. If not specified, it is automatically assigned by UUID. |
 | keyTemplate | optional | String | Specify the template text when you want to specify the key value by conversion using template engine [FreeMarker](https://freemarker.apache.org/) |
 | delete | optional | Boolean | true if you want to delete it instead of writing it. If true is specified, `keyFields` or `keyTemplate` must be specified. (No need to specify if the schema contains a `__key__` field) |
+| excludeFromIndexFields | optional | Array<String\> | Specify field names for which you do not want to generate indexes |
 
 ### Signatures of build-in utility functions for template engine
 

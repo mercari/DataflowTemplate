@@ -50,16 +50,22 @@ public class RowSchemaUtil {
     }
 
     public static Row.FieldValueBuilder toBuilder(final Schema schema, final Row row) {
+        return toBuilder(schema, row, new HashMap<>());
+    }
+
+    public static Row.FieldValueBuilder toBuilder(final Schema schema, final Row row, final Map<String, String> renameFields) {
         final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
         for(final Schema.Field field : schema.getFields()) {
-            if(row.getSchema().hasField(field.getName())) {
-                if(row.getValue(field.getName()) == null) {
-                    builder.withFieldValue(field.getName(), null);
+            final String getFieldName = renameFields.getOrDefault(field.getName(), field.getName());
+            final String setFieldName = field.getName();
+            if(row.getSchema().hasField(getFieldName)) {
+                if(row.getValue(getFieldName) == null) {
+                    builder.withFieldValue(setFieldName, null);
                     continue;
                 }
-                final Schema.Field rowField = row.getSchema().getField(field.getName());
+                final Schema.Field rowField = row.getSchema().getField(getFieldName);
                 if(!field.getType().getTypeName().equals(rowField.getType().getTypeName())) {
-                    builder.withFieldValue(field.getName(), null);
+                    builder.withFieldValue(setFieldName, null);
                     continue;
                 }
 
@@ -68,30 +74,30 @@ public class RowSchemaUtil {
                     case ARRAY: {
                         if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
                             final List<Row> children = new ArrayList<>();
-                            for(final Row child : row.<Row>getArray(field.getName())) {
+                            for(final Row child : row.<Row>getArray(getFieldName)) {
                                 if(child == null) {
                                     children.add(null);
                                 } else {
                                     children.add(toBuilder(field.getType().getCollectionElementType().getRowSchema(), child).build());
                                 }
                             }
-                            builder.withFieldValue(field.getName(), children);
+                            builder.withFieldValue(setFieldName, children);
                         } else {
-                            builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+                            builder.withFieldValue(setFieldName, row.getValue(getFieldName));
                         }
                         break;
                     }
                     case ROW: {
-                        final Row child = toBuilder(field.getType().getRowSchema(), row.getRow(field.getName())).build();
-                        builder.withFieldValue(field.getName(), child);
+                        final Row child = toBuilder(field.getType().getRowSchema(), row.getRow(getFieldName)).build();
+                        builder.withFieldValue(setFieldName, child);
                         break;
                     }
                     default:
-                        builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+                        builder.withFieldValue(setFieldName, row.getValue(getFieldName));
                         break;
                 }
             } else {
-                builder.withFieldValue(field.getName(), null);
+                builder.withFieldValue(setFieldName, null);
             }
         }
         return builder;

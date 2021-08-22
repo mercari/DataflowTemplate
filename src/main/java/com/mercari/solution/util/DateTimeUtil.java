@@ -180,6 +180,14 @@ public class DateTimeUtil {
         return org.joda.time.Instant.ofEpochMilli(instant.getEpochSecond() * 1000 + instant.getNano() / 1000_000);
     }
 
+    public static org.joda.time.Instant toJodaInstant(final String text) {
+        if(text == null) {
+            return null;
+        }
+        final Instant instant = toInstant(text);
+        return toJodaInstant(instant);
+    }
+
     public static Integer toEpochDay(final Date date) {
         return Long.valueOf(LocalDate.of(date.getYear(), date.getMonth(), date.getDay()).toEpochDay()).intValue();
     }

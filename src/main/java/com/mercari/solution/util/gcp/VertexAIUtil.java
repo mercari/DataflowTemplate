@@ -237,7 +237,11 @@ public class VertexAIUtil {
                 if (!responseJson.has("error")) {
                     throw new RuntimeException("Illegal AutoML response: " + responseJson + ", no error and predictions. request body: " + body);
                 }
-                final JsonObject errorJson = responseJson.getAsJsonObject("error");
+                final JsonElement error = responseJson.get("error");
+                if(!error.isJsonObject()) {
+                    throw new RuntimeException("Illegal error response: " + responseJson);
+                }
+                final JsonObject errorJson = error.getAsJsonObject();
                 if (errorJson.has("code")) {
                     int code = errorJson.getAsJsonPrimitive("code").getAsInt();
                     if (code >= 400 && code < 500) {

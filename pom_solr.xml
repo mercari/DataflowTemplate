@@ -23,6 +23,7 @@
         <hadoop.version>3.3.1</hadoop.version>
         <hbase.version>2.4.5</hbase.version>
         <solr.version>8.9.0</solr.version>
+        <jst.version>1.18.1</jst.version>
         <mysql-connector.version>8.0.22</mysql-connector.version>
         <postgresql-connector.version>42.2.18</postgresql-connector.version>
         <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
@@ -260,6 +261,13 @@
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-analysis-extras</artifactId>
             <version>${solr.version}</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.locationtech.jts/jts-core -->
+        <dependency>
+            <groupId>org.locationtech.jts</groupId>
+            <artifactId>jts-core</artifactId>
+            <version>${jst.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql -->

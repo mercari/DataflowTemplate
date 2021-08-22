@@ -614,6 +614,125 @@ public class StructSchemaUtil {
         return builder;
     }
 
+    public static Struct.Builder toBuilder(final Type type,
+                                           final Struct struct,
+                                           final Map<String, String> renameFields) {
+
+        final Struct.Builder builder = Struct.newBuilder();
+        for(final Type.StructField field : type.getStructFields()) {
+            final String oldFieldName = renameFields.getOrDefault(field.getName(), field.getName());
+            if(!hasField(struct, oldFieldName)) {
+                continue;
+            }
+            final Value value = getStructValue(struct, oldFieldName);
+            if(value != null) {
+                switch (field.getType().getCode()) {
+                    case ARRAY: {
+                        if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
+                            final List<Struct> children = new ArrayList<>();
+                            for(final Struct child : struct.getStructList(oldFieldName)) {
+                                if(child == null) {
+                                    children.add(null);
+                                } else {
+                                    children.add(toBuilder(field.getType().getArrayElementType(), child).build());
+                                }
+                            }
+                            builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), children);
+                        } else {
+                            builder.set(field.getName()).to(value);
+                        }
+                        break;
+                    }
+                    case STRUCT: {
+                        final Struct child = toBuilder(field.getType(), struct.getStruct(oldFieldName)).build();
+                        builder.set(field.getName()).to(child);
+                        break;
+                    }
+                    default:
+                        builder.set(field.getName()).to(value);
+                        break;
+                }
+            } else {
+                switch (field.getType().getCode()) {
+                    case BOOL:
+                        builder.set(field.getName()).to((Boolean)null);
+                        break;
+                    case STRING:
+                        builder.set(field.getName()).to((String)null);
+                        break;
+                    case BYTES:
+                        builder.set(field.getName()).to((ByteArray) null);
+                        break;
+                    case INT64:
+                        builder.set(field.getName()).to((Long)null);
+                        break;
+                    case FLOAT64:
+                        builder.set(field.getName()).to((Double)null);
+                        break;
+                    case NUMERIC:
+                        builder.set(field.getName()).to((BigDecimal) null);
+                        break;
+                    case DATE:
+                        builder.set(field.getName()).to((Date)null);
+                        break;
+                    case TIMESTAMP:
+                        builder.set(field.getName()).to((Timestamp)null);
+                        break;
+                    case STRUCT:
+                        builder.set(field.getName()).to(field.getType(), null);
+                        break;
+                    case ARRAY: {
+                        switch (field.getType().getArrayElementType().getCode()) {
+                            case BOOL:
+                                builder.set(field.getName()).toBoolArray((Iterable<Boolean>)null);
+                                break;
+                            case BYTES:
+                                builder.set(field.getName()).toBytesArray(null);
+                                break;
+                            case STRING:
+                                builder.set(field.getName()).toStringArray(null);
+                                break;
+                            case INT64:
+                                builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
+                                break;
+                            case FLOAT64:
+                                builder.set(field.getName()).toFloat64Array((Iterable<Double>)null);
+                                break;
+                            case NUMERIC:
+                                builder.set(field.getName()).toNumericArray(null);
+                                break;
+                            case DATE:
+                                builder.set(field.getName()).toDateArray(null);
+                                break;
+                            case TIMESTAMP:
+                                builder.set(field.getName()).toTimestampArray(null);
+                                break;
+                            case STRUCT:
+                                builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
+                                break;
+                            case ARRAY:
+                                throw new IllegalStateException();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return builder;
+    }
+
+    public static Type renameFields(final Type type, final Map<String, String> renameFields) {
+        final List<Type.StructField> structFields = new ArrayList<>();
+        for(Type.StructField field : type.getStructFields()) {
+            if (renameFields.containsKey(field.getName())) {
+                structFields.add(Type.StructField.of(renameFields.get(field.getName()), field.getType()));
+            } else {
+                structFields.add(field);
+            }
+        }
+        return Type.struct(structFields);
+    }
+
     public static Type selectFields(Type type, final List<String> fields) {
         final List<Type.StructField> structFields = selectFieldsBuilder(type, fields);
         return Type.struct(structFields);

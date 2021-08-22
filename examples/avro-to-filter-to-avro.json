@@ -15,16 +15,23 @@
       "module": "filter",
       "inputs": ["avroInput"],
       "parameters": {
-        "fields": ["field1", "field2", "nestedField.fieldA", "nestedArrayField.fieldB"],
+        "fields": ["fieldStr", "fieldNum", "fieldTimestamp", "nestedField.fieldA", "nestedArrayField.fieldB"],
         "filters": {
           "or": [
-            { "key": "field1", "op": "=", "value": "B" },
-            { "key": "field2", "op": ">", "value": 100 },
+            { "key": "fieldStr", "op": "=", "value": "B" },
+            { "key": "fieldNum", "op": ">", "value": 100 },
+            { "key": "fieldDate", "op": "=", "value": "2020-01-01" },
+            { "key": "fieldTimestamp", "op": ">=", "value": "2020-01-01T00:00:00Z" },
             { "and": [
               { "key": "field3", "op": "<", "value": 0 },
               { "key": "field4", "op": "in", "value": [1, 2, 3] }
             ]}
           ]
+        },
+        "renameFields": {
+          "fieldStr": "type",
+          "fieldNum": "number",
+          "fieldTimestamp": "createdAt"
         }
       }
     }

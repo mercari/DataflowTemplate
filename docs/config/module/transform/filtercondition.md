@@ -58,4 +58,4 @@ Currently, the following comparison operators are supported
 
 `=`,`!=`,`>`,`>=`,`<`,`<=`,`in`,`not in`
 
-The fields that can be used for comparison must be of type string or numeric.
+The fields that can be used for comparison must be of type string or numeric or date or timestamp.
