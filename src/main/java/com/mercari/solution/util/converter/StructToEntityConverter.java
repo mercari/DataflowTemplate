@@ -9,19 +9,24 @@ import com.google.datastore.v1.Value;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.mercari.solution.util.gcp.DatastoreUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class StructToEntityConverter {
 
-    public static Entity.Builder convertBuilder(final Type type, final Struct struct) {
+    public static Entity.Builder convertBuilder(final Type type, final Struct struct, final List<String> excludeFromIndexFields) {
 
         final Entity.Builder builder = Entity.newBuilder();
         for(Type.StructField field : type.getStructFields()) {
-            builder.putProperties(field.getName(), convertValue(field, struct));
+            if (excludeFromIndexFields.size() == 0) {
+                builder.putProperties(field.getName(), convertValue(field, struct));
+            } else {
+                final boolean excludeFromIndexes = excludeFromIndexFields.contains(field.getName());
+                builder.putProperties(field.getName(), convertValue(field, struct, excludeFromIndexes));
+            }
         }
         return builder;
     }
@@ -57,43 +62,57 @@ public class StructToEntityConverter {
     }
 
     private static Value convertValue(final Type.StructField field, final Struct struct) {
+        return convertValue(field, struct, false);
+    }
+
+    private static Value convertValue(final Type.StructField field, final Struct struct, final boolean excludeFromIndexes) {
         if(struct.isNull(field.getName())) {
             return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
         }
+        final Value.Builder builder;
         switch (field.getType().getCode()) {
             case BOOL:
-                return Value.newBuilder().setBooleanValue(struct.getBoolean(field.getName())).build();
+                builder = Value.newBuilder().setBooleanValue(struct.getBoolean(field.getName()));
+                break;
             case BYTES: {
                 final byte[] bytes = struct.getBytes(field.getName()).toByteArray();
                 if(bytes.length > DatastoreUtil.QUOTE_VALUE_SIZE) {
                     return Value.newBuilder().setBlobValue(ByteString.copyFrom(bytes)).setExcludeFromIndexes(true).build();
-                } else {
-                    return Value.newBuilder().setBlobValue(ByteString.copyFrom(bytes)).build();
                 }
+                builder = Value.newBuilder().setBlobValue(ByteString.copyFrom(bytes));
+                break;
             }
             case STRING: {
                 final String stringValue = struct.getString(field.getName());
                 if(stringValue.getBytes().length > DatastoreUtil.QUOTE_VALUE_SIZE) {
                     return Value.newBuilder().setStringValue(stringValue).setExcludeFromIndexes(true).build();
-                } else {
-                    return Value.newBuilder().setStringValue(stringValue).build();
                 }
+                builder = Value.newBuilder().setStringValue(stringValue);
+                break;
             }
             case INT64:
-                return Value.newBuilder().setIntegerValue(struct.getLong(field.getName())).build();
+                builder = Value.newBuilder().setIntegerValue(struct.getLong(field.getName()));
+                break;
             case FLOAT64:
-                return Value.newBuilder().setDoubleValue(struct.getDouble(field.getName())).build();
+                builder = Value.newBuilder().setDoubleValue(struct.getDouble(field.getName()));
+                break;
             case DATE:
-                return Value.newBuilder().setStringValue(struct.getDate(field.getName()).toString()).build();
+                builder = Value.newBuilder().setStringValue(struct.getDate(field.getName()).toString());
+                break;
             case TIMESTAMP:
-                return Value.newBuilder().setTimestampValue(struct.getTimestamp(field.getName()).toProto()).build();
-            case STRUCT:
+                builder = Value.newBuilder().setTimestampValue(struct.getTimestamp(field.getName()).toProto());
+                break;
+            case STRUCT: {
                 final Struct childStruct = struct.getStruct(field.getName());
-                Entity.Builder builder = Entity.newBuilder();
-                for(Type.StructField childField : field.getType().getStructFields()) {
-                    builder.putProperties(childField.getName(), convertValue(childField, childStruct));
+                Entity.Builder entityBuilder = Entity.newBuilder();
+                for (Type.StructField childField : field.getType().getStructFields()) {
+                    entityBuilder.putProperties(childField.getName(), convertValue(childField, childStruct));
                 }
-                return Value.newBuilder().setEntityValue(builder.build()).setExcludeFromIndexes(true).build();
+                return Value.newBuilder()
+                        .setEntityValue(entityBuilder.build())
+                        .setExcludeFromIndexes(true)
+                        .build();
+            }
             case ARRAY:
                 switch (field.getType().getArrayElementType().getCode()) {
                     case BOOL:
@@ -165,6 +184,11 @@ public class StructToEntityConverter {
             default:
                 return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
         }
+
+        if (excludeFromIndexes) {
+            return builder.setExcludeFromIndexes(true).build();
+        }
+        return builder.build();
     }
 
 }

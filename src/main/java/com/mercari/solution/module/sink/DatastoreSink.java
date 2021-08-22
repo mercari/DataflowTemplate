@@ -48,6 +48,7 @@ public class DatastoreSink implements SinkModule {
         private List<String> keyFields;
         private String keyTemplate;
         private Boolean delete;
+        private List<String> excludeFromIndexFields;
 
         private String separator;
 
@@ -89,6 +90,14 @@ public class DatastoreSink implements SinkModule {
 
         public void setDelete(Boolean delete) {
             this.delete = delete;
+        }
+
+        public List<String> getExcludeFromIndexFields() {
+            return excludeFromIndexFields;
+        }
+
+        public void setExcludeFromIndexFields(List<String> excludeFromIndexFields) {
+            this.excludeFromIndexFields = excludeFromIndexFields;
         }
 
         public String getSeparator() {
@@ -171,7 +180,7 @@ public class DatastoreSink implements SinkModule {
                         s -> s,
                         EntitySchemaUtil::getAsString,
                         EntityToMapConverter::convert,
-                        (s, e) -> e.toBuilder(),
+                        EntitySchemaUtil::convertBuilder,
                         waitCollections);
                 output = inputCollection.getCollection().apply(config.getName(), write);
                 break;
@@ -192,6 +201,9 @@ public class DatastoreSink implements SinkModule {
         }
         if(parameters.getDelete() == null) {
             parameters.setDelete(false);
+        }
+        if(parameters.getExcludeFromIndexFields() == null) {
+            parameters.setExcludeFromIndexFields(new ArrayList<>());
         }
         if(parameters.getSeparator() == null) {
             parameters.setSeparator("#");
@@ -234,7 +246,8 @@ public class DatastoreSink implements SinkModule {
             final PCollection<Entity> entities;
             entities = input.apply("ToEntity", ParDo.of(new EntityDoFn<>(
                     inputSchema,
-                    parameters.getKind(), parameters.getKeyFields(), parameters.getKeyTemplate(), parameters.getSeparator(),
+                    parameters.getKind(), parameters.getKeyFields(), parameters.getKeyTemplate(),
+                    parameters.getExcludeFromIndexFields(), parameters.getSeparator(),
                     schemaConverter, stringGetter, mapConverter, entityConverter)));
 
             if(parameters.getDelete()) {
@@ -278,6 +291,7 @@ public class DatastoreSink implements SinkModule {
         private final String kind;
         private final List<String> keyFields;
         private final String keyTemplate;
+        private final List<String> excludeFromIndexFields;
 
         private final String separator;
 
@@ -293,6 +307,7 @@ public class DatastoreSink implements SinkModule {
                           final String kind,
                           final List<String> keyFields,
                           final String keyTemplate,
+                          final List<String> excludeFromIndexFields,
                           final String separator,
                           final SchemaConverter<InputSchema,RuntimeSchema> schemaConverter,
                           final StringGetter<T> stringGetter,
@@ -303,6 +318,7 @@ public class DatastoreSink implements SinkModule {
             this.kind = kind;
             this.keyFields = keyFields;
             this.keyTemplate = keyTemplate;
+            this.excludeFromIndexFields = excludeFromIndexFields;
             this.separator = separator;
             this.schemaConverter = schemaConverter;
             this.stringGetter = stringGetter;
@@ -323,7 +339,7 @@ public class DatastoreSink implements SinkModule {
         @ProcessElement
         public void processElement(ProcessContext c) {
             final T element = c.element();
-            final Entity.Builder builder = entityConverter.convert(schema, element);
+            final Entity.Builder builder = entityConverter.convert(schema, element, excludeFromIndexFields);
 
             // Generate key
             final com.google.datastore.v1.Key key;
@@ -401,7 +417,7 @@ public class DatastoreSink implements SinkModule {
     }
 
     private interface EntityConverter<InputT, RuntimeSchemaT> extends Serializable {
-        Entity.Builder convert(RuntimeSchemaT schema, InputT element);
+        Entity.Builder convert(RuntimeSchemaT schema, InputT element, List<String> excludeFromIndexFields);
     }
 
     private interface MapConverter<T> extends Serializable {
