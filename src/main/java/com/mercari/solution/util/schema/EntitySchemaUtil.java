@@ -419,10 +419,11 @@ public class EntitySchemaUtil {
     }
 
     public static Entity.Builder convertBuilder(final Schema schema, final Entity entity, final List<String> excludeFromIndexFields) {
-        final Entity.Builder builder = Entity.newBuilder();
-        if (excludeFromIndexFields.size() == 0) {
-            return builder;
+        if (excludeFromIndexFields == null || excludeFromIndexFields.size() == 0) {
+            return entity.toBuilder();
         }
+        final Entity.Builder builder = Entity.newBuilder();
+        builder.setKey(entity.getKey());
         for(Schema.Field field : schema.getFields()) {
             final Value value = entity.getPropertiesOrDefault(field.getName(),
                     Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
