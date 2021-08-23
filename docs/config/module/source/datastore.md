@@ -19,6 +19,7 @@ Source Module for loading data by specifying a gql into Cloud Datastore.
 | gql | required | String | Query in GQL format to read data from Datastore. See [doc](https://cloud.google.com/datastore/docs/reference/gql_reference) for the formatting. |
 | namespace | optional | String | Specify the namespace if you want to load |
 | kind | optional | String | When you specify the kind name you want to read, it will estimate the kind's schema on a best-effort basis using [Datastore Stats](https://cloud.google.com/datastore/docs/concepts/stats). |
+| withKey | optional | Boolean | Specify true if you want to read the Entity's Key as a `__key__` field. (Note that because `__key__` is a nested field, it cannot be used in sink module that do not support nested types.) |
 
 ## Related example config files
 

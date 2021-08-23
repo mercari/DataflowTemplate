@@ -7,7 +7,9 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
+import com.mercari.solution.util.converter.EntityToRowConverter;
 import com.mercari.solution.util.gcp.DatastoreUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.gcp.datastore.DatastoreIO;
 import org.apache.beam.sdk.io.gcp.datastore.DatastoreV1;
@@ -18,11 +20,9 @@ import org.apache.beam.sdk.values.PCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class DatastoreSource implements SourceModule {
 
@@ -35,6 +35,7 @@ public class DatastoreSource implements SourceModule {
         private String kind;
         private String namespace;
         private Integer numQuerySplits;
+        private Boolean withKey;
         private Boolean emulator;
 
         public String getProjectId() {
@@ -77,6 +78,14 @@ public class DatastoreSource implements SourceModule {
             this.numQuerySplits = numQuerySplits;
         }
 
+        public Boolean getWithKey() {
+            return withKey;
+        }
+
+        public void setWithKey(Boolean withKey) {
+            this.withKey = withKey;
+        }
+
         public Boolean getEmulator() {
             return emulator;
         }
@@ -98,24 +107,63 @@ public class DatastoreSource implements SourceModule {
     }
 
     public static FCollection<Entity> batch(final PBegin begin, final SourceConfig config) {
-        final DatastoreBatchSource source = new DatastoreBatchSource(config);
+
+        final DatastoreSourceParameters parameters = new Gson().fromJson(config.getParameters(), DatastoreSourceParameters.class);
+        validateParameters(parameters);
+        setDefaultParameters(parameters);
+
+        final DatastoreBatchSource source = new DatastoreBatchSource(config, parameters);
         final PCollection<Entity> output = begin.apply(config.getName(), source);
         final Schema schema;
         if(config.getSchema() != null) {
-            schema = SourceConfig.convertSchema(config.getSchema());
+            final Schema configSchema = SourceConfig.convertSchema(config.getSchema());
+            if(parameters.getWithKey()) {
+                schema = EntityToRowConverter.addKeyToSchema(configSchema);
+            } else {
+                schema = configSchema;
+            }
         } else {
-            final DatastoreSourceParameters parameters = new Gson().fromJson(config.getParameters(), DatastoreSourceParameters.class);
             if(parameters.getKind() == null) {
                 throw new IllegalArgumentException("Datastore auto schema detection requires kind parameter!");
             }
-            schema = DatastoreUtil.getSchema(
+            final Schema kindSchema = DatastoreUtil.getSchema(
                     begin.getPipeline().getOptions(),
                     parameters.getProjectId(),
                     parameters.getKind());
+            if (parameters.getWithKey()) {
+                schema = kindSchema;
+            } else {
+                if(kindSchema.getField("__key__") != null) {
+                    schema = RowSchemaUtil.removeFields(kindSchema, Arrays.asList("__key__"));
+                } else {
+                    schema = kindSchema;
+                }
+            }
         }
         return FCollection.of(config.getName(), output, DataType.ENTITY, schema);
     }
 
+    private static void validateParameters(final DatastoreSourceParameters parameters) {
+        if(parameters == null) {
+            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+        }
+
+        // check required parameters filled
+        final List<String> errorMessages = new ArrayList<>();
+        if(parameters.getGql() == null) {
+            errorMessages.add("Parameter must contain gql");
+        }
+
+        if(errorMessages.size() > 0) {
+            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+        }
+    }
+
+    private static void setDefaultParameters(final DatastoreSourceParameters parameters) {
+        if (parameters.getWithKey() == null) {
+            parameters.setWithKey(false);
+        }
+    }
 
     public static class DatastoreBatchSource extends PTransform<PBegin, PCollection<Entity>> {
 
@@ -123,21 +171,14 @@ public class DatastoreSource implements SourceModule {
         private final String timestampAttribute;
         private final String timestampDefault;
 
-        public DatastoreSourceParameters getParameters() {
-            return parameters;
-        }
-
-        private DatastoreBatchSource(final SourceConfig config) {
+        private DatastoreBatchSource(final SourceConfig config, final DatastoreSourceParameters parameters) {
             this.timestampAttribute = config.getTimestampAttribute();
             this.timestampDefault = config.getTimestampDefault();
-            this.parameters = new Gson().fromJson(config.getParameters(), DatastoreSourceParameters.class);
+            this.parameters = parameters;
         }
 
         @Override
         public PCollection<Entity> expand(final PBegin begin) {
-
-            validateParameters(parameters);
-            setDefaultParameters(parameters);
 
             final String execEnvProject = begin.getPipeline().getOptions().as(GcpOptions.class).getProject();
 
@@ -161,26 +202,6 @@ public class DatastoreSource implements SourceModule {
                 return entities.apply("WithTimestamp", DataTypeTransform
                         .withTimestamp(DataType.ENTITY, timestampAttribute, timestampDefault));
             }
-        }
-
-        private void validateParameters(final DatastoreSourceParameters parameters) {
-            if(parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-            }
-
-            // check required parameters filled
-            final List<String> errorMessages = new ArrayList<>();
-            if(parameters.getGql() == null) {
-                errorMessages.add("Parameter must contain gql");
-            }
-
-            if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-            }
-        }
-
-        private void setDefaultParameters(final DatastoreSourceParameters parameters) {
-
         }
 
     }
