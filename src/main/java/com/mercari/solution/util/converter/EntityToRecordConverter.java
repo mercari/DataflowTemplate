@@ -87,12 +87,14 @@ public class EntityToRecordConverter {
 
     private static GenericRecord convert(final Schema schema, final Entity entity, final int depth) {
         if(schema == null) {
-            throw new RuntimeException("schema must not be null! " + entity.getKey().toString());
+            throw new RuntimeException("schema must not be null! " + entity.getKey());
         }
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         if(depth == 0) {
             try {
-                builder.set("__key__", convertKeyRecord(entity.getKey()));
+                if (schema.getField("__key__") != null) {
+                    builder.set("__key__", convertKeyRecord(entity.getKey()));
+                }
             } catch (NullPointerException e) {
                 throw new RuntimeException(convertKeyRecord(entity.getKey()).toString(), e);
             }

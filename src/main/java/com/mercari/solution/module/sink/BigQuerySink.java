@@ -296,13 +296,19 @@ public class BigQuerySink implements SinkModule {
                 return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
             }
             case ENTITY: {
+                final SerializableFunction<Entity, TableRow> convertTableRowFunction;
+                if (collection.getSchema().hasField("__key__")) {
+                    convertTableRowFunction = EntityToTableRowConverter::convertWithKey;
+                } else {
+                    convertTableRowFunction = EntityToTableRowConverter::convertWithoutKey;
+                }
                 final BigQueryWrite<Entity> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
                         EntityToRecordConverter::convert,
                         EntityToRowConverter::convert,
-                        EntityToTableRowConverter::convert,
+                        convertTableRowFunction,
                         s -> OptionUtil.ifnull(EntitySchemaUtil.getAsString(s.getPropertiesOrDefault(destinationField, null)), ""),
                         waitCollections);
                 final PCollection<Entity> input = (PCollection<Entity>) collection.getCollection();

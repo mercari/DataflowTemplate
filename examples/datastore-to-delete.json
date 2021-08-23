@@ -6,7 +6,8 @@
       "parameters": {
         "projectId": "myproject",
         "kind": "MyKind",
-        "gql": "SELECT __key__ FROM MyKind"
+        "gql": "SELECT __key__ FROM MyKind",
+        "withKey": true
       }
     }
   ],

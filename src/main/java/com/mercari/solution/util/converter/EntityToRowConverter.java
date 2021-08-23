@@ -8,17 +8,24 @@ import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.stream.Collectors;
+
 
 public class EntityToRowConverter {
 
+    private static final Schema KEY_SCHEMA = Schema.builder()
+            .addField("namespace", Schema.FieldType.STRING.withNullable(false))
+            .addField("app", Schema.FieldType.STRING.withNullable(false))
+            .addField("path", Schema.FieldType.STRING.withNullable(false))
+            .addField("kind", Schema.FieldType.STRING.withNullable(false))
+            .addField("name", Schema.FieldType.STRING.withNullable(true))
+            .addField("id", Schema.FieldType.INT64.withNullable(true))
+            .build();
 
     public static Schema addKeyToSchema(final Schema schema) {
-        List<Schema.Field> fields = new ArrayList<>();
-        fields.add(Schema.Field.of("__key__", Schema.FieldType.STRING));
-        return RowSchemaUtil.addSchema(schema, fields);
+        return RowSchemaUtil.toBuilder(schema)
+                .addField("__key__", Schema.FieldType.row(KEY_SCHEMA).withNullable(true))
+                .build();
     }
 
     public static Row convert(final Schema schema, final Entity entity) {
@@ -27,7 +34,7 @@ public class EntityToRowConverter {
 
     private static Row convert(final Schema schema, final Entity entity, final int depth) {
         if(schema == null) {
-            throw new RuntimeException("schema must not be null! " + entity.getKey().toString());
+            throw new RuntimeException("schema must not be null! " + entity.getKey());
         }
         final Row.Builder builder = Row.withSchema(schema);
         if(depth == 0) {
