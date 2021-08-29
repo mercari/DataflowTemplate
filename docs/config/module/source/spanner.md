@@ -23,6 +23,7 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | table | selective required | String | Specify the table name to read data from Spanner. Not necessary if query is specified. |
 | fields | optional | Array<String\> | Specify the name of the field you want to read from the table. The default is all fields. |
 | timestampBound | optional | String | Specify when you want to read the data at the specified time. Format: `yyyy-MM-ddTHH:mm:SSZ` |
+| priority | optional | String | Specify either `HIGH`, `MEDIUM`, or `LOW` as the query [priority](https://cloud.google.com/spanner/docs/cpu-utilization) to Spanner. The default is `MEDIUM`. |
 
 ### Spanner source module parameters for microbatch mode
 

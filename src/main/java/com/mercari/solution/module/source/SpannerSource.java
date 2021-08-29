@@ -39,6 +39,7 @@ public class SpannerSource implements SourceModule {
         private String instanceId;
         private String databaseId;
         private String query;
+        private Options.RpcPriority priority;
         private Boolean emulator;
 
         // for batch
@@ -120,6 +121,14 @@ public class SpannerSource implements SourceModule {
 
         public void setTimestampBound(String timestampBound) {
             this.timestampBound = timestampBound;
+        }
+
+        public Options.RpcPriority getPriority() {
+            return priority;
+        }
+
+        public void setPriority(Options.RpcPriority priority) {
+            this.priority = priority;
         }
 
         public Boolean getEmulator() {
@@ -295,11 +304,13 @@ public class SpannerSource implements SourceModule {
                     query = parameters.getQuery();
                 }
 
-                this.type =  SpannerUtil.getTypeFromQuery(projectId, instanceId, databaseId, query, parameters.getEmulator());
+                this.type = SpannerUtil.getTypeFromQuery(projectId, instanceId, databaseId, query, parameters.getEmulator());
                 final PCollectionTuple results = begin
                         .apply("SupplyQuery", Create.of(query))
                         .apply("SplitQuery", FlatMapElements.into(TypeDescriptors.strings()).via(s -> Arrays.asList(s.split(SQL_SPLITTER))))
-                        .apply("ExecuteQuery", ParDo.of(new QueryPartitionSpannerDoFn(projectId, instanceId, databaseId, timestampBound, parameters.getEmulator(), transactionView))
+                        .apply("ExecuteQuery", ParDo.of(new QueryPartitionSpannerDoFn(
+                                    projectId, instanceId, databaseId, timestampBound,
+                                    parameters.getPriority(), parameters.getEmulator(), transactionView))
                                 .withSideInput("transactionView", transactionView)
                                 .withOutputTags(tagOutputPartition, TupleTagList.of(tagOutputStruct)));
 
@@ -346,7 +357,7 @@ public class SpannerSource implements SourceModule {
                         if(keyRangeParameter.getStartType() == null) {
                             startType = KeyRange.Endpoint.CLOSED;
                         } else {
-                            startType = "open".equals(keyRangeParameter.getStartType().toLowerCase()) ?
+                            startType = "open".equalsIgnoreCase(keyRangeParameter.getStartType()) ?
                                     KeyRange.Endpoint.OPEN : KeyRange.Endpoint.CLOSED;
                         }
 
@@ -354,7 +365,7 @@ public class SpannerSource implements SourceModule {
                         if(keyRangeParameter.getEndType() == null) {
                             endType = KeyRange.Endpoint.CLOSED;
                         } else {
-                            endType = "open".equals(keyRangeParameter.getEndType().toLowerCase()) ?
+                            endType = "open".equalsIgnoreCase(keyRangeParameter.getEndType()) ?
                                     KeyRange.Endpoint.OPEN : KeyRange.Endpoint.CLOSED;
                         }
                         final Key start = createRangeKey(keyFields, keyRangeParameter.getStartKeys());
@@ -419,7 +430,10 @@ public class SpannerSource implements SourceModule {
         }
 
         private void setDefaultParameters() {
-            if(parameters.getEmulator() == null) {
+            if (parameters.getPriority() == null) {
+                parameters.setPriority(Options.RpcPriority.MEDIUM);
+            }
+            if (parameters.getEmulator() == null) {
                 parameters.setEmulator(false);
             }
         }
@@ -477,6 +491,7 @@ public class SpannerSource implements SourceModule {
             private final String instanceId;
             private final String databaseId;
             private final String timestampBound;
+            private final Options.RpcPriority priority;
             private final Boolean emulator;
             private final PCollectionView<Transaction> transactionView;
 
@@ -485,12 +500,14 @@ public class SpannerSource implements SourceModule {
                     final String instanceId,
                     final String databaseId,
                     final String timestampBound,
+                    final Options.RpcPriority priority,
                     final Boolean emulator,
                     final PCollectionView<Transaction> transactionView) {
                 this.projectId = projectId;
                 this.instanceId = instanceId;
                 this.databaseId = databaseId;
                 this.timestampBound = timestampBound;
+                this.priority = priority;
                 this.emulator = emulator;
                 this.transactionView = transactionView;
             }
@@ -517,7 +534,8 @@ public class SpannerSource implements SourceModule {
                             //.setPartitionSizeBytes(100000000) // Note: this hint is currently ignored in v1.
                             .build();
                     try {
-                        final List<Partition> partitions = transaction.partitionQuery(options, statement);
+                        final List<Partition> partitions = transaction
+                                .partitionQuery(options, statement, Options.priority(priority));
                         LOG.info(String.format("Query [%s] divided to [%d] partitions.", query, partitions.size()));
                         for (int i = 0; i < partitions.size(); ++i) {
                             final KV<BatchTransactionId, Partition> value = KV.of(transaction.getBatchTransactionId(), partitions.get(i));
@@ -530,7 +548,7 @@ public class SpannerSource implements SourceModule {
                             throw e;
                         }
                         LOG.warn(String.format("Query [%s] could not be executed. Retrying as single query.", query));
-                        try (final ResultSet resultSet = transaction.executeQuery(statement)) {
+                        try (final ResultSet resultSet = transaction.executeQuery(statement, Options.priority(priority))) {
                             int count = 0;
                             while (resultSet.next()) {
                                 c.output(tagOutputStruct, resultSet.getCurrentRowAsStruct());
