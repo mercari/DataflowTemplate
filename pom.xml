@@ -12,7 +12,7 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.31.0</beam.version>
+    <beam.version>2.32.0</beam.version>
 
     <joda.version>2.10.3</joda.version>
     <freemarker.version>2.3.30</freemarker.version>
