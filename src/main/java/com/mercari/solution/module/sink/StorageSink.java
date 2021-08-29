@@ -432,6 +432,7 @@ public class StorageSink implements SinkModule {
 
             FileIO.Write<String, InputT> write;
             final String suffix = parameters.getSuffix();
+            final String prefix = parameters.getPrefix() == null ? "" : parameters.getPrefix();
             if(parameters.getDynamicSplitField() != null) {
                 write = FileIO.<String, InputT>writeDynamic()
                         .to(output)
@@ -441,7 +442,7 @@ public class StorageSink implements SinkModule {
                 final String outdir = parameters.getWithoutSharding() ? StorageUtil.removeDirSuffix(output) : output;
                 write = FileIO.<String, InputT>writeDynamic()
                         .to(outdir)
-                        .by(d -> "")
+                        .by(d -> prefix)
                         .withDestinationCoder(StringUtf8Coder.of());
             }
 
@@ -453,7 +454,7 @@ public class StorageSink implements SinkModule {
                 if(parameters.getDynamicSplitField() != null) {
                     write = write
                             .withNaming(key -> FixedFileNaming.of(
-                                    StorageUtil.addFilePrefix(output, (String)key), suffix,
+                                    StorageUtil.addFilePrefix(output, key), suffix,
                                     datetimeFormat, datetimeFormatZone, useOnlyEndDatetime));
                 } else {
                     write = write
@@ -463,7 +464,7 @@ public class StorageSink implements SinkModule {
                 }
             } else {
                 write = write.withNaming(key -> FileIO.Write.defaultNaming(
-                        StorageUtil.addFilePrefix(output, (String)key),
+                        StorageUtil.addFilePrefix(output, key),
                         suffix));
             }
 
@@ -472,9 +473,6 @@ public class StorageSink implements SinkModule {
             }
             if(parameters.getNumShards() != null) {
                 write = write.withNumShards(parameters.getNumShards());
-            }
-            if(parameters.getPrefix() != null) {
-                write = write.withPrefix(parameters.getPrefix());
             }
             if(parameters.getCompression() != null) {
                 final Compression c;
