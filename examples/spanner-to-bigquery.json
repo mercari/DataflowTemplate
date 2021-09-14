@@ -25,7 +25,7 @@
       "module": "bigquery",
       "input": "spanner",
       "parameters": {
-        "table": "myproject.mydataset.mytable",
+        "table": "myproject:mydataset.mytable",
         "createDisposition": "CREATE_IF_NEEDED",
         "writeDisposition": "WRITE_TRUNCATE"
       }
