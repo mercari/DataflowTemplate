@@ -9,6 +9,8 @@ import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.apache.solr.common.SolrInputDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import java.nio.ByteBuffer;
@@ -21,6 +23,8 @@ import java.util.List;
 import java.util.Objects;
 
 public class RecordToSolrDocumentConverter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RecordToSolrDocumentConverter.class);
 
     public static SolrInputDocument convert(final GenericRecord record, final List<String> fieldNames) {
         return convert(record.getSchema(), record, fieldNames);
@@ -41,9 +45,6 @@ public class RecordToSolrDocumentConverter {
     public static SolrInputDocument convert(final Schema schema, final GenericRecord record, final String parentName, final List<String> fieldNames) {
         final SolrInputDocument doc = new SolrInputDocument();
         for(final Schema.Field field : schema.getFields()) {
-            if(fieldNames != null && !fieldNames.contains(field.name())) {
-                continue;
-            }
             setFieldValue(doc, parentName, field.name(), field.schema(), record, fieldNames);
         }
         return doc;
@@ -69,20 +70,25 @@ public class RecordToSolrDocumentConverter {
     }
 
     private static void setFieldValue(final SolrInputDocument doc,
-                                      final String parentName, final String fieldName,
-                                      final Schema schema, final GenericRecord record,
+                                      final String parentName,
+                                      final String fieldName,
+                                      final Schema schema,
+                                      final GenericRecord record,
                                       final List<String> fieldNames) {
 
         final boolean isNullField = record.get(fieldName) == null;
         final Object value = record.get(fieldName);
         final String name = parentName == null ? fieldName : parentName + "." + fieldName;
+
+        if(fieldNames != null && !fieldNames.contains(name)) {
+            return;
+        }
+
         switch (schema.getType()) {
             case BOOLEAN:
                 doc.addField(name, isNullField ? false : (Boolean)value);
                 return;
             case ENUM:
-                doc.addField(name, isNullField ? "" : value.toString());
-                return;
             case STRING:
                 doc.addField(name, isNullField ? "" : value.toString());
                 return;
@@ -142,10 +148,10 @@ public class RecordToSolrDocumentConverter {
                 }
                 return;
             case ARRAY:
-                setArrayFieldValue(doc, parentName, name, schema.getElementType(), record, fieldNames);
+                setArrayFieldValue(doc, parentName, fieldName, AvroSchemaUtil.unnestUnion(schema.getElementType()), record, fieldNames);
                 return;
             case UNION:
-                setFieldValue(doc, parentName, name, AvroSchemaUtil.unnestUnion(schema), record, fieldNames);
+                setFieldValue(doc, parentName, fieldName, AvroSchemaUtil.unnestUnion(schema), record, fieldNames);
                 return;
             default:
                 return;
@@ -153,8 +159,10 @@ public class RecordToSolrDocumentConverter {
     }
 
     private static void setArrayFieldValue(final SolrInputDocument doc,
-                                           final String parentName, final String fieldName,
-                                           final Schema schema, final GenericRecord record,
+                                           final String parentName,
+                                           final String fieldName,
+                                           final Schema schema,
+                                           final GenericRecord record,
                                            final List<String> fieldNames) {
 
         if(record.get(fieldName) == null) {
@@ -162,6 +170,10 @@ public class RecordToSolrDocumentConverter {
         }
         final Object value = record.get(fieldName);
         final String name = parentName == null ? fieldName : parentName + "." + fieldName;
+        if(fieldNames != null && !fieldNames.contains(name)) {
+            return;
+        }
+
         switch (schema.getType()) {
             case BOOLEAN:
                 ((List<Boolean>)value).stream()
@@ -169,27 +181,22 @@ public class RecordToSolrDocumentConverter {
                         .forEach(b -> doc.addField(name, b));
                 return;
             case ENUM:
+            case STRING:
                 ((List<Object>)value).stream()
                         .filter(Objects::nonNull)
-                        .map(o -> o.toString())
-                        .forEach(s -> doc.addField(name, s));
-                return;
-            case STRING:
-                ((List<Object>) value).stream()
-                        .filter(Objects::nonNull)
-                        .map(utf8 -> utf8.toString())
+                        .map(Object::toString)
                         .forEach(s -> doc.addField(name, s));
                 return;
             case FIXED:
                 ((List<GenericData.Fixed>)value).stream()
                         .filter(Objects::nonNull)
-                        .map(bytes -> bytes.bytes())
+                        .map(GenericData.Fixed::bytes)
                         .forEach(s -> doc.addField(name, s));
                 return;
             case BYTES:
                 ((List<ByteBuffer>) value).stream()
                         .filter(Objects::nonNull)
-                        .map(bytes -> bytes.array())
+                        .map(ByteBuffer::array)
                         .forEach(b -> doc.addField(name, b));
                 return;
             case INT:
@@ -205,7 +212,7 @@ public class RecordToSolrDocumentConverter {
                 } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     ((List<Integer>) value).stream()
                             .filter(Objects::nonNull)
-                            .map(second -> new Long(second) * 1000 * 1000)
+                            .map(second -> Long.valueOf(second) * 1000 * 1000)
                             .map(ms -> LocalTime.ofNanoOfDay(ms).format(DateTimeFormatter.ISO_LOCAL_TIME))
                             .forEach(s -> doc.addField(name, s));
                     return;
@@ -246,7 +253,8 @@ public class RecordToSolrDocumentConverter {
             case RECORD:
                 ((List<GenericRecord>) value).stream()
                         .filter(Objects::nonNull)
-                        .forEach(r -> doc.addChildDocument(convert(schema, r, name, fieldNames)));
+                        .forEach(r -> doc.addChildDocument(convert(schema, r, fieldName, fieldNames)));
+                //LOG.info("doc: " + doc);
                 return;
             case UNION:
                 setArrayFieldValue(doc, parentName, fieldName, AvroSchemaUtil.unnestUnion(schema), record, fieldNames);

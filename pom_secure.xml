@@ -6,7 +6,7 @@
 
     <groupId>com.mercari</groupId>
     <artifactId>solution</artifactId>
-    <version>0.1</version>
+    <version>0.3.0</version>
     <name>Mercari Dataflow Template</name>
 
     <packaging>jar</packaging>
@@ -23,7 +23,7 @@
         <hadoop.version>3.3.1</hadoop.version>
         <hbase.version>2.4.5</hbase.version>
         <solr.version>8.9.0</solr.version>
-        <jst.version>1.18.1</jst.version>
+        <pdfbox.version>2.0.24</pdfbox.version>
         <mysql-connector.version>8.0.22</mysql-connector.version>
         <postgresql-connector.version>42.2.18</postgresql-connector.version>
         <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
@@ -34,7 +34,7 @@
         <maven-jar-plugin.version>3.0.2</maven-jar-plugin.version>
         <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
         <mockito.version>3.0.0</mockito.version>
-        <slf4j.version>1.7.25</slf4j.version>
+        <slf4j.version>1.7.32</slf4j.version>
         <log4j.version>2.14.1</log4j.version>
         <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
     </properties>
@@ -254,6 +254,28 @@
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-langid</artifactId>
             <version>${solr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.calcite</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.pdfbox</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.zookeeper</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-analysis-extras -->
@@ -261,13 +283,31 @@
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-analysis-extras</artifactId>
             <version>${solr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.calcite</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.zookeeper</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.locationtech.jts/jts-core -->
+        <!-- https://mvnrepository.com/artifact/org.apache.pdfbox/pdfbox -->
         <dependency>
-            <groupId>org.locationtech.jts</groupId>
-            <artifactId>jts-core</artifactId>
-            <version>${jst.version}</version>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql -->
@@ -275,6 +315,12 @@
             <groupId>org.apache.beam</groupId>
             <artifactId>beam-sdks-java-extensions-sql</artifactId>
             <version>${beam.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql-zetasql -->
