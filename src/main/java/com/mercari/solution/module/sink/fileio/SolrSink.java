@@ -134,7 +134,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         this.count += 1;
         if (this.count % 10000 == 0) {
             this.writer.flush();
-            LOG.info("Commit documents: %d", this.count);
+            LOG.info(String.format("Commit documents: %d", this.count));
         }
     }
 
@@ -164,7 +164,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         }
         zos.putNextEntry(new ZipEntry(file.getAbsolutePath().replaceFirst("/solr/", "")));
         try (final InputStream is = new BufferedInputStream(new FileInputStream(file))) {
-            LOG.warn(file.getAbsolutePath() + " ");
+            LOG.info(file.getAbsolutePath() + " ");
             int len;
             byte[] buf = new byte[1024 * 1024];
             while ((len = is.read(buf)) != -1) {

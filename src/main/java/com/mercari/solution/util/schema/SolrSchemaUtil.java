@@ -78,10 +78,6 @@ public class SolrSchemaUtil {
             root.appendChild(types);
         }
 
-        if(jsonObject.has("copyFields")) {
-
-        }
-
         return document;
     }
 
@@ -241,6 +237,20 @@ public class SolrSchemaUtil {
                     continue;
                 }
                 fieldNames.add(node.getAttributes().getNamedItem("name").getNodeValue());
+
+                if (node.hasChildNodes()) {
+                    final NodeList cfs = node.getChildNodes();
+                    for (int j=0; j<cfs.getLength(); j++) {
+                        final Node childNode = cfs.item(j);
+                        if(!"field".equals(childNode.getNodeName())) {
+                            continue;
+                        }
+                        if(childNode.getAttributes().getNamedItem("name") == null) {
+                            continue;
+                        }
+                        fieldNames.add(childNode.getAttributes().getNamedItem("name").getNodeValue());
+                    }
+                }
             }
             return fieldNames;
         } catch (Exception e) {
