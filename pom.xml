@@ -258,6 +258,10 @@
           <groupId>org.apache.calcite</groupId>
           <artifactId>*</artifactId>
         </exclusion>
+        <exclusion>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
       </exclusions>
     </dependency>
 
@@ -269,6 +273,10 @@
       <exclusions>
         <exclusion>
           <groupId>org.apache.calcite</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.logging.log4j</groupId>
           <artifactId>*</artifactId>
         </exclusion>
       </exclusions>
