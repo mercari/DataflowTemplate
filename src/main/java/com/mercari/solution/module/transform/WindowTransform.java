@@ -13,6 +13,8 @@ import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,8 @@ public class WindowTransform implements TransformModule {
         private Integer startingYear;
         private Integer startingMonth;
         private Integer startingDay;
+
+        private TriggerParameter trigger;
 
         private Boolean discardingFiredPanes;
 
@@ -129,6 +133,14 @@ public class WindowTransform implements TransformModule {
             this.startingDay = startingDay;
         }
 
+        public TriggerParameter getTrigger() {
+            return trigger;
+        }
+
+        public void setTrigger(TriggerParameter trigger) {
+            this.trigger = trigger;
+        }
+
         public Boolean getDiscardingFiredPanes() {
             return discardingFiredPanes;
         }
@@ -145,6 +157,103 @@ public class WindowTransform implements TransformModule {
             this.timestampCombiner = timestampCombiner;
         }
 
+    }
+
+    private class TriggerParameter implements Serializable {
+
+        private TriggerType type;
+
+        // for watermark
+        private TriggerParameter earlyFiringTrigger;
+        private TriggerParameter lateFiringTrigger;
+
+        // for composite triggers
+        private List<TriggerParameter> childrenTriggers;
+
+        // for repeatedly
+        private TriggerParameter foreverTrigger;
+
+        // for afterProcessingTime
+        private Long pastFirstElementDelay;
+        private Unit pastFirstElementDelayUnit;
+
+        // for afterPane
+        private Integer elementCountAtLeast;
+
+        // final trigger
+        private TriggerParameter finalTrigger;
+
+        public TriggerType getType() {
+            return type;
+        }
+
+        public void setType(TriggerType type) {
+            this.type = type;
+        }
+
+        public TriggerParameter getEarlyFiringTrigger() {
+            return earlyFiringTrigger;
+        }
+
+        public void setEarlyFiringTrigger(TriggerParameter earlyFiringTrigger) {
+            this.earlyFiringTrigger = earlyFiringTrigger;
+        }
+
+        public TriggerParameter getLateFiringTrigger() {
+            return lateFiringTrigger;
+        }
+
+        public void setLateFiringTrigger(TriggerParameter lateFiringTrigger) {
+            this.lateFiringTrigger = lateFiringTrigger;
+        }
+
+        public List<TriggerParameter> getChildrenTriggers() {
+            return childrenTriggers;
+        }
+
+        public void setChildrenTriggers(List<TriggerParameter> childrenTriggers) {
+            this.childrenTriggers = childrenTriggers;
+        }
+
+        public TriggerParameter getForeverTrigger() {
+            return foreverTrigger;
+        }
+
+        public void setForeverTrigger(TriggerParameter foreverTrigger) {
+            this.foreverTrigger = foreverTrigger;
+        }
+
+        public TriggerParameter getFinalTrigger() {
+            return finalTrigger;
+        }
+
+        public void setFinalTrigger(TriggerParameter finalTrigger) {
+            this.finalTrigger = finalTrigger;
+        }
+
+        public Long getPastFirstElementDelay() {
+            return pastFirstElementDelay;
+        }
+
+        public void setPastFirstElementDelay(Long pastFirstElementDelay) {
+            this.pastFirstElementDelay = pastFirstElementDelay;
+        }
+
+        public Unit getPastFirstElementDelayUnit() {
+            return pastFirstElementDelayUnit;
+        }
+
+        public void setPastFirstElementDelayUnit(Unit pastFirstElementDelayUnit) {
+            this.pastFirstElementDelayUnit = pastFirstElementDelayUnit;
+        }
+
+        public Integer getElementCountAtLeast() {
+            return elementCountAtLeast;
+        }
+
+        public void setElementCountAtLeast(Integer elementCountAtLeast) {
+            this.elementCountAtLeast = elementCountAtLeast;
+        }
     }
 
     public enum Type {
@@ -165,6 +274,16 @@ public class WindowTransform implements TransformModule {
         year
     }
 
+    public enum TriggerType {
+        afterWatermark,
+        afterProcessingTime,
+        afterPane,
+        repeatedly,
+        afterEach,
+        afterFirst,
+        afterAll
+    }
+
     public String getName() { return "window"; }
 
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
@@ -176,7 +295,7 @@ public class WindowTransform implements TransformModule {
         final WithWindow transform = new WithWindow(config);
         final Map<String, FCollection<?>> collections = new HashMap<>();
         for(final FCollection input : inputs) {
-            final String name = config.getName() + "." + input.getName();
+            final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
             final Coder coder = input.getCollection().getCoder();
             final PCollection<?> output = ((PCollection<?>) (input.getCollection()).apply(config.getName(), transform))
                     .setCoder(coder);
@@ -265,6 +384,10 @@ public class WindowTransform implements TransformModule {
                 }
             }
 
+            if(parameters.getTrigger() != null) {
+                window = window.triggering(getTrigger(parameters.getTrigger()));
+            }
+
             if(parameters.getAllowedLateness() != null) {
                 window = window.withAllowedLateness(getDuration(parameters.getUnit(), parameters.getAllowedLateness()));
             }
@@ -326,7 +449,7 @@ public class WindowTransform implements TransformModule {
             }
         }
 
-        private Duration getDuration(final Unit unit, final Long value) {
+        private static Duration getDuration(final Unit unit, final Long value) {
             switch (unit) {
                 case second: {
                     return Duration.standardSeconds(value);
@@ -344,6 +467,77 @@ public class WindowTransform implements TransformModule {
                     throw new IllegalArgumentException("Illegal window unit: " + unit);
                 }
             }
+        }
+
+        public static Trigger getTrigger(final TriggerParameter parameter) {
+            final Trigger trigger;
+            switch (parameter.getType()) {
+                case afterWatermark: {
+                    if(parameter.getEarlyFiringTrigger() != null && parameter.getLateFiringTrigger() != null) {
+                        trigger = AfterWatermark.pastEndOfWindow()
+                                .withEarlyFirings((Trigger.OnceTrigger) getTrigger(parameter.getEarlyFiringTrigger()))
+                                .withLateFirings((Trigger.OnceTrigger) getTrigger(parameter.getLateFiringTrigger()));
+                    } else if(parameter.getEarlyFiringTrigger() != null) {
+                        trigger = AfterWatermark.pastEndOfWindow()
+                                .withEarlyFirings((Trigger.OnceTrigger) getTrigger(parameter.getEarlyFiringTrigger()));
+                    } else if(parameter.getLateFiringTrigger() != null) {
+                        trigger = AfterWatermark.pastEndOfWindow()
+                                .withLateFirings((Trigger.OnceTrigger) getTrigger(parameter.getLateFiringTrigger()));
+                    } else {
+                        trigger = AfterWatermark.pastEndOfWindow();
+                    }
+                    break;
+                }
+                case afterProcessingTime: {
+                    final AfterProcessingTime afterProcessingTime = AfterProcessingTime.pastFirstElementInPane();
+                    trigger = afterProcessingTime.plusDelayOf(
+                            getDuration(parameter.getPastFirstElementDelayUnit(), parameter.getPastFirstElementDelay()));
+                    break;
+                }
+                case afterPane: {
+                    trigger = AfterPane.elementCountAtLeast(parameter.getElementCountAtLeast());
+                    break;
+                }
+                case afterFirst:
+                case afterEach:
+                case afterAll: {
+                    final List<Trigger> triggers = new ArrayList<>();
+                    for(final TriggerParameter child : parameter.getChildrenTriggers()) {
+                        triggers.add(getTrigger(child));
+                    }
+                    switch (parameter.getType()) {
+                        case afterFirst: {
+                            trigger = AfterFirst.of(triggers);
+                            break;
+                        }
+                        case afterEach: {
+                            trigger = AfterEach.inOrder(triggers);
+                            break;
+                        }
+                        case afterAll: {
+                            trigger = AfterAll.of(triggers);
+                            break;
+                        }
+                        default: {
+                            throw new IllegalArgumentException("Not supported window trigger: " + parameter.getType());
+                        }
+                    }
+                    break;
+                }
+                case repeatedly: {
+                    trigger = Repeatedly.forever(getTrigger(parameter.getForeverTrigger()));
+                    break;
+                }
+                default: {
+                    throw new IllegalArgumentException("Not supported window trigger: " + parameter.getType());
+                }
+            }
+
+            if(parameter.getFinalTrigger() != null) {
+                return trigger.orFinally((Trigger.OnceTrigger) getTrigger(parameter.getFinalTrigger()));
+            }
+
+            return trigger;
         }
 
     }
