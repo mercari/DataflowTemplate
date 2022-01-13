@@ -5,6 +5,7 @@ import com.google.api.client.util.Sleeper;
 import com.google.api.gax.rpc.ServerStream;
 import com.google.api.services.bigquery.Bigquery;
 import com.google.api.services.bigquery.model.*;
+import com.google.api.services.bigquery.model.TableSchema;
 import com.google.cloud.bigquery.storage.v1.*;
 import com.google.gson.Gson;
 import com.mercari.solution.config.SourceConfig;
@@ -265,6 +266,7 @@ public class BigQuerySource implements SourceModule {
                         .read(SchemaAndRecord::getRecord)
                         .fromQuery(query)
                         .usingStandardSql()
+                        .useAvroLogicalTypes()
                         .withMethod(method)
                         .withQueryPriority(BigQueryIO.TypedRead.QueryPriority.valueOf(parameters.getQueryPriority()))
                         .withoutValidation()
@@ -320,6 +322,7 @@ public class BigQuerySource implements SourceModule {
                 BigQueryIO.TypedRead<GenericRecord> read = BigQueryIO
                         .read(SchemaAndRecord::getRecord)
                         .from(tableReference)
+                        .useAvroLogicalTypes()
                         .withMethod(method)
                         .withoutValidation()
                         .withCoder(AvroCoder.of(avroSchema));
