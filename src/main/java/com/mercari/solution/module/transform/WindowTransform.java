@@ -32,15 +32,18 @@ public class WindowTransform implements TransformModule {
         private Long frequency;
         private Long gap;
         private Long offset;
-        private Long allowedLateness;
         private String timezone;
 
+        // For calendar window
         private Integer startingYear;
         private Integer startingMonth;
         private Integer startingDay;
 
         private TriggerParameter trigger;
+        private AccumulationMode accumulationMode;
+        private Long allowedLateness;
 
+        @Deprecated
         private Boolean discardingFiredPanes;
 
         private TimestampCombiner timestampCombiner;
@@ -93,14 +96,6 @@ public class WindowTransform implements TransformModule {
             this.offset = offset;
         }
 
-        public Long getAllowedLateness() {
-            return allowedLateness;
-        }
-
-        public void setAllowedLateness(Long allowedLateness) {
-            this.allowedLateness = allowedLateness;
-        }
-
         public String getTimezone() {
             return timezone;
         }
@@ -141,12 +136,12 @@ public class WindowTransform implements TransformModule {
             this.trigger = trigger;
         }
 
-        public Boolean getDiscardingFiredPanes() {
-            return discardingFiredPanes;
+        public AccumulationMode getAccumulationMode() {
+            return accumulationMode;
         }
 
-        public void setDiscardingFiredPanes(Boolean discardingFiredPanes) {
-            this.discardingFiredPanes = discardingFiredPanes;
+        public void setAccumulationMode(AccumulationMode accumulationMode) {
+            this.accumulationMode = accumulationMode;
         }
 
         public TimestampCombiner getTimestampCombiner() {
@@ -155,6 +150,22 @@ public class WindowTransform implements TransformModule {
 
         public void setTimestampCombiner(TimestampCombiner timestampCombiner) {
             this.timestampCombiner = timestampCombiner;
+        }
+
+        public Long getAllowedLateness() {
+            return allowedLateness;
+        }
+
+        public void setAllowedLateness(Long allowedLateness) {
+            this.allowedLateness = allowedLateness;
+        }
+
+        public Boolean getDiscardingFiredPanes() {
+            return discardingFiredPanes;
+        }
+
+        public void setDiscardingFiredPanes(Boolean discardingFiredPanes) {
+            this.discardingFiredPanes = discardingFiredPanes;
         }
 
     }
@@ -284,6 +295,11 @@ public class WindowTransform implements TransformModule {
         afterAll
     }
 
+    public enum AccumulationMode {
+        discarding,
+        accumulating
+    }
+
     public String getName() { return "window"; }
 
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
@@ -297,7 +313,7 @@ public class WindowTransform implements TransformModule {
         for(final FCollection input : inputs) {
             final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
             final Coder coder = input.getCollection().getCoder();
-            final PCollection<?> output = ((PCollection<?>) (input.getCollection()).apply(config.getName(), transform))
+            final PCollection<?> output = ((PCollection<?>) (input.getCollection()).apply(name, transform))
                     .setCoder(coder);
             collections.put(name, FCollection.update(input, name, output));
         }
@@ -386,18 +402,15 @@ public class WindowTransform implements TransformModule {
 
             if(parameters.getTrigger() != null) {
                 window = window.triggering(getTrigger(parameters.getTrigger()));
+                if(AccumulationMode.accumulating.equals(parameters.getAccumulationMode())) {
+                    window = window.accumulatingFiredPanes();
+                } else {
+                    window = window.discardingFiredPanes();
+                }
             }
 
             if(parameters.getAllowedLateness() != null) {
                 window = window.withAllowedLateness(getDuration(parameters.getUnit(), parameters.getAllowedLateness()));
-            }
-
-            if(parameters.getDiscardingFiredPanes() != null) {
-                if(parameters.getDiscardingFiredPanes()) {
-                    window = window.discardingFiredPanes();
-                } else {
-                    window = window.accumulatingFiredPanes();
-                }
             }
 
             if(parameters.getTimestampCombiner() != null) {
@@ -446,6 +459,12 @@ public class WindowTransform implements TransformModule {
             }
             if(parameters.getOffset() == null) {
                 parameters.setOffset(0L);
+            }
+            if(parameters.getDiscardingFiredPanes() != null) {
+                parameters.setAccumulationMode(parameters.getDiscardingFiredPanes() ? AccumulationMode.discarding : AccumulationMode.accumulating);
+            }
+            if(parameters.getAccumulationMode() == null) {
+                parameters.setAccumulationMode(AccumulationMode.discarding);
             }
         }
 
