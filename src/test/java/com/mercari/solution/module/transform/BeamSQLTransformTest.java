@@ -50,7 +50,7 @@ public class BeamSQLTransformTest {
         configBeamSql.setInputs(Arrays.asList("withWindow"));
 
         final JsonObject beamsqlParameters = new JsonObject();
-        beamsqlParameters.addProperty("sql", "SELECT stringField, MDT_MAX_INT64(longFieldA, longFieldB) AS longFieldMax, MDT_MIN_INT64(longFieldA, longFieldB) AS longFieldMin, MDT_MAX_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMax, MDT_MIN_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMin FROM rowInput");
+        beamsqlParameters.addProperty("sql", "SELECT stringField, MDT_GREATEST_INT64(longFieldA, longFieldB) AS longFieldMax, MDT_LEAST_INT64(longFieldA, longFieldB) AS longFieldMin, MDT_GREATEST_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMax, MDT_LEAST_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMin FROM rowInput");
         beamsqlParameters.addProperty("planner", planner);
         configBeamSql.setParameters(beamsqlParameters);
 
