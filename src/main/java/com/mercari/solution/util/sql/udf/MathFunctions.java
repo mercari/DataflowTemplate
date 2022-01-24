@@ -5,7 +5,7 @@ import org.apache.beam.sdk.extensions.sql.BeamSqlUdf;
 
 public class MathFunctions {
 
-    public static class MaxFloat64Fn implements BeamSqlUdf {
+    public static class GreatestFloat64Fn implements BeamSqlUdf {
 
         public static Double eval(final Double value1, final Double value2) {
 
@@ -25,7 +25,7 @@ public class MathFunctions {
 
     }
 
-    public static class MaxInt64Fn implements BeamSqlUdf {
+    public static class GreatestInt64Fn implements BeamSqlUdf {
 
         public static Long eval(final Long value1, final Long value2) {
 
@@ -45,7 +45,7 @@ public class MathFunctions {
 
     }
 
-    public static class MinFloat64Fn implements BeamSqlUdf {
+    public static class LeastFloat64Fn implements BeamSqlUdf {
 
         public static Double eval(final Double value1, final Double value2) {
 
@@ -65,7 +65,7 @@ public class MathFunctions {
 
     }
 
-    public static class MinInt64Fn implements BeamSqlUdf {
+    public static class LeastInt64Fn implements BeamSqlUdf {
 
         public static Long eval(final Long value1, final Long value2) {
 

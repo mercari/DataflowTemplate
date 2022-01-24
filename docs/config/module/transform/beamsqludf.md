@@ -6,10 +6,10 @@
 
 | function | return type | description |
 | --- | --- | --- |
-| MDT_MAX_INT64(value1 INT64, value2 INT64) | INT64 | Output the larger of the values of the first and second arguments. If one of them is NULL, output the other one. If both are NULL, output NULL. |
-| MDT_MAX_FLOAT64(value1 FLOAT64, value2 FLOAT64) | FLOAT64 | The arguments and output types are FLOAT64, the function is the same as `MDT_MAX_INT64` |
-| MDT_MIN_INT64(value1 INT64, value2 INT64) | INT64 | Output the smaller of the values of the first and second arguments. If one of them is NULL, output the other one. If both are NULL, output NULL. |
-| MDT_MIN_FLOAT64(value1 FLOAT64, value2 FLOAT64) | FLOAT64 | The arguments and output types are FLOAT64, the function is the same as `MDT_MAX_INT64` |
+| MDT_GREATEST_INT64(value1 INT64, value2 INT64) | INT64 | Output the larger of the values of the first and second arguments. If one of them is NULL, output the other one. If both are NULL, output NULL. |
+| MDT_GREATEST_FLOAT64(value1 FLOAT64, value2 FLOAT64) | FLOAT64 | The arguments and output types are FLOAT64, the function is the same as `MDT_MAX_INT64` |
+| MDT_LEAST_INT64(value1 INT64, value2 INT64) | INT64 | Output the smaller of the values of the first and second arguments. If one of them is NULL, output the other one. If both are NULL, output NULL. |
+| MDT_LEAST_FLOAT64(value1 FLOAT64, value2 FLOAT64) | FLOAT64 | The arguments and output types are FLOAT64, the function is the same as `MDT_MAX_INT64` |
 
 ## Array functions
 
