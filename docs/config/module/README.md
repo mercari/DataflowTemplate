@@ -2,16 +2,15 @@
 
 ## Source Modules
 
-※ In streaming mode for modules other than PubSub will run in micro batches
-
 | module | batch | streaming | description |
 | --- | --- | --- | --- |
 | [bigquery](source/bigquery.md) | ○ | ○ | Import data from BigQuery with a specified query or table |
 | [spanner](source/spanner.md) | ○ | ○ | Import data from Cloud Spanner with a specified query or table |
 | [storage](source/storage.md) | ○ | ○(TBA) | Import data from file storage from specified path |
-| [datastore](source/datastore.md) | ○ | ○ (TBA) | Import data from Cloud Datastore with a specified gql |
+| [datastore](source/datastore.md) | ○ | ○(TBA) | Import data from Cloud Datastore with a specified gql |
 | [jdbc](source/jdbc.md) | ○ | ○(TBA) | Import data from RDB using JDBC connector with a specified query |
 | [pubsub](source/pubsub.md) | - | ○ | Import data from Cloud PubSub |
+| [websocket](source/websocket.md) | - | ○ | Import data from WebSocket |
 
 ## Transform Modules
 
