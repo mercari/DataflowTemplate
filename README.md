@@ -170,6 +170,8 @@ The following is an example of a locally executed command.
 The authentication file and config file are mounted for access by the container.
 The other arguments (such as `project` and `config`) are the same as for normal execution.
 
+If you want to run in streaming mode, specify streaming=true in the argument as you would in normal execution.
+
 ### Mac OS
 
 ```sh
