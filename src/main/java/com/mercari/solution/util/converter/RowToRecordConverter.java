@@ -1,5 +1,6 @@
 package com.mercari.solution.util.converter;
 
+import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
@@ -34,7 +35,15 @@ public class RowToRecordConverter {
     public static Schema convertSchema(final org.apache.beam.sdk.schemas.Schema schema) {
         final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").fields();
         for(final org.apache.beam.sdk.schemas.Schema.Field field : schema.getFields()) {
-            schemaFields.name(field.getName()).type(convertSchema(field.getType(), field.getName(), null)).noDefault();
+            if(field.getOptions().hasOption(SourceConfig.OPTION_ORIGINAL_FIELD_NAME)) {
+                schemaFields
+                        .name(field.getName())
+                        .prop(SourceConfig.OPTION_ORIGINAL_FIELD_NAME, field.getOptions().getValue(SourceConfig.OPTION_ORIGINAL_FIELD_NAME))
+                        .type(convertSchema(field.getType(), field.getName(), null))
+                        .noDefault();
+            } else {
+                schemaFields.name(field.getName()).type(convertSchema(field.getType(), field.getName(), null)).noDefault();
+            }
         }
         return schemaFields.endRecord();
     }

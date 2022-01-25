@@ -17,6 +17,8 @@ import java.util.Map;
 
 public class SourceConfig implements Serializable {
 
+    public static final String OPTION_ORIGINAL_FIELD_NAME = "originalFieldName";
+
     // source module properties
     private String name;
     private String module;
@@ -27,6 +29,8 @@ public class SourceConfig implements Serializable {
     private String timestampAttribute;
     private String timestampDefault;
     private Boolean skip;
+
+    private String description;
 
     // template args
     private Map<String, Object> args;
@@ -107,6 +111,14 @@ public class SourceConfig implements Serializable {
         this.skip = skip;
     }
 
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
     public Map<String, Object> getArgs() {
         return args;
     }
@@ -141,9 +153,16 @@ public class SourceConfig implements Serializable {
         if(fields == null || fields.size() == 0) {
             return null;
         }
-        Schema.Builder builder = Schema.builder();
+        final Schema.Builder builder = Schema.builder();
         for(final InputSchemaField field : fields) {
-            builder.addField(field.getName(), convertFieldType(field));
+            if(field.getAlterName() == null) {
+                builder.addField(field.getName(), convertFieldType(field));
+            } else {
+                builder.addField(Schema.Field.of(field.getAlterName(), convertFieldType(field))
+                        .withOptions(Schema.Options.builder()
+                                .setOption(OPTION_ORIGINAL_FIELD_NAME, Schema.FieldType.STRING, field.getName())
+                                .build()));
+            }
         }
         return builder.build();
     }
@@ -170,14 +189,14 @@ public class SourceConfig implements Serializable {
     }
 
     private static Schema.FieldType convertFieldType(final InputSchemaField field, final String mode) {
-        if(mode != null && "repeated".equals(mode.trim().toLowerCase())) {
+        if(mode != null && "repeated".equalsIgnoreCase(mode.trim())) {
             return Schema.FieldType.array(convertFieldType(field, "nullable"));
         }
         final boolean nullable;
         if(mode == null) {
             nullable = true;
         } else {
-            nullable = "nullable".equals(mode.trim().toLowerCase());
+            nullable = "nullable".equalsIgnoreCase(mode.trim());
         }
         switch (field.getType().trim().toLowerCase()) {
             case "bytes":
@@ -203,6 +222,7 @@ public class SourceConfig implements Serializable {
             case "datetime":
             case "timestamp":
                 return Schema.FieldType.DATETIME.withNullable(nullable);
+            case "row":
             case "struct":
             case "record":
                 return Schema.FieldType.row(convertSchema(field.getFields())).withNullable(nullable);
@@ -278,6 +298,7 @@ public class SourceConfig implements Serializable {
         private String type;
         private String mode;
         private List<InputSchemaField> fields;
+        private String alterName;
 
         InputSchemaField() {
 
@@ -319,6 +340,14 @@ public class SourceConfig implements Serializable {
 
         public void setFields(List<InputSchemaField> fields) {
             this.fields = fields;
+        }
+
+        public String getAlterName() {
+            return alterName;
+        }
+
+        public void setAlterName(String alterName) {
+            this.alterName = alterName;
         }
     }
 

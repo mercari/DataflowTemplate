@@ -6,27 +6,29 @@
 
   <groupId>com.mercari</groupId>
   <artifactId>solution</artifactId>
-  <version>0.3.0</version>
+  <version>0.6.0</version>
   <name>Mercari Dataflow Template</name>
 
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.32.0</beam.version>
+    <beam.version>2.35.0</beam.version>
 
     <joda.version>2.10.3</joda.version>
-    <freemarker.version>2.3.30</freemarker.version>
-    <onnx.version>1.7.0-1.5.4</onnx.version>
-    <onnxruntime.version>1.5.2</onnxruntime.version>
+    <freemarker.version>2.3.31</freemarker.version>
+    <onnx.version>1.9.0-1.5.6</onnx.version>
+    <onnxruntime.version>1.10.0</onnxruntime.version>
     <iamcredentials.version>1.1.9</iamcredentials.version>
     <tensorflow.version>1.15.0</tensorflow.version>
     <hadoop.version>3.3.1</hadoop.version>
     <hbase.version>2.4.5</hbase.version>
-    <solr.version>8.9.0</solr.version>
-    <mysql-connector.version>8.0.22</mysql-connector.version>
-    <postgresql-connector.version>42.2.18</postgresql-connector.version>
+    <solr.version>8.11.1</solr.version>
+    <jst.version>1.18.2</jst.version>
+    <mysql-connector.version>8.0.27</mysql-connector.version>
+    <postgresql-connector.version>42.3.1</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.2.0</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.4.1</jdbc-socket-factory.version>
+    <socketio.version>2.0.1</socketio.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -34,7 +36,7 @@
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
     <slf4j.version>1.7.32</slf4j.version>
-    <log4j.version>2.17.0</log4j.version>
+    <log4j.version>2.17.1</log4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
 
@@ -255,10 +257,6 @@
       <version>${solr.version}</version>
       <exclusions>
         <exclusion>
-          <groupId>org.apache.calcite</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-        <exclusion>
           <groupId>org.apache.logging.log4j</groupId>
           <artifactId>*</artifactId>
         </exclusion>
@@ -272,14 +270,17 @@
       <version>${solr.version}</version>
       <exclusions>
         <exclusion>
-          <groupId>org.apache.calcite</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-        <exclusion>
           <groupId>org.apache.logging.log4j</groupId>
           <artifactId>*</artifactId>
         </exclusion>
       </exclusions>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.locationtech.jts/jts-core -->
+    <dependency>
+      <groupId>org.locationtech.jts</groupId>
+      <artifactId>jts-core</artifactId>
+      <version>${jst.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql -->
@@ -317,8 +318,8 @@
       <version>${hadoop.version}</version>
       <exclusions>
         <exclusion>
-          <groupId>log4j</groupId>
-          <artifactId>log4j</artifactId>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>*</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -328,6 +329,12 @@
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-common</artifactId>
       <version>${hbase.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <dependency>
@@ -425,6 +432,14 @@
       <artifactId>mssql-jdbc</artifactId>
       <version>${sqlserver-connector.version}</version>
     </dependency>
+
+    <!-- https://mvnrepository.com/artifact/io.socket/socket.io-client -->
+    <dependency>
+      <groupId>io.socket</groupId>
+      <artifactId>socket.io-client</artifactId>
+      <version>${socketio.version}</version>
+    </dependency>
+
 
     <!-- Log -->
     <!-- Add slf4j API frontend binding with JUL backend -->

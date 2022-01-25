@@ -63,6 +63,9 @@ public class FlexPipeline {
         LOG.info("DataflowRunner mode.");
         final FlexDataflowPipelineOptions flexOptions = localOptions.as(FlexDataflowPipelineOptions.class);
         flexOptions.setAppName("Mercari Dataflow Template");
+        if(config.getName() != null) {
+            flexOptions.setJobName(config.getName().trim().replaceAll(" ", ""));
+        }
         if(flexOptions.isStreaming()) {
             flexOptions.setEnableStreamingEngine(true);
         } else {

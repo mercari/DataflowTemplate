@@ -18,6 +18,8 @@ public class SinkConfig implements Serializable {
     private JsonObject parameters;
     private Boolean skip;
 
+    private String description;
+
     public String getName() {
         return name;
     }
@@ -72,6 +74,14 @@ public class SinkConfig implements Serializable {
 
     public void setSkip(Boolean skip) {
         this.skip = skip;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public void outputAvroSchema(final Schema schema) {

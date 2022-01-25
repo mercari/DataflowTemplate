@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
@@ -23,6 +24,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class JsonToRecordConverter {
 
@@ -39,7 +41,8 @@ public class JsonToRecordConverter {
     public static GenericRecord convert(final Schema schema, final JsonObject jsonObject) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
-            builder.set(field.name(), convertValue(field.schema(), jsonObject.get(field.name())));
+            final String fieldName = Optional.ofNullable(field.getProp(SourceConfig.OPTION_ORIGINAL_FIELD_NAME)).orElse(field.name());
+            builder.set(field.name(), convertValue(field.schema(), jsonObject.get(fieldName)));
         }
         return builder.build();
     }

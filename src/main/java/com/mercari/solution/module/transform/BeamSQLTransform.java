@@ -9,7 +9,7 @@ import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.StorageUtil;
-import com.mercari.solution.util.sql.udf.JsonFunctions;
+import com.mercari.solution.util.sql.udf.*;
 import org.apache.beam.sdk.extensions.sql.SqlTransform;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.values.PCollection;
@@ -31,6 +31,7 @@ public class BeamSQLTransform implements TransformModule {
     private class BeamSQLTransformParameters {
 
         private String sql;
+        private Planner planner;
 
         public String getSql() {
             return sql;
@@ -39,7 +40,21 @@ public class BeamSQLTransform implements TransformModule {
         public void setSql(String sql) {
             this.sql = sql;
         }
+
+        public Planner getPlanner() {
+            return planner;
+        }
+
+        public void setPlanner(Planner planner) {
+            this.planner = planner;
+        }
     }
+
+    public enum Planner {
+        zetasql,
+        calcite
+    }
+
 
     public String getName() { return "beamsql"; }
 
@@ -99,7 +114,32 @@ public class BeamSQLTransform implements TransformModule {
                 query = parameters.getSql();
             }
 
-            return beamsqlInputs.apply("SQLTransform", SqlTransform.query(query));
+            final SqlTransform transform;
+            if(parameters.getPlanner() == null) {
+                transform = SqlTransform.query(query);
+            } else if(Planner.zetasql.equals(parameters.getPlanner())) {
+                transform = SqlTransform.query(query)
+                        .withQueryPlannerClass(org.apache.beam.sdk.extensions.sql.zetasql.ZetaSQLQueryPlanner.class);
+            } else if(Planner.calcite.equals(parameters.getPlanner())) {
+                transform = SqlTransform.query(query)
+                        .withQueryPlannerClass(org.apache.beam.sdk.extensions.sql.impl.CalciteQueryPlanner.class);
+            } else {
+                throw new IllegalArgumentException("beamsql planner not supported: " + parameters.getPlanner());
+            }
+
+            return beamsqlInputs.apply("SQLTransform", transform
+                    // Math UDFs
+                    .registerUdf("MDT_GREATEST_INT64", MathFunctions.GreatestInt64Fn.class)
+                    .registerUdf("MDT_GREATEST_FLOAT64", MathFunctions.GreatestFloat64Fn.class)
+                    .registerUdf("MDT_LEAST_INT64", MathFunctions.LeastInt64Fn.class)
+                    .registerUdf("MDT_LEAST_FLOAT64", MathFunctions.LeastFloat64Fn.class)
+                    // Array UDFs
+                    .registerUdf("MDT_CONTAINS_ALL_INT64", ArrayFunctions.ContainsAllInt64sFn.class)
+                    .registerUdf("MDT_CONTAINS_ALL_STRING", ArrayFunctions.ContainsAllStringsFn.class)
+                    // UDAFs
+                    .registerUdaf("MDT_ARRAY_AGG_INT64", new AggregateFunctions.ArrayAggInt64Fn())
+                    .registerUdaf("MDT_ARRAY_AGG_STRING", new AggregateFunctions.ArrayAggStringFn())
+                    );
         }
 
         private void validate() {

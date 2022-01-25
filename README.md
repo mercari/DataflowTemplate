@@ -146,12 +146,31 @@ At first, you should register the container for local execution.
 
 
 ```sh
-mvn clean package -DskipTests
+# Generate MDT jar file.
+mvn clean package -DskipTests -Dimage=gcr.io/{deploy_project}/{template_repo_name}
+
+# Create Docker image for local run
 docker build --tag=gcr.io/{deploy_project}/{repo_name_local} .
-gcloud docker --project {deploy_project} -- push gcr.io/{deploy_project}/{repo_name_local}
+
+# If you need to push the image to the GCR,
+# you may do so by using the following commands
+gcloud auth configure-docker
+docker push gcr.io/{deploy_project}/{repo_name_local}
 ```
 
 ## Run Pipeline locally
+
+For local execution, execute the following command to grant the necessary permissions
+
+```shell
+gcloud auth application-default login
+````
+
+The following is an example of a locally executed command.
+The authentication file and config file are mounted for access by the container.
+The other arguments (such as `project` and `config`) are the same as for normal execution.
+
+If you want to run in streaming mode, specify streaming=true in the argument as you would in normal execution.
 
 ### Mac OS
 
@@ -175,6 +194,8 @@ docker run ^
   --config=/mnt/config/{MyConfig}.json
 ```
 
+Note: If you use BigQuery module locally, you will need to specify the `tempLocation` argument.
+
 ## Committers
 
  * Yoichi Nagai ([@orfeon](https://github.com/orfeon))
@@ -188,6 +209,6 @@ https://www.mercari.com/cla/
 
 ## License
 
-Copyright 2021 Mercari, Inc.
+Copyright 2022 Mercari, Inc.
 
 Licensed under the MIT License.
