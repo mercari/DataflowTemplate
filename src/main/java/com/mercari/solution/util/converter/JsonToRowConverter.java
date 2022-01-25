@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -32,7 +33,13 @@ public class JsonToRowConverter {
     public static Row convert(final Schema schema, final JsonObject jsonObject) {
         final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
         for(final Schema.Field field : schema.getFields()) {
-            builder.withFieldValue(field.getName(), convertValue(field.getType(), jsonObject.get(field.getName())));
+            final String fieldName;
+            if(field.getOptions().hasOption(SourceConfig.OPTION_ORIGINAL_FIELD_NAME)) {
+                fieldName = field.getOptions().getValue(SourceConfig.OPTION_ORIGINAL_FIELD_NAME);
+            } else {
+                fieldName = field.getName();
+            }
+            builder.withFieldValue(field.getName(), convertValue(field.getType(), jsonObject.get(fieldName)));
         }
         return builder.build();
     }
