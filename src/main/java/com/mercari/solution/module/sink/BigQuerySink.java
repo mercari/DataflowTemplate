@@ -469,31 +469,42 @@ public class BigQuerySink implements SinkModule {
                 if(parameters.getWithExtendedErrorInfo()) {
                     write = write.withExtendedErrorInfo();
                 }
-                if(parameters.getFailedInsertRetryPolicy().equals(FailedInsertRetryPolicy.always)) {
-                    write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.alwaysRetry());
-                } else if(parameters.getFailedInsertRetryPolicy().equals(FailedInsertRetryPolicy.never)) {
-                    write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.neverRetry());
-                } else {
-                    write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.retryTransientErrors());
+                if(!BigQueryIO.Write.Method.FILE_LOADS.equals(parameters.getMethod())) {
+                    if(parameters.getFailedInsertRetryPolicy().equals(FailedInsertRetryPolicy.always)) {
+                        write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.alwaysRetry());
+                    } else if(parameters.getFailedInsertRetryPolicy().equals(FailedInsertRetryPolicy.never)) {
+                        write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.neverRetry());
+                    } else {
+                        write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.retryTransientErrors());
+                    }
                 }
 
                 if(this.parameters.getTriggeringFrequencySecond() != null) {
                     write = write.withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()));
                 }
 
-                if(BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())) {
-                    write = write
-                            .withMethod(BigQueryIO.Write.Method.STORAGE_WRITE_API)
-                            .withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()))
-                            .withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams())
-                            .useBeamSchema();
-                } else {
-                    write = write
-                            .withMethod(BigQueryIO.Write.Method.STREAMING_INSERTS)
-                            .useAvroLogicalTypes()
-                            .withFormatFunction(convertTableRowFunction);
-                    if(parameters.getAutoSharding()) {
-                        write = write.withAutoSharding();
+                if(parameters.getSchemaUpdateOptions() != null && parameters.getSchemaUpdateOptions().size() > 0) {
+                    write = write.withSchemaUpdateOptions(new HashSet<>(parameters.getSchemaUpdateOptions()));
+                }
+
+                switch (parameters.getMethod()) {
+                    case FILE_LOADS:
+                    case STORAGE_WRITE_API:
+                    case STORAGE_API_AT_LEAST_ONCE: {
+                        write = write
+                                .withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams())
+                                .useBeamSchema();
+                        break;
+                    }
+                    case DEFAULT:
+                    case STREAMING_INSERTS: {
+                        write = write
+                                .useAvroLogicalTypes()
+                                .withFormatFunction(convertTableRowFunction);
+                        if(parameters.getAutoSharding()) {
+                            write = write.withAutoSharding();
+                        }
+                        break;
                     }
                 }
 
@@ -564,7 +575,9 @@ public class BigQuerySink implements SinkModule {
             if(parameters.getAutoSharding() == null) {
                 parameters.setAutoSharding(false);
             }
-            if(BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())) {
+            if(BigQueryIO.Write.Method.FILE_LOADS.equals(parameters.getMethod())
+                    || BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
+                    || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod())) {
                 if(parameters.getTriggeringFrequencySecond() == null) {
                     parameters.setTriggeringFrequencySecond(10L);
                 }
