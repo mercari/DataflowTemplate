@@ -9,6 +9,7 @@ Source Module for loading data by specifying a gql into Cloud Datastore.
 | name | required | String | Step name. specified to be unique in config file. |
 | module | required | String | Specified `datastore` |
 | schema | required | [Schema](SCHEMA.md) | Schema of the data to be read. (If you specify a `kind`, you don't need to specify it.) |
+| timestampAttribute | optional | String | If you want to use the value of an field as the event time, specify the name of the field. (The field must be Timestamp type) |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters |
 
 ## Datastore source module parameters

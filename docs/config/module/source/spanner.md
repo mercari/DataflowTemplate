@@ -10,6 +10,7 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | module | required | String | Specified `spanner` |
 | schema | - | [Schema](SCHEMA.md) | Schema of the data to be read. spanner module does not require specification |
 | microbatch | Boolean | optional | Specify true if you want to retrieve data in near real time using the Micorobatch method. Default is false. (You need to start Dataflow in streaming mode if microbatch mode) |
+| timestampAttribute | String | optional | If you want to use the value of an field as the event time, specify the name of the field. (The field must be Timestamp or Date type) |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters |
 
 ## Spanner source module parameters
