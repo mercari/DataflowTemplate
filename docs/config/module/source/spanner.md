@@ -9,8 +9,8 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | name | required | String | Step name. specified to be unique in config file. |
 | module | required | String | Specified `spanner` |
 | schema | - | [Schema](SCHEMA.md) | Schema of the data to be read. spanner module does not require specification |
-| microbatch | Boolean | optional | Specify true if you want to retrieve data in near real time using the Micorobatch method. Default is false. (You need to start Dataflow in streaming mode if microbatch mode) |
-| timestampAttribute | String | optional | If you want to use the value of an field as the event time, specify the name of the field. (The field must be Timestamp or Date type) |
+| microbatch | optional | Boolean | Specify true if you want to retrieve data in near real time using the Micorobatch method. Default is false. (You need to start Dataflow in streaming mode if microbatch mode) |
+| timestampAttribute | optional | String | If you want to use the value of an field as the event time, specify the name of the field. (The field must be Timestamp or Date type) |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters |
 
 ## Spanner source module parameters
@@ -24,7 +24,7 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | table | selective required | String | Specify the table name to read data from Spanner. Not necessary if query is specified. |
 | fields | optional | Array<String\> | Specify the name of the field you want to read from the table. The default is all fields. |
 | timestampBound | optional | String | Specify when you want to read the data at the specified time. Format: `yyyy-MM-ddTHH:mm:SSZ` |
-| priority | optional | String | Specify either `HIGH`, `MEDIUM`, or `LOW` as the query [priority](https://cloud.google.com/spanner/docs/cpu-utilization) to Spanner. The default is `MEDIUM`. |
+| priority | optional | Enum | Specify either `HIGH`, `MEDIUM`, or `LOW` as the query [priority](https://cloud.google.com/spanner/docs/cpu-utilization) to Spanner. The default is `MEDIUM`. |
 
 ### Spanner source module parameters for microbatch mode
 
