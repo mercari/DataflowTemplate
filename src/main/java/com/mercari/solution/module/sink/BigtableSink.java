@@ -58,8 +58,11 @@ public class BigtableSink implements SinkModule {
         private String columnQualifierTemplate;
 
         private Format format;
+        private MutationOp mutationOp;
+        private TimestampType timestampType;
         private List<ColumnSetting> columnSettings;
         private String separator;
+
 
         public String getProjectId() {
             return projectId;
@@ -141,6 +144,22 @@ public class BigtableSink implements SinkModule {
             this.format = format;
         }
 
+        public MutationOp getMutationOp() {
+            return mutationOp;
+        }
+
+        public void setMutationOp(MutationOp mutationOp) {
+            this.mutationOp = mutationOp;
+        }
+
+        public TimestampType getTimestampType() {
+            return timestampType;
+        }
+
+        public void setTimestampType(TimestampType timestampType) {
+            this.timestampType = timestampType;
+        }
+
         public String getSeparator() {
             return separator;
         }
@@ -167,11 +186,17 @@ public class BigtableSink implements SinkModule {
             if(separator == null) {
                 separator = "#";
             }
+            if(mutationOp == null) {
+                mutationOp = MutationOp.SET_CELL;
+            }
+            if(timestampType == null) {
+                timestampType = TimestampType.insertedtime;
+            }
             if(columnSettings == null) {
                 columnSettings = new ArrayList<>();
             } else {
                 for(var setting : columnSettings) {
-                    setting.setDefaults(format, columnFamily);
+                    setting.setDefaults(format, columnFamily, mutationOp);
                 }
             }
         }
@@ -209,6 +234,18 @@ public class BigtableSink implements SinkModule {
         avro
     }
 
+    public enum MutationOp implements Serializable {
+        SET_CELL,
+        DELETE_FROM_COLUMN,
+        DELETE_FROM_FAMILY,
+        DELETE_FROM_ROW
+    }
+
+    public enum TimestampType implements Serializable {
+        eventtime,
+        insertedtime
+    }
+
     public class ColumnSetting implements Serializable {
 
         private String field;
@@ -216,6 +253,7 @@ public class BigtableSink implements SinkModule {
         private String columnQualifier;
         private Boolean exclude;
         private Format format;
+        private MutationOp mutationOp;
 
         public String getField() {
             return field;
@@ -257,8 +295,15 @@ public class BigtableSink implements SinkModule {
             this.format = format;
         }
 
+        public MutationOp getMutationOp() {
+            return mutationOp;
+        }
 
-        public void setDefaults(final Format format, final String defaultColumnFamily) {
+        public void setMutationOp(MutationOp mutationOp) {
+            this.mutationOp = mutationOp;
+        }
+
+        public void setDefaults(final Format format, final String defaultColumnFamily, final MutationOp defaultMutationOp) {
             if (columnQualifier == null) {
                 columnQualifier = field;
             }
@@ -270,6 +315,9 @@ public class BigtableSink implements SinkModule {
             }
             if (this.format == null) {
                 this.format = format;
+            }
+            if (this.mutationOp == null) {
+                this.mutationOp = defaultMutationOp;
             }
         }
 
@@ -400,10 +448,11 @@ public class BigtableSink implements SinkModule {
         public PCollection<BigtableWriteResult> expand(final PCollection<T> input) {
 
             final PCollection<BigtableWriteResult> writeResults = input
-                    .apply("ToMutation", ParDo.of(new MutationDoFn<>(
+                    .apply("ToMutations", ParDo.of(new MutationDoFn<>(
                             parameters.getRowKeyFields(), parameters.getColumnFamily(), parameters.getColumnQualifier(),
                             parameters.getRowKeyTemplate(), parameters.getColumnFamilyTemplate(), parameters.getColumnQualifierTemplate(),
-                            parameters.getFormat(), parameters.getColumnSettings(), parameters.getSeparator(),
+                            parameters.getFormat(), parameters.getMutationOp(), parameters.getTimestampType(),
+                            parameters.getColumnSettings(), parameters.getSeparator(),
                             inputSchema, schemaConverter, stringGetter, mapConverter, mutationConverter, avroConverter, avroSchemaConverter)))
                     .apply("WriteBigtable", BigtableIO.write()
                             .withProjectId(parameters.getProjectId())
@@ -430,6 +479,8 @@ public class BigtableSink implements SinkModule {
         private final String columnQualifierTemplate;
 
         private final Format format;
+        private final MutationOp mutationOp;
+        private final TimestampType timestampType;
         private final String separator;
         private final Map<String, ColumnSetting> columnSettings;
 
@@ -456,6 +507,8 @@ public class BigtableSink implements SinkModule {
                             final String columnFamilyTemplate,
                             final String columnQualifierTemplate,
                             final Format format,
+                            final MutationOp mutationOp,
+                            final TimestampType timestampType,
                             final List<ColumnSetting> columnSettings,
                             final String separator,
                             final InputSchemaT inputSchema,
@@ -474,6 +527,8 @@ public class BigtableSink implements SinkModule {
             this.columnQualifierTemplate = columnQualifierTemplate;
 
             this.format = format;
+            this.mutationOp = mutationOp;
+            this.timestampType = timestampType;
             this.columnSettings = columnSettings.stream().collect(Collectors.toMap(ColumnSetting::getField, c -> c));
             this.separator = separator;
 
@@ -537,12 +592,32 @@ public class BigtableSink implements SinkModule {
                 cq = TemplateUtil.executeStrictTemplate(templateColumnQualifier, data);
             }
 
+            // Generate timestampMicros
+            final long timestampMicros;
+            switch (timestampType) {
+                case insertedtime: {
+                    timestampMicros = org.joda.time.Instant.now().getMillis() * 1000L;
+                    break;
+                }
+                case eventtime: {
+                    if(c.timestamp().getMillis() >= -1) {
+                        timestampMicros = c.timestamp().getMillis() * 1000L;
+                    } else {
+                        timestampMicros = -1L;
+                    }
+                    break;
+                }
+                default: {
+                    throw new IllegalStateException("Not supported timestampType: " + timestampType);
+                }
+            }
+
             // Generate mutations
             final Iterable<Mutation> mutations;
             switch (format) {
                 case bytes:
                 case string: {
-                    mutations = mutationConverter.convert(runtimeSchema, element, cf, format, columnSettings);
+                    mutations = mutationConverter.convert(runtimeSchema, element, cf, format, mutationOp, columnSettings, timestampMicros);
                     break;
                 }
                 case avro: {
@@ -605,7 +680,9 @@ public class BigtableSink implements SinkModule {
         Iterable<Mutation> convert(final SchemaT schema, final T element,
                                    final String defaultColumnFamily,
                                    final Format defaultFormat,
-                                   final Map<String,ColumnSetting> columnSettings);
+                                   final MutationOp defaultMutationOp,
+                                   final Map<String,ColumnSetting> columnSettings,
+                                   final long timestampMicros);
     }
 
     private interface AvroConverter<T> extends Serializable {
