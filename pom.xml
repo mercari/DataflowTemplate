@@ -12,7 +12,7 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.35.0</beam.version>
+    <beam.version>2.36.0</beam.version>
 
     <joda.version>2.10.3</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
@@ -25,7 +25,7 @@
     <solr.version>8.11.1</solr.version>
     <jst.version>1.18.2</jst.version>
     <mysql-connector.version>8.0.27</mysql-connector.version>
-    <postgresql-connector.version>42.3.1</postgresql-connector.version>
+    <postgresql-connector.version>42.3.2</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
     <jdbc-socket-factory.version>1.4.1</jdbc-socket-factory.version>
     <socketio.version>2.0.1</socketio.version>
