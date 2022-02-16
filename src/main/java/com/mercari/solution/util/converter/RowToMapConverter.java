@@ -9,7 +9,6 @@ import org.joda.time.ReadableInstant;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 
-import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -44,16 +43,16 @@ public class RowToMapConverter {
             case DECIMAL:
                 return value;
             case BYTES:
-                return Base64.getEncoder().encodeToString(((ByteBuffer) value).array());
+                return Base64.getEncoder().encodeToString(((byte[]) value));
             case DATETIME:
-                return ((ReadableInstant) value).toInstant();
+                return java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(type)) {
                     return value;
                 } else if(RowSchemaUtil.isLogicalTypeTime(type)) {
                     return ((Instant) value).toString(FORMATTER_HH_MM_SS);
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(type)) {
-                    return ((ReadableDateTime) value).toInstant();
+                    return java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
                 } else {
                     throw new IllegalArgumentException("Unsupported Beam logical type: " + type.getLogicalType().getIdentifier());
                 }
