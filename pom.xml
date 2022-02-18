@@ -6,7 +6,7 @@
 
   <groupId>com.mercari</groupId>
   <artifactId>solution</artifactId>
-  <version>0.6.0</version>
+  <version>0.7.0</version>
   <name>Mercari Dataflow Template</name>
 
   <packaging>jar</packaging>
@@ -25,9 +25,10 @@
     <solr.version>8.11.1</solr.version>
     <jst.version>1.18.2</jst.version>
     <mysql-connector.version>8.0.27</mysql-connector.version>
-    <postgresql-connector.version>42.3.2</postgresql-connector.version>
+    <postgresql-connector.version>42.3.3</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
     <jdbc-socket-factory.version>1.4.1</jdbc-socket-factory.version>
+    <drive.version>v3-rev20220110-1.32.1</drive.version>
     <socketio.version>2.0.1</socketio.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -431,6 +432,13 @@
       <groupId>com.microsoft.sqlserver</groupId>
       <artifactId>mssql-jdbc</artifactId>
       <version>${sqlserver-connector.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/com.google.apis/google-api-services-drive -->
+    <dependency>
+      <groupId>com.google.apis</groupId>
+      <artifactId>google-api-services-drive</artifactId>
+      <version>${drive.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/io.socket/socket.io-client -->
