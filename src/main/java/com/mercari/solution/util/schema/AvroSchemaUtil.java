@@ -290,6 +290,8 @@ public class AvroSchemaUtil {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
             final Schema.Field recordField = record.getSchema().getField(field.name());
+            final String getFieldName = renameFields.getOrDefault(field.name(), field.name());
+            final String setFieldName = field.name();
             if(recordField != null) {
                 final Schema fieldSchema = unnestUnion(field.schema());
                 final Object fieldValue = record.get(field.name());
@@ -327,6 +329,46 @@ public class AvroSchemaUtil {
                     }
                     default:
                         builder.set(field.name(), fieldValue);
+                        break;
+                }
+            } else if(renameFields.containsValue(setFieldName)) {
+                final String getOuterFieldName = renameFields.entrySet().stream()
+                        .filter(e -> e.getValue().equals(setFieldName))
+                        .map(Map.Entry::getKey)
+                        .findAny()
+                        .orElse(setFieldName);
+                if(record.get(getOuterFieldName) == null) {
+                    builder.set(setFieldName, null);
+                    continue;
+                }
+                final Schema.Field rowField = record.getSchema().getField(getOuterFieldName);
+                if(!field.schema().getType().getName().equals(rowField.schema().getType().getName())) {
+                    builder.set(setFieldName, null);
+                    continue;
+                }
+
+                switch (field.schema().getType()) {
+                    case ARRAY: {
+                        if(field.schema().getElementType().equals(Schema.Type.RECORD)) {
+                            final List<GenericRecord> children = new ArrayList<>();
+                            for(final GenericRecord child : (Collection<GenericRecord>)record.get(getFieldName)) {
+                                if(child != null) {
+                                    children.add(toBuilder(field.schema().getElementType(), child).build());
+                                }
+                            }
+                            builder.set(setFieldName, children);
+                        } else {
+                            builder.set(setFieldName, record.get(getOuterFieldName));
+                        }
+                        break;
+                    }
+                    case RECORD: {
+                        final GenericRecord child = toBuilder(field.schema(), (GenericRecord) record.get(getOuterFieldName)).build();
+                        builder.set(setFieldName, child);
+                        break;
+                    }
+                    default:
+                        builder.set(setFieldName, record.get(getOuterFieldName));
                         break;
                 }
             } else if(renameFields.containsKey(field.name())) {

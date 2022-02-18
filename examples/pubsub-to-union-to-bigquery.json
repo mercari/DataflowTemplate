@@ -1,0 +1,152 @@
+{
+  "name": "pubsub-to-union-to-bigquery",
+  "sources": [
+    {
+      "name": "pubsubInputA",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "fieldA", "type": "string", "mode": "nullable" },
+          { "name": "fieldB", "type": "long", "mode": "nullable" },
+          { "name": "fieldC", "type": "double", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscriptionA"
+      }
+    },
+    {
+      "name": "pubsubInputB",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "fieldB", "type": "long", "mode": "nullable" },
+          { "name": "fieldC", "type": "double", "mode": "nullable" },
+          { "name": "fieldD", "type": "boolean", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscriptionB"
+      }
+    },
+    {
+      "name": "pubsubInputC",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "fieldC", "type": "double", "mode": "nullable" },
+          { "name": "fieldD", "type": "boolean", "mode": "nullable" },
+          { "name": "fieldE", "type": "date", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscriptionC"
+      }
+    },
+    {
+      "name": "pubsubInputZ",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "fieldX", "type": "string", "mode": "nullable" },
+          { "name": "fieldY", "type": "long", "mode": "nullable" },
+          { "name": "fieldZ", "type": "double", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscriptionZ"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "unionTransformA",
+      "module": "union",
+      "inputs": [
+        "pubsubInputA",
+        "pubsubInputB",
+        "pubsubInputC"
+      ],
+      "parameters": {},
+      "description": "The output of this union module will be a schema with fields fieldA, fieldB, fieldC, fieldD, and fieldE."
+    },
+    {
+      "name": "unionTransformB",
+      "module": "union",
+      "inputs": [
+        "pubsubInputA",
+        "pubsubInputB",
+        "pubsubInputC"
+      ],
+      "parameters": {
+        "baseInput": "pubsubInputC"
+      },
+      "description": "The output of this union module will be a schema with fields fieldC, fieldD, and fieldE."
+    },
+    {
+      "name": "unionTransformC",
+      "module": "union",
+      "inputs": [
+        "pubsubInputA",
+        "pubsubInputZ"
+      ],
+      "parameters": {
+        "baseInput": "pubsubInputA",
+        "mapping": [
+          { "outputField": "fieldA",
+            "inputs": [
+              { "input": "pubsubInputZ", "field":  "fieldX" }
+            ]
+          },
+          { "outputField": "fieldB",
+            "inputs": [
+              { "input": "pubsubInputZ", "field":  "fieldY" }
+            ]
+          },
+          { "outputField": "fieldC",
+            "inputs": [
+              { "input": "pubsubInputZ", "field":  "fieldZ" }
+            ]
+          }
+        ]
+      },
+      "description": "The output of this union module will be a schema with fields fieldA, fieldB, and fieldC."
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutputA",
+      "module": "bigquery",
+      "input": "unionTransformA",
+      "parameters": {
+        "table": "myproject:mydataset.unionA",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    },
+    {
+      "name": "bigqueryOutputB",
+      "module": "bigquery",
+      "input": "unionTransformB",
+      "parameters": {
+        "table": "myproject:mydataset.unionB",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    },
+    {
+      "name": "bigqueryOutputC",
+      "module": "bigquery",
+      "input": "unionTransformC",
+      "parameters": {
+        "table": "myproject:mydataset.unionC",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}

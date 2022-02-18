@@ -96,6 +96,49 @@ public class RowSchemaUtil {
                         builder.withFieldValue(setFieldName, row.getValue(getFieldName));
                         break;
                 }
+            } else if(renameFields.containsValue(setFieldName)) {
+                final String getOuterFieldName = renameFields.entrySet().stream()
+                        .filter(e -> e.getValue().equals(setFieldName))
+                        .map(Map.Entry::getKey)
+                        .findAny()
+                        .orElse(setFieldName);
+                if(row.getValue(getOuterFieldName) == null) {
+                    builder.withFieldValue(setFieldName, null);
+                    continue;
+                }
+                final Schema.Field rowField = row.getSchema().getField(getOuterFieldName);
+                if(!field.getType().getTypeName().equals(rowField.getType().getTypeName())) {
+                    builder.withFieldValue(setFieldName, null);
+                    continue;
+                }
+
+                switch (field.getType().getTypeName()) {
+                    case ITERABLE:
+                    case ARRAY: {
+                        if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
+                            final List<Row> children = new ArrayList<>();
+                            for(final Row child : row.<Row>getArray(getFieldName)) {
+                                if(child == null) {
+                                    children.add(null);
+                                } else {
+                                    children.add(toBuilder(field.getType().getCollectionElementType().getRowSchema(), child).build());
+                                }
+                            }
+                            builder.withFieldValue(setFieldName, children);
+                        } else {
+                            builder.withFieldValue(setFieldName, row.getValue(getOuterFieldName));
+                        }
+                        break;
+                    }
+                    case ROW: {
+                        final Row child = toBuilder(field.getType().getRowSchema(), row.getRow(getOuterFieldName)).build();
+                        builder.withFieldValue(setFieldName, child);
+                        break;
+                    }
+                    default:
+                        builder.withFieldValue(setFieldName, row.getValue(getOuterFieldName));
+                        break;
+                }
             } else {
                 builder.withFieldValue(setFieldName, null);
             }

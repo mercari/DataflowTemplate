@@ -620,17 +620,62 @@ public class StructSchemaUtil {
 
         final Struct.Builder builder = Struct.newBuilder();
         for(final Type.StructField field : type.getStructFields()) {
-            final String oldFieldName = renameFields.getOrDefault(field.getName(), field.getName());
-            if(!hasField(struct, oldFieldName)) {
+            final String getFieldName = renameFields.getOrDefault(field.getName(), field.getName());
+            final String setFieldName = field.getName();
+            if(!hasField(struct, getFieldName)) {
+                if(renameFields.containsValue(setFieldName)) {
+                    final String getOuterFieldName = renameFields.entrySet().stream()
+                            .filter(e -> e.getValue().equals(setFieldName))
+                            .map(Map.Entry::getKey)
+                            .findAny()
+                            .orElse(setFieldName);
+                    if(struct.isNull(getOuterFieldName)) {
+                        setNullValue(field, builder);
+                        continue;
+                    }
+                    final Type.StructField rowField = struct.getType().getStructFields().stream().filter(f -> f.getName().equals(getOuterFieldName)).findAny().get();
+                    if(!field.getType().getCode().equals(rowField.getType().getCode())) {
+                        setNullValue(field, builder);
+                        continue;
+                    }
+
+                    switch (field.getType().getCode()) {
+                        case ARRAY: {
+                            if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
+                                final List<Struct> children = new ArrayList<>();
+                                for(final Struct child : struct.getStructList(getFieldName)) {
+                                    if(child != null) {
+                                        children.add(toBuilder(field.getType().getArrayElementType(), child).build());
+                                    }
+                                }
+                                builder.set(setFieldName).toStructArray(field.getType().getArrayElementType(), children);
+                            } else {
+                                builder.set(setFieldName).to(struct.getValue(getOuterFieldName));
+                            }
+                            break;
+                        }
+                        case STRUCT: {
+                            final Struct child = toBuilder(field.getType(), struct.getStruct(getOuterFieldName)).build();
+                            builder.set(setFieldName).to(field.getType(), child);
+                            break;
+                        }
+                        default:
+                            builder.set(setFieldName).to(struct.getValue(getOuterFieldName));
+                            break;
+                    }
+                } else {
+                    setNullValue(field, builder);
+                }
+
                 continue;
             }
-            final Value value = getStructValue(struct, oldFieldName);
+            final Value value = getStructValue(struct, getFieldName);
             if(value != null) {
                 switch (field.getType().getCode()) {
                     case ARRAY: {
                         if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
                             final List<Struct> children = new ArrayList<>();
-                            for(final Struct child : struct.getStructList(oldFieldName)) {
+                            for(final Struct child : struct.getStructList(getFieldName)) {
                                 if(child == null) {
                                     children.add(null);
                                 } else {
@@ -644,7 +689,7 @@ public class StructSchemaUtil {
                         break;
                     }
                     case STRUCT: {
-                        final Struct child = toBuilder(field.getType(), struct.getStruct(oldFieldName)).build();
+                        final Struct child = toBuilder(field.getType(), struct.getStruct(getFieldName)).build();
                         builder.set(field.getName()).to(child);
                         break;
                     }
@@ -653,71 +698,10 @@ public class StructSchemaUtil {
                         break;
                 }
             } else {
-                switch (field.getType().getCode()) {
-                    case BOOL:
-                        builder.set(field.getName()).to((Boolean)null);
-                        break;
-                    case STRING:
-                        builder.set(field.getName()).to((String)null);
-                        break;
-                    case BYTES:
-                        builder.set(field.getName()).to((ByteArray) null);
-                        break;
-                    case INT64:
-                        builder.set(field.getName()).to((Long)null);
-                        break;
-                    case FLOAT64:
-                        builder.set(field.getName()).to((Double)null);
-                        break;
-                    case NUMERIC:
-                        builder.set(field.getName()).to((BigDecimal) null);
-                        break;
-                    case DATE:
-                        builder.set(field.getName()).to((Date)null);
-                        break;
-                    case TIMESTAMP:
-                        builder.set(field.getName()).to((Timestamp)null);
-                        break;
-                    case STRUCT:
-                        builder.set(field.getName()).to(field.getType(), null);
-                        break;
-                    case ARRAY: {
-                        switch (field.getType().getArrayElementType().getCode()) {
-                            case BOOL:
-                                builder.set(field.getName()).toBoolArray((Iterable<Boolean>)null);
-                                break;
-                            case BYTES:
-                                builder.set(field.getName()).toBytesArray(null);
-                                break;
-                            case STRING:
-                                builder.set(field.getName()).toStringArray(null);
-                                break;
-                            case INT64:
-                                builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
-                                break;
-                            case FLOAT64:
-                                builder.set(field.getName()).toFloat64Array((Iterable<Double>)null);
-                                break;
-                            case NUMERIC:
-                                builder.set(field.getName()).toNumericArray(null);
-                                break;
-                            case DATE:
-                                builder.set(field.getName()).toDateArray(null);
-                                break;
-                            case TIMESTAMP:
-                                builder.set(field.getName()).toTimestampArray(null);
-                                break;
-                            case STRUCT:
-                                builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
-                                break;
-                            case ARRAY:
-                                throw new IllegalStateException();
-                        }
-                        break;
-                    }
-                }
+                setNullValue(field, builder);
             }
         }
+
         return builder;
     }
 
@@ -933,6 +917,77 @@ public class StructSchemaUtil {
                 })
                 .collect(Collectors.toList());
     }
+
+    private static void setNullValue(final Type.StructField field, Struct.Builder builder) {
+        switch (field.getType().getCode()) {
+            case BOOL:
+                builder.set(field.getName()).to((Boolean)null);
+                break;
+            case JSON:
+            case STRING:
+                builder.set(field.getName()).to((String)null);
+                break;
+            case BYTES:
+                builder.set(field.getName()).to((ByteArray) null);
+                break;
+            case INT64:
+                builder.set(field.getName()).to((Long)null);
+                break;
+            case FLOAT64:
+                builder.set(field.getName()).to((Double)null);
+                break;
+            case NUMERIC:
+                builder.set(field.getName()).to((BigDecimal) null);
+                break;
+            case DATE:
+                builder.set(field.getName()).to((Date)null);
+                break;
+            case TIMESTAMP:
+                builder.set(field.getName()).to((Timestamp)null);
+                break;
+            case STRUCT:
+                builder.set(field.getName()).to(field.getType(), null);
+                break;
+            case ARRAY: {
+                switch (field.getType().getArrayElementType().getCode()) {
+                    case BOOL:
+                        builder.set(field.getName()).toBoolArray((Iterable<Boolean>)null);
+                        break;
+                    case BYTES:
+                        builder.set(field.getName()).toBytesArray(null);
+                        break;
+                    case STRING:
+                        builder.set(field.getName()).toStringArray(null);
+                        break;
+                    case INT64:
+                        builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
+                        break;
+                    case FLOAT64:
+                        builder.set(field.getName()).toFloat64Array((Iterable<Double>)null);
+                        break;
+                    case NUMERIC:
+                        builder.set(field.getName()).toNumericArray(null);
+                        break;
+                    case DATE:
+                        builder.set(field.getName()).toDateArray(null);
+                        break;
+                    case TIMESTAMP:
+                        builder.set(field.getName()).toTimestampArray(null);
+                        break;
+                    case JSON:
+                        builder.set(field.getName()).toJsonArray(null);
+                        break;
+                    case STRUCT:
+                        builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
+                        break;
+                    case ARRAY:
+                        throw new IllegalStateException();
+                }
+                break;
+            }
+        }
+    }
+
     private static List<Map<String, Value>> flattenValues(final Struct struct, final List<String> paths, final String prefix, final boolean addPrefix) {
         final Map<String, Value> properties = new HashMap<>();
         Type.StructField pathField = null;
