@@ -9,3 +9,5 @@ steps:
 substitutions:
   _BUCKET: "{SET YOUR BUCKET}"
   _REPOSITORY: "{SET YOUR GCR REPOSITORY NAME}"
+options:
+  logging: CLOUD_LOGGING_ONLY
