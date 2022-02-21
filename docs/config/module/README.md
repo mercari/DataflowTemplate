@@ -18,6 +18,7 @@
 | --- | --- | --- | --- |
 | [beamsql](transform/beamsql.md) | ○ | ○ | Process the data in a given SQL |
 | [window](transform/window.md) | ○ | ○ | Assign to the specified type of Window from the time of the specified field |
+| [union](transform/union.md) | ○ | ○ | Combines multiple inputs into a single input |
 | [filter](transform/filter.md) | ○ | ○ | Filter rows by specified criteria or to retrieve only specified columns |
 | [partition](transform/partition.md) | ○ | ○ | Splits a data collection into separate data collections based on specified conditions |
 | [eventtime](transform/eventtime.md) | ○ | ○ | Extracts the event time from a record into a specified field, or sets the time value of a specified field as the event time of the record |

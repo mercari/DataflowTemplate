@@ -16,7 +16,6 @@ import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.schemas.Schema;
@@ -119,7 +118,7 @@ public class UnionTransform implements TransformModule {
 
     private static void validateParameters(final UnionTransformParameters parameters, final List<String> inputs) {
         if(parameters == null) {
-            throw new IllegalArgumentException("BarTransform config parameters must not be empty!");
+            throw new IllegalArgumentException("UnionTransform config parameters must not be empty!");
         }
 
         final List<String> errorMessages = new ArrayList<>();
@@ -182,92 +181,6 @@ public class UnionTransform implements TransformModule {
         final PCollection<?> output = unionInputs
                 .apply("Union" + config.getName(), new Union(outputType, schema, collections, renameMap));
         return FCollection.of(config.getName(), output, outputType, schema);
-    }
-
-    public static FCollection<?> transformOld(final List<FCollection<?>> inputs, final TransformConfig config) {
-
-        final UnionTransformParameters parameters = new Gson()
-                .fromJson(config.getParameters(), UnionTransformParameters.class);
-        final DataType outputType = selectDataType(parameters, inputs);
-
-        validateParameters(parameters, inputs.stream().map(FCollection::getName).collect(Collectors.toList()));
-        setDefaultParameters(parameters);
-
-        final Schema schema = createUnionSchema(inputs, parameters);
-        final Map<String, Map<String, String>> renameMap = createRenameMap(parameters);
-        final Pipeline pipeline = inputs.get(0).getCollection().getPipeline();
-        switch (outputType) {
-            case AVRO: {
-                final org.apache.avro.Schema avroSchema = RowToRecordConverter.convertSchema(schema);
-                PCollectionList<GenericRecord> list = PCollectionList.empty(pipeline);
-                for(final FCollection<?> input : inputs) {
-                    final PCollection<GenericRecord> records = input.getCollection()
-                            .apply("Format" + config.getName() + input.getName(), new Format<>(
-                                    outputType,
-                                    input,
-                                    avroSchema.toString(),
-                                    AvroSchemaUtil::convertSchema,
-                                    (org.apache.avro.Schema s, GenericRecord r, Map<String, String> rf) -> AvroSchemaUtil.toBuilder(s, r, rf).build(),
-                                    renameMap.getOrDefault(input.getName(), new HashMap<>())))
-                            .setCoder(AvroCoder.of(avroSchema));
-                    list = list.and(records);
-                }
-                final PCollection<?> output = list.apply("Flatten" + config.getName(), Flatten.pCollections());
-                return FCollection.of(config.getName(), output, outputType, schema);
-            }
-            case ROW: {
-                PCollectionList<Row> list = PCollectionList.empty(pipeline);
-                for(final FCollection<?> input : inputs) {
-                    final PCollection<Row> rows = input.getCollection()
-                            .apply("Format" + config.getName() + input.getName(), new Format<>(
-                                    outputType,
-                                    input,
-                                    schema,
-                                    s -> s,
-                                    (Schema s, Row r, Map<String, String> rf) -> RowSchemaUtil.toBuilder(s, r, rf).build(),
-                                    renameMap.getOrDefault(input.getName(), new HashMap<>())))
-                            .setCoder(RowCoder.of(schema));
-                    list = list.and(rows);
-                }
-                final PCollection<?> output = list.apply("Flatten" + config.getName(), Flatten.pCollections());
-                return FCollection.of(config.getName(), output, outputType, schema);
-            }
-            case STRUCT: {
-                PCollectionList<Struct> list = PCollectionList.empty(pipeline);
-                for(final FCollection<?> input : inputs) {
-                    final PCollection<Struct> structs = input.getCollection()
-                            .apply("Format" + config.getName() + input.getName(), new Format<>(
-                                    outputType,
-                                    input,
-                                    RowToMutationConverter.convertSchema(schema),
-                                    s -> s,
-                                    (Type t, Struct s, Map<String, String> rf) -> StructSchemaUtil.toBuilder(t, s, rf).build(),
-                                    renameMap.getOrDefault(input.getName(), new HashMap<>())));
-                    list = list.and(structs);
-                }
-                final PCollection<?> output = list.apply("Flatten" + config.getName(), Flatten.pCollections());
-                return FCollection.of(config.getName(), output, outputType, schema);
-            }
-            case ENTITY: {
-                PCollectionList<Entity> list = PCollectionList.empty(pipeline);
-                for(final FCollection<?> input : inputs) {
-                    final PCollection<Entity> entities = input.getCollection()
-                            .apply("Format" + config.getName() + input.getName(), new Format<>(
-                                    outputType,
-                                    input,
-                                    schema,
-                                    s -> s,
-                                    (Schema s, Entity e, Map<String, String> rf) -> EntitySchemaUtil.toBuilder(s, e, rf).build(),
-                                    renameMap.getOrDefault(input.getName(), new HashMap<>())));
-                    list = list.and(entities);
-                }
-                final PCollection<?> output = list.apply("Flatten" + config.getName(), Flatten.pCollections());
-                return FCollection.of(config.getName(), output, outputType, schema);
-            }
-            default:
-                throw new IllegalArgumentException("Not supported output data typ: " + outputType.name());
-
-        }
     }
 
     public static class Union extends PTransform<PCollectionTuple, PCollection<?>> {
@@ -467,22 +380,14 @@ public class UnionTransform implements TransformModule {
             }
             return builder.build();
         } else {
-            final Map<String, Integer> counter = new HashMap<>();
+            final Set<String> fieldNames = new HashSet<>();
+            final Schema.Builder builder = Schema.builder();
             for(final FCollection<?> input : inputs) {
                 for(final Schema.Field field : input.getSchema().getFields()) {
-                    counter.compute(field.getName(), (k, v) -> v == null ? 1 : v + 1);
-                }
-            }
-
-            final Set<String> fieldNames = counter.entrySet().stream()
-                    .filter(e -> e.getValue() == inputs.size())
-                    .map(Map.Entry::getKey)
-                    .collect(Collectors.toSet());
-
-            final Schema.Builder builder = Schema.builder();
-            for(final Schema.Field field : inputs.get(0).getSchema().getFields()) {
-                if(fieldNames.contains(field.getName())) {
-                    builder.addField(field);
+                    if(!fieldNames.contains(field.getName())) {
+                        builder.addField(field);
+                        fieldNames.add(field.getName());
+                    }
                 }
             }
             return builder.build();
