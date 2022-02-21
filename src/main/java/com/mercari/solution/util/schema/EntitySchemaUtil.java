@@ -350,49 +350,87 @@ public class EntitySchemaUtil {
         builder.setKey(entity.getKey());
         final Map<String,Value> values = entity.getPropertiesMap();
         for(final Schema.Field field : schema.getFields()) {
-            final String oldName = renameFields.getOrDefault(field.getName(), field.getName());
-            if(!values.containsKey(oldName)) {
-                builder.putProperties(field.getName(), Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
-                continue;
-            }
-            switch (field.getType().getTypeName()) {
-                case ITERABLE:
-                case ARRAY: {
-                    if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
-                        final List<Entity> children = new ArrayList<>();
-                        for(final Value child : values.get(oldName).getArrayValue().getValuesList()) {
-                            if(child == null || child.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
-                                children.add(null);
-                            } else {
-                                children.add(toBuilder(field.getType().getCollectionElementType().getRowSchema(), child.getEntityValue()).build());
-                            }
-                        }
-                        final List<Value> entityValues = children.stream()
-                                .map(e -> {
-                                    if(e == null) {
-                                        return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
-                                    }
-                                    return Value.newBuilder().setEntityValue(e).build();
-                                })
-                                .collect(Collectors.toList());
-                        builder.putProperties(field.getName(), Value.newBuilder()
-                                .setArrayValue(ArrayValue.newBuilder().addAllValues(entityValues))
-                                .build());
-                    } else {
-                        builder.putProperties(field.getName(), values.get(oldName));
-                    }
-                    break;
-                }
-                case ROW: {
-                    final Entity child = toBuilder(field.getType().getRowSchema(), values.get(oldName).getEntityValue()).build();
-                    builder.putProperties(field.getName(), Value.newBuilder().setEntityValue(child).build());
-                    break;
-                }
-                default:
-                    builder.putProperties(field.getName(), values.get(oldName));
-                    break;
-            }
+            final String getFieldName = renameFields.getOrDefault(field.getName(), field.getName());
+            final String setFieldName = field.getName();
 
+            if(values.containsKey(getFieldName)) {
+                switch (field.getType().getTypeName()) {
+                    case ITERABLE:
+                    case ARRAY: {
+                        if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
+                            final List<Entity> children = new ArrayList<>();
+                            for(final Value child : values.get(getFieldName).getArrayValue().getValuesList()) {
+                                if(child == null || child.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
+                                    children.add(null);
+                                } else {
+                                    children.add(toBuilder(field.getType().getCollectionElementType().getRowSchema(), child.getEntityValue()).build());
+                                }
+                            }
+                            final List<Value> entityValues = children.stream()
+                                    .map(e -> {
+                                        if(e == null) {
+                                            return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+                                        }
+                                        return Value.newBuilder().setEntityValue(e).build();
+                                    })
+                                    .collect(Collectors.toList());
+                            builder.putProperties(field.getName(), Value.newBuilder()
+                                    .setArrayValue(ArrayValue.newBuilder().addAllValues(entityValues))
+                                    .build());
+                        } else {
+                            builder.putProperties(field.getName(), values.get(getFieldName));
+                        }
+                        break;
+                    }
+                    case ROW: {
+                        final Entity child = toBuilder(field.getType().getRowSchema(), values.get(getFieldName).getEntityValue()).build();
+                        builder.putProperties(field.getName(), Value.newBuilder().setEntityValue(child).build());
+                        break;
+                    }
+                    default:
+                        builder.putProperties(field.getName(), values.get(getFieldName));
+                        break;
+                }
+            } else if(renameFields.containsValue(setFieldName)) {
+                final String getOuterFieldName = renameFields.entrySet().stream()
+                        .filter(e -> e.getValue().equals(setFieldName))
+                        .map(Map.Entry::getKey)
+                        .findAny()
+                        .orElse(setFieldName);
+                if(!values.containsKey(getOuterFieldName) || values.get(getOuterFieldName) == null) {
+                    builder.putProperties(field.getName(), Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+                    continue;
+                }
+
+                switch (field.getType().getTypeName()) {
+                    case ITERABLE:
+                    case ARRAY: {
+                        if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
+                            final List<Value> children = new ArrayList<>();
+                            for(final Value child : values.get(getOuterFieldName).getArrayValue().getValuesList()) {
+                                if(child != null && child.getNullValue() != null && child.getEntityValue() != null) {
+                                    Entity.Builder childBuilder = toBuilder(field.getType().getCollectionElementType().getRowSchema(), child.getEntityValue());
+                                    children.add(Value.newBuilder().setEntityValue(childBuilder).build());
+                                }
+                            }
+                            builder.putProperties(setFieldName, Value.newBuilder().setArrayValue(ArrayValue.newBuilder().addAllValues(children).build()).build());
+                        } else {
+                            builder.putProperties(setFieldName, values.get(getOuterFieldName));
+                        }
+                        break;
+                    }
+                    case ROW: {
+                        final Entity child = toBuilder(field.getType().getRowSchema(), values.get(getOuterFieldName).getEntityValue()).build();
+                        builder.putProperties(setFieldName, Value.newBuilder().setEntityValue(child).build());
+                        break;
+                    }
+                    default:
+                        builder.putProperties(setFieldName, values.get(getOuterFieldName));
+                        break;
+                }
+            } else {
+                builder.putProperties(field.getName(), Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+            }
         }
         return builder;
     }

@@ -117,7 +117,7 @@ public class RowSchemaUtil {
                     case ARRAY: {
                         if(field.getType().getCollectionElementType().getTypeName().equals(Schema.TypeName.ROW)) {
                             final List<Row> children = new ArrayList<>();
-                            for(final Row child : row.<Row>getArray(getFieldName)) {
+                            for(final Row child : row.<Row>getArray(getOuterFieldName)) {
                                 if(child == null) {
                                     children.add(null);
                                 } else {

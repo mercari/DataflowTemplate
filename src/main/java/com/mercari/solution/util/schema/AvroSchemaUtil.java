@@ -351,7 +351,7 @@ public class AvroSchemaUtil {
                     case ARRAY: {
                         if(field.schema().getElementType().equals(Schema.Type.RECORD)) {
                             final List<GenericRecord> children = new ArrayList<>();
-                            for(final GenericRecord child : (Collection<GenericRecord>)record.get(getFieldName)) {
+                            for(final GenericRecord child : (Collection<GenericRecord>)record.get(getOuterFieldName)) {
                                 if(child != null) {
                                     children.add(toBuilder(field.schema().getElementType(), child).build());
                                 }

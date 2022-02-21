@@ -47,9 +47,9 @@ If the schemas of the inputs are different, they are merged into one schema.
   * The output will be the same schema as the input specified by `baseInput`.
   * You can define a mapping to the schema of the other input to match the schema of the input specified in `baseInput`.
   * If there are fields with the same name but different types, an error will occur.
-* If only `mappings` is specified
-  * Same as both `baseInput` and `mappings` are specified.
-    
+* If only `mappings` is specified (ToDo)
+  * The output will be a schema with fields having the name of the outputField specified in mappings and the associated type of one of the inputs.
+  * If there are fields with the same name but different types, an error will occur.
 
 ## Related example config files
 

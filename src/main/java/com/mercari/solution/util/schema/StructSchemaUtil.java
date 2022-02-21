@@ -643,7 +643,7 @@ public class StructSchemaUtil {
                         case ARRAY: {
                             if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
                                 final List<Struct> children = new ArrayList<>();
-                                for(final Struct child : struct.getStructList(getFieldName)) {
+                                for(final Struct child : struct.getStructList(getOuterFieldName)) {
                                     if(child != null) {
                                         children.add(toBuilder(field.getType().getArrayElementType(), child).build());
                                     }

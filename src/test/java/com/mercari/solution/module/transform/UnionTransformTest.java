@@ -5,8 +5,13 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
+import com.google.datastore.v1.Entity;
+import com.google.datastore.v1.Value;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.NullValue;
+import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
@@ -1497,6 +1502,476 @@ public class UnionTransformTest {
                 } else {
                     Assert.assertEquals(3L, Objects.requireNonNull(((Struct)row).getLong("longField")).longValue());
                     Assert.assertEquals(3.3, Objects.requireNonNull(((Struct)row).getDouble("doubleField")).doubleValue(), DELTA);
+                }
+            }
+            Assert.assertEquals(6, count);
+            return null;
+        });
+
+        pipeline.run();
+    }
+
+
+    // Entity Test
+
+    @Test
+    public void testUnionSameSchemaEntity() {
+        final TransformConfig config = new TransformConfig();
+        config.setName("union");
+        config.setModule("union");
+        config.setInputs(Arrays.asList("input1","input2","input3"));
+
+        final JsonObject parameters = new JsonObject();
+        config.setParameters(parameters);
+
+        final Schema schema1 = Schema.builder()
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .build();
+
+        final Schema schema2 = Schema.builder()
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .build();
+
+        final Schema schema3 = Schema.builder()
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .build();
+
+        final Entity entity1 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("a").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(1L).build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(1.1D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[1]).toByteArray())).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2021-01-01T01:01:01Z").getMillis())).build())
+                .build();
+
+        final Entity entity2 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("b").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(2L).build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(2.2D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[2]).toByteArray())).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2022-02-02T02:02:02Z").getMillis())).build())
+                .build();
+
+        final Entity entity3 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("c").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(3L).build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(3.3D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[3]).toByteArray())).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2023-03-03T03:03:03Z").getMillis())).build())
+                .build();
+
+        final PCollection<Entity> input1 = pipeline
+                .apply("CreateDummy1", Create.of(entity1, entity1));
+        final PCollection<Entity> input2 = pipeline
+                .apply("CreateDummy2", Create.of(entity2, entity2));
+        final PCollection<Entity> input3 = pipeline
+                .apply("CreateDummy3", Create.of(entity3, entity3));
+
+        final FCollection<Entity> fCollection1 = FCollection.of("input1", input1, DataType.ENTITY, schema1);
+        final FCollection<Entity> fCollection2 = FCollection.of("input2", input2, DataType.ENTITY, schema2);
+        final FCollection<Entity> fCollection3 = FCollection.of("input3", input3, DataType.ENTITY, schema3);
+
+        final FCollection<?> unified = UnionTransform.transform(Arrays.asList(fCollection1, fCollection2, fCollection3), config);
+
+        final Schema unifiedSchema = unified.getSchema();
+        Assert.assertEquals(6, unifiedSchema.getFieldCount());
+        Assert.assertTrue(unifiedSchema.hasField("stringField"));
+        Assert.assertTrue(unifiedSchema.hasField("longField"));
+        Assert.assertTrue(unifiedSchema.hasField("doubleField"));
+        Assert.assertTrue(unifiedSchema.hasField("booleanField"));
+        Assert.assertTrue(unifiedSchema.hasField("timestampField"));
+        Assert.assertTrue(unifiedSchema.hasField("bytesField"));
+
+        PAssert.that(unified.getCollection()).satisfies(rows -> {
+            int count = 0;
+            for (var row : rows) {
+                count++;
+                if("a".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(1L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(1.1D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2021-01-01T01:01:01Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                } else if("b".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(2L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(2.2D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2022-02-02T02:02:02Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                } else {
+                    Assert.assertEquals(3L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(3.3D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2023-03-03T03:03:03Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                }
+            }
+            Assert.assertEquals(6, count);
+            return null;
+        });
+
+        pipeline.run();
+    }
+
+    @Test
+    public void testUnionDifferentSchemaEntity() {
+        final TransformConfig config = new TransformConfig();
+        config.setName("union");
+        config.setModule("union");
+        config.setInputs(Arrays.asList("input1","input2","input3"));
+
+        final JsonObject parameters = new JsonObject();
+        config.setParameters(parameters);
+
+        final Schema schema1 = Schema.builder()
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .build();
+
+        final Schema schema2 = Schema.builder()
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .build();
+
+        final Schema schema3 = Schema.builder()
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .build();
+
+        final Entity entity1 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("a").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(1L).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .build();
+
+        final Entity entity2 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("b").build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(2.2D).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2022-02-02T02:02:02Z").getMillis())).build())
+                .build();
+
+        final Entity entity3 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("c").build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(3.3D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[3]).toByteArray())).build())
+                .build();
+
+        final PCollection<Entity> input1 = pipeline
+                .apply("CreateDummy1", Create.of(entity1, entity1));
+        final PCollection<Entity> input2 = pipeline
+                .apply("CreateDummy2", Create.of(entity2, entity2));
+        final PCollection<Entity> input3 = pipeline
+                .apply("CreateDummy3", Create.of(entity3, entity3));
+
+        final FCollection<Entity> fCollection1 = FCollection.of("input1", input1, DataType.ENTITY, schema1);
+        final FCollection<Entity> fCollection2 = FCollection.of("input2", input2, DataType.ENTITY, schema2);
+        final FCollection<Entity> fCollection3 = FCollection.of("input3", input3, DataType.ENTITY, schema3);
+
+        final FCollection<?> unified = UnionTransform.transform(Arrays.asList(fCollection1, fCollection2, fCollection3), config);
+
+        final Schema unifiedSchema = unified.getSchema();
+        Assert.assertEquals(6, unifiedSchema.getFieldCount());
+        Assert.assertTrue(unifiedSchema.hasField("stringField"));
+        Assert.assertTrue(unifiedSchema.hasField("longField"));
+        Assert.assertTrue(unifiedSchema.hasField("doubleField"));
+        Assert.assertTrue(unifiedSchema.hasField("booleanField"));
+        Assert.assertTrue(unifiedSchema.hasField("timestampField"));
+        Assert.assertTrue(unifiedSchema.hasField("bytesField"));
+
+        PAssert.that(unified.getCollection()).satisfies(rows -> {
+            int count = 0;
+            for (var row : rows) {
+                count++;
+                if("a".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("doubleField").getNullValue().name());
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("timestampField").getNullValue().name());
+                    Assert.assertEquals(1L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                } else if("b".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("longField").getNullValue().name());
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("booleanField").getNullValue().name());
+                    Assert.assertEquals(2.2D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(Instant.parse("2022-02-02T02:02:02Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                } else {
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("longField").getNullValue().name());
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("timestampField").getNullValue().name());
+                    Assert.assertEquals(3.3D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, ((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue());
+                }
+            }
+            Assert.assertEquals(6, count);
+            return null;
+        });
+
+        pipeline.run();
+    }
+
+    @Test
+    public void testUnionDifferentSchemaWithBaseInputEntity() {
+        final TransformConfig config = new TransformConfig();
+        config.setName("union");
+        config.setModule("union");
+        config.setInputs(Arrays.asList("input1","input2","input3"));
+
+        final JsonObject parameters = new JsonObject();
+        parameters.addProperty("baseInput", "input1");
+        config.setParameters(parameters);
+
+        final Schema schema1 = Schema.builder()
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .build();
+
+        final Schema schema2 = Schema.builder()
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .build();
+
+        final Schema schema3 = Schema.builder()
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .build();
+
+        final Entity entity1 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("a").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(1L).build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(1.1D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2021-01-01T01:01:01Z").getMillis())).build())
+                .build();
+
+        final Entity entity2 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("b").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(2L).build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(2.2D).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2022-02-02T02:02:02Z").getMillis())).build())
+                .build();
+
+        final Entity entity3 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("c").build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(3.3D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[3]).toByteArray())).build())
+                .build();
+
+        final PCollection<Entity> input1 = pipeline
+                .apply("CreateDummy1", Create.of(entity1, entity1));
+        final PCollection<Entity> input2 = pipeline
+                .apply("CreateDummy2", Create.of(entity2, entity2));
+        final PCollection<Entity> input3 = pipeline
+                .apply("CreateDummy3", Create.of(entity3, entity3));
+
+        final FCollection<Entity> fCollection1 = FCollection.of("input1", input1, DataType.ENTITY, schema1);
+        final FCollection<Entity> fCollection2 = FCollection.of("input2", input2, DataType.ENTITY, schema2);
+        final FCollection<Entity> fCollection3 = FCollection.of("input3", input3, DataType.ENTITY, schema3);
+
+        final FCollection<?> unified = UnionTransform.transform(Arrays.asList(fCollection1, fCollection2, fCollection3), config);
+        final Schema unifiedSchema = unified.getSchema();
+        Assert.assertEquals(5, unifiedSchema.getFieldCount());
+        Assert.assertTrue(unifiedSchema.hasField("stringField"));
+        Assert.assertTrue(unifiedSchema.hasField("longField"));
+        Assert.assertTrue(unifiedSchema.hasField("doubleField"));
+        Assert.assertTrue(unifiedSchema.hasField("booleanField"));
+        Assert.assertTrue(unifiedSchema.hasField("timestampField"));
+
+        PAssert.that(unified.getCollection()).satisfies(rows -> {
+            int count = 0;
+            for (var row : rows) {
+                count++;
+                if("a".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(1L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(1.1D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2021-01-01T01:01:01Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                } else if("b".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(2L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(2.2D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(Instant.parse("2022-02-02T02:02:02Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("booleanField").getNullValue().name());
+                } else {
+                    Assert.assertEquals(3.3D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("longField").getNullValue().name());
+                    Assert.assertEquals(NullValue.NULL_VALUE.name(), ((Entity)row).getPropertiesOrThrow("timestampField").getNullValue().name());
+                }
+            }
+            Assert.assertEquals(6, count);
+            return null;
+        });
+
+        pipeline.run();
+    }
+
+    @Test
+    public void testUnionDifferentSchemaWithMappingEntity() {
+        final TransformConfig config = new TransformConfig();
+        config.setName("union");
+        config.setModule("union");
+        config.setInputs(Arrays.asList("input1","input2","input3"));
+
+        final JsonArray mappings = new JsonArray();
+
+        // For longField
+        final JsonObject mapping1 = new JsonObject();
+        mapping1.addProperty("outputField", "longField");
+        final JsonArray mappingInputs1 = new JsonArray();
+
+        final JsonObject mappingInput1 = new JsonObject();
+        mappingInput1.addProperty("input", "input2");
+        mappingInput1.addProperty("field", "longFieldB");
+        mappingInputs1.add(mappingInput1);
+        final JsonObject mappingInput2 = new JsonObject();
+        mappingInput2.addProperty("input", "input3");
+        mappingInput2.addProperty("field", "longFieldC");
+        mappingInputs1.add(mappingInput2);
+
+        mapping1.add("inputs", mappingInputs1);
+        mappings.add(mapping1);
+
+        // For doubleField
+        final JsonObject mapping2 = new JsonObject();
+        mapping2.addProperty("outputField", "doubleField");
+        final JsonArray mappingInputs2 = new JsonArray();
+
+        final JsonObject mappingInput3 = new JsonObject();
+        mappingInput3.addProperty("input", "input2");
+        mappingInput3.addProperty("field", "doubleFieldB");
+        mappingInputs2.add(mappingInput3);
+        final JsonObject mappingInput4 = new JsonObject();
+        mappingInput4.addProperty("input", "input3");
+        mappingInput4.addProperty("field", "doubleFieldC");
+        mappingInputs2.add(mappingInput4);
+
+        mapping2.add("inputs", mappingInputs2);
+        mappings.add(mapping2);
+
+
+        final JsonObject parameters = new JsonObject();
+        parameters.addProperty("baseInput", "input1");
+        parameters.add("mappings", mappings);
+        config.setParameters(parameters);
+
+        final Schema schema1 = Schema.builder()
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("longField", Schema.FieldType.INT64.withNullable(true))
+                .addField("doubleField", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .build();
+
+        final Schema schema2 = Schema.builder()
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .addField("longFieldB", Schema.FieldType.INT64.withNullable(true))
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .addField("doubleFieldB", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .build();
+
+        final Schema schema3 = Schema.builder()
+                .addField("bytesField", Schema.FieldType.BYTES.withNullable(true))
+                .addField("longFieldC", Schema.FieldType.INT64.withNullable(true))
+                .addField("stringField", Schema.FieldType.STRING.withNullable(true))
+                .addField("doubleFieldC", Schema.FieldType.DOUBLE.withNullable(true))
+                .addField("timestampField", Schema.FieldType.DATETIME.withNullable(true))
+                .addField("booleanField", Schema.FieldType.BOOLEAN.withNullable(true))
+                .build();
+
+        final Entity entity1 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("a").build())
+                .putProperties("longField", Value.newBuilder().setIntegerValue(1L).build())
+                .putProperties("doubleField", Value.newBuilder().setDoubleValue(1.1D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[1]).toByteArray())).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2021-01-01T01:01:01Z").getMillis())).build())
+                .build();
+
+        final Entity entity2 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("b").build())
+                .putProperties("longFieldB", Value.newBuilder().setIntegerValue(2L).build())
+                .putProperties("doubleFieldB", Value.newBuilder().setDoubleValue(2.2D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[2]).toByteArray())).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2022-02-02T02:02:02Z").getMillis())).build())
+                .build();
+
+        final Entity entity3 = Entity.newBuilder()
+                .putProperties("stringField", Value.newBuilder().setStringValue("c").build())
+                .putProperties("longFieldC", Value.newBuilder().setIntegerValue(3L).build())
+                .putProperties("doubleFieldC", Value.newBuilder().setDoubleValue(3.3D).build())
+                .putProperties("booleanField", Value.newBuilder().setBooleanValue(true).build())
+                .putProperties("bytesField", Value.newBuilder().setBlobValue(ByteString.copyFrom(ByteArray.copyFrom(new byte[3]).toByteArray())).build())
+                .putProperties("timestampField", Value.newBuilder().setTimestampValue(Timestamps.fromMillis(Instant.parse("2023-03-03T03:03:03Z").getMillis())).build())
+                .build();
+
+        final PCollection<Entity> input1 = pipeline
+                .apply("CreateDummy1", Create.of(entity1, entity1));
+        final PCollection<Entity> input2 = pipeline
+                .apply("CreateDummy2", Create.of(entity2, entity2));
+        final PCollection<Entity> input3 = pipeline
+                .apply("CreateDummy3", Create.of(entity3, entity3));
+
+        final FCollection<Entity> fCollection1 = FCollection.of("input1", input1, DataType.ENTITY, schema1);
+        final FCollection<Entity> fCollection2 = FCollection.of("input2", input2, DataType.ENTITY, schema2);
+        final FCollection<Entity> fCollection3 = FCollection.of("input3", input3, DataType.ENTITY, schema3);
+
+        final FCollection<?> unified = UnionTransform.transform(Arrays.asList(fCollection1, fCollection2, fCollection3), config);
+        final Schema unifiedSchema = unified.getSchema();
+        Assert.assertEquals(6, unifiedSchema.getFieldCount());
+        Assert.assertTrue(unifiedSchema.hasField("stringField"));
+        Assert.assertTrue(unifiedSchema.hasField("longField"));
+        Assert.assertTrue(unifiedSchema.hasField("doubleField"));
+        Assert.assertTrue(unifiedSchema.hasField("booleanField"));
+        Assert.assertTrue(unifiedSchema.hasField("timestampField"));
+        Assert.assertTrue(unifiedSchema.hasField("bytesField"));
+
+        PAssert.that(unified.getCollection()).satisfies(rows -> {
+            int count = 0;
+            for (var row : rows) {
+                count++;
+                if("a".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(1L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(1.1D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2021-01-01T01:01:01Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                } else if("b".equals(((Entity)row).getPropertiesOrThrow("stringField").getStringValue())) {
+                    Assert.assertEquals(2L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(2.2D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2022-02-02T02:02:02Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
+                } else {
+                    Assert.assertEquals(3L, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("longField")).getIntegerValue());
+                    Assert.assertEquals(3.3D, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("doubleField")).getDoubleValue(), DELTA);
+                    Assert.assertEquals(true, Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("booleanField").getBooleanValue()));
+                    Assert.assertEquals(Instant.parse("2023-03-03T03:03:03Z").getMillis(), Timestamps.toMillis(Objects.requireNonNull(((Entity)row).getPropertiesOrThrow("timestampField").getTimestampValue())));
                 }
             }
             Assert.assertEquals(6, count);

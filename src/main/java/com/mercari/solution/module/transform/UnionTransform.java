@@ -380,28 +380,6 @@ public class UnionTransform implements TransformModule {
             }
             return builder.build();
         } else {
-            /*
-            final Map<String, Integer> counter = new HashMap<>();
-            for(final FCollection<?> input : inputs) {
-                for(final Schema.Field field : input.getSchema().getFields()) {
-                    counter.compute(field.getName(), (k, v) -> v == null ? 1 : v + 1);
-                }
-            }
-
-            final Set<String> fieldNames = counter.entrySet().stream()
-                    .filter(e -> e.getValue() == inputs.size())
-                    .map(Map.Entry::getKey)
-                    .collect(Collectors.toSet());
-
-            final Schema.Builder builder = Schema.builder();
-            for(final Schema.Field field : inputs.get(0).getSchema().getFields()) {
-                if(fieldNames.contains(field.getName())) {
-                    builder.addField(field);
-                }
-            }
-            return builder.build();
-            */
-
             final Set<String> fieldNames = new HashSet<>();
             final Schema.Builder builder = Schema.builder();
             for(final FCollection<?> input : inputs) {
@@ -412,10 +390,7 @@ public class UnionTransform implements TransformModule {
                     }
                 }
             }
-
             return builder.build();
-
-
         }
     }
 
