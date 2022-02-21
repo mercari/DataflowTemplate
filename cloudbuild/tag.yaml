@@ -1,0 +1,11 @@
+steps:
+  - name: 'gcr.io/cloud-builders/mvn'
+    args: ["clean", "package", "-Dimage=gcr.io/${PROJECT_ID}/${_REPOSITORY}:${TAG_NAME}"]
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ["dataflow", "flex-template", "build",
+           "gs://${_BUCKET}/${TAG_NAME}",
+           "--image", "gcr.io/${PROJECT_ID}/${_REPOSITORY}:${TAG_NAME}",
+           "--sdk-language", "JAVA"]
+substitutions:
+  _BUCKET: "{SET YOUR BUCKET}"
+  _REPOSITORY: "{SET YOUR GCR REPOSITORY NAME}"
