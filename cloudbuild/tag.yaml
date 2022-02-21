@@ -1,0 +1,19 @@
+steps:
+  - name: maven:3-jdk-11
+    entrypoint: mvn
+    args: ["clean", "package", "-Dimage=gcr.io/${PROJECT_ID}/${_REPOSITORY}:${TAG_NAME}"]
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ["dataflow", "flex-template", "build",
+           "gs://${_BUCKET}/${TAG_NAME}",
+           "--image", "gcr.io/${PROJECT_ID}/${_REPOSITORY}:${TAG_NAME}",
+           "--sdk-language", "JAVA"]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["build", "-t", "gcr.io/${PROJECT_ID}/${_REPOSITORY_LOCAL}:${TAG_NAME}", "."]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["push", "gcr.io/${PROJECT_ID}/${_REPOSITORY_LOCAL}:${TAG_NAME}"]
+substitutions:
+  _BUCKET: "{SET YOUR BUCKET}"
+  _REPOSITORY: "{SET YOUR GCR REPOSITORY NAME}"
+  _REPOSITORY_LOCAL: "{SET YOUR GCR REPOSITORY NAME FOR LOCAL TYPE}"
+options:
+  logging: CLOUD_LOGGING_ONLY
