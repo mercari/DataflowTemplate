@@ -1,5 +1,5 @@
 steps:
-  - name: 'gcr.io/cloud-builders/mvn'
+  - name: maven:3-jdk-11
     args: ["clean", "package", "-Dimage=gcr.io/${PROJECT_ID}/${_REPOSITORY}:${TAG_NAME}"]
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ["dataflow", "flex-template", "build",
