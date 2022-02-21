@@ -7,9 +7,14 @@ steps:
            "gs://${_BUCKET}/${_VERSION}",
            "--image", "gcr.io/${PROJECT_ID}/${_REPOSITORY}:${_VERSION}",
            "--sdk-language", "JAVA"]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["build", "-t", "gcr.io/${PROJECT_ID}/${_REPOSITORY_LOCAL}:${_VERSION}", "."]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["push", "gcr.io/${PROJECT_ID}/${_REPOSITORY_LOCAL}:${_VERSION}", "."]
 substitutions:
   _BUCKET: "{SET YOUR BUCKET}"
   _REPOSITORY: "{SET YOUR GCR REPOSITORY NAME}"
+  _REPOSITORY_LOCAL: "{SET YOUR GCR REPOSITORY NAME FOR LOCAL TYPE}"
   _VERSION: ${BRANCH_NAME}
 options:
   dynamic_substitutions: true
