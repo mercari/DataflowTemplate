@@ -21,6 +21,8 @@ Sink module to write the input data to a specified Cloud Datastore kind.
 | keyTemplate | optional | String | Specify the template text when you want to specify the key value by conversion using template engine [FreeMarker](https://freemarker.apache.org/) |
 | delete | optional | Boolean | true if you want to delete it instead of writing it. If true is specified, `keyFields` or `keyTemplate` must be specified. (No need to specify if the schema contains a `__key__` field) |
 | excludeFromIndexFields | optional | Array<String\> | Specify field names for which you do not want to generate indexes |
+| enableRampupThrottling | optional | Boolean | Specify true if you want to enable [ramping up traffic](https://cloud.google.com/datastore/docs/best-practices#ramping_up_traffic). The default is false |
+
 
 ### Signatures of build-in utility functions for template engine
 

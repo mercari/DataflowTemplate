@@ -49,6 +49,7 @@ public class DatastoreSink implements SinkModule {
         private String keyTemplate;
         private Boolean delete;
         private List<String> excludeFromIndexFields;
+        private Boolean enableRampupThrottling;
 
         private String separator;
 
@@ -98,6 +99,14 @@ public class DatastoreSink implements SinkModule {
 
         public void setExcludeFromIndexFields(List<String> excludeFromIndexFields) {
             this.excludeFromIndexFields = excludeFromIndexFields;
+        }
+
+        public Boolean getEnableRampupThrottling() {
+            return enableRampupThrottling;
+        }
+
+        public void setEnableRampupThrottling(Boolean enableRampupThrottling) {
+            this.enableRampupThrottling = enableRampupThrottling;
         }
 
         public String getSeparator() {
@@ -205,6 +214,9 @@ public class DatastoreSink implements SinkModule {
         if(parameters.getExcludeFromIndexFields() == null) {
             parameters.setExcludeFromIndexFields(new ArrayList<>());
         }
+        if(parameters.getEnableRampupThrottling() == null) {
+            parameters.setEnableRampupThrottling(false);
+        }
         if(parameters.getSeparator() == null) {
             parameters.setSeparator("#");
         }
@@ -265,8 +277,15 @@ public class DatastoreSink implements SinkModule {
                             .apply("DeleteEntity", delete);
                 }
             } else {
-                final DatastoreV1.Write write = DatastoreIO.v1().write()
-                        .withProjectId(Optional.ofNullable(parameters.getProjectId()).orElse(execEnvProject));
+                final DatastoreV1.Write write;
+                if(parameters.getEnableRampupThrottling()) {
+                    write = DatastoreIO.v1().write()
+                            .withProjectId(Optional.ofNullable(parameters.getProjectId()).orElse(execEnvProject));
+                } else {
+                    write = DatastoreIO.v1().write()
+                            .withRampupThrottlingDisabled()
+                            .withProjectId(Optional.ofNullable(parameters.getProjectId()).orElse(execEnvProject));
+                }
                 if(waitCollections == null) {
                     return entities.apply("WriteEntity", write);
                 } else {
