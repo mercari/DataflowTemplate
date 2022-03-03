@@ -3,6 +3,7 @@ package com.mercari.solution.util.gcp;
 import com.google.api.client.http.ByteArrayContent;
 import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.HttpTransport;
+import com.google.api.client.http.InputStreamContent;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
@@ -26,9 +27,7 @@ import org.apache.parquet.io.DelegatingSeekableInputStream;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.SeekableInputStream;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,6 +125,24 @@ public class StorageUtil {
                 .execute();
     }
 
+    public static void writeObject(Storage storage, final StorageObject object, final byte[] bytes) {
+        final ByteArrayContent content = new ByteArrayContent(object.getContentType(), bytes);
+        try {
+            storage.objects().insert(object.getBucket(), object, content).execute();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static void writeObject(Storage storage, final StorageObject object, final InputStream is) {
+        final InputStreamContent content = new InputStreamContent(object.getContentType(), is);
+        try {
+            storage.objects().insert(object.getBucket(), object, content).execute();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static String readString(final String bucket, final String object) {
         final byte[] bytes = readBytes(bucket, object);
         return new String(bytes, StandardCharsets.UTF_8);
@@ -186,6 +203,19 @@ public class StorageUtil {
         }
     }
 
+    public static void copy(final Storage storage, final String sourceGcsPath, final String destinationGcsPath) throws IOException {
+        if(sourceGcsPath == null || !sourceGcsPath.startsWith("gs://")) {
+            throw new IllegalArgumentException();
+        }
+        if(destinationGcsPath == null || !destinationGcsPath.startsWith("gs://")) {
+            throw new IllegalArgumentException();
+        }
+        final String[] sourcePaths = parseGcsPath(sourceGcsPath);
+        final String[] destinationPaths = parseGcsPath(destinationGcsPath);
+
+        storage.objects().copy(sourcePaths[0], sourcePaths[1], destinationPaths[0], destinationPaths[1], new StorageObject());
+    }
+
     public static String addFilePrefix(String output, String prefix) {
         final String[] paths = output.replaceAll("gs://", "").split("/", -1);
         if(paths.length > 1) {
@@ -242,6 +272,24 @@ public class StorageUtil {
         }
     }
 
+    public static InputStream readStream(final Storage storage, final String gcsPath) {
+        final String[] paths = parseGcsPath(gcsPath);
+        try {
+            return storage.objects().get(paths[0], paths[1]).executeMediaAsInputStream();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static void downloadTo(final Storage storage, final String gcsPath, final OutputStream os) {
+        final String[] paths = parseGcsPath(gcsPath);
+        try {
+            storage.objects().get(paths[0], paths[1]).executeMediaAndDownloadTo(os);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static InputStream readStream(final String bucket, final String object) {
         try {
             return storage().objects().get(bucket, object).executeMediaAsInputStream();
@@ -250,7 +298,7 @@ public class StorageUtil {
         }
     }
 
-    private static String[] parseGcsPath(String gcsPath) {
+    public static String[] parseGcsPath(String gcsPath) {
         if(gcsPath == null) {
             throw new IllegalArgumentException("gcsPath must not be null");
         }
