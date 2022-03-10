@@ -1,5 +1,7 @@
 package com.mercari.solution.util.aws;
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.*;
@@ -33,6 +35,14 @@ public class S3Util {
                 .build();
     }
 
+    public static AmazonS3 storage(final String accessKey, final String secretKey, final String region) {
+        return AmazonS3ClientBuilder
+                .standard()
+                .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials(accessKey, secretKey)))
+                .withRegion(region)
+                .build();
+    }
+
     public static String readString(final String s3Path,
                                     final AwsOptions options) {
 
@@ -44,6 +54,11 @@ public class S3Util {
     public static byte[] readBytes(final String s3Path, final AwsOptions options) {
         final String[] paths = parseS3Path(s3Path);
         final AmazonS3 s3 = storage(options);
+        return readBytes(s3, paths[0], paths[1]);
+    }
+
+    public static byte[] readBytes(final AmazonS3 s3, final String s3Path) {
+        final String[] paths = parseS3Path(s3Path);
         return readBytes(s3, paths[0], paths[1]);
     }
 
@@ -63,7 +78,7 @@ public class S3Util {
             final String s3Path,
             final byte[] content,
             final String type,
-            final Map<String, Object> fields,
+            final Map<String, Object> attributes,
             final Map<String, String> metadata) {
 
         final String[] paths = parseS3Path(s3Path);
@@ -72,7 +87,20 @@ public class S3Util {
         objectMetadata.setUserMetadata(metadata);
 
         try(final InputStream is = new ByteArrayInputStream(content)) {
-            s3.putObject(new PutObjectRequest(paths[0], paths[1], is, objectMetadata));
+            final PutObjectRequest request = new PutObjectRequest(paths[0], paths[1], is, objectMetadata);
+            for(Map.Entry<String, Object> entry : attributes.entrySet()) {
+                switch (entry.getKey()) {
+                    case "storageClass":
+                        request.setStorageClass((String)entry.getValue());
+                    case "objectLockMode":
+                        request.setObjectLockMode((String)entry.getValue());
+                    case "bucketKeyEnabled":
+                        request.setBucketKeyEnabled((Boolean)entry.getValue());
+                    case "redirectLocation":
+                        request.setRedirectLocation((String)entry.getValue());
+                }
+            }
+            s3.putObject(request);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -85,6 +113,29 @@ public class S3Util {
         final AmazonS3 s3 = storage(options);
         final String[] paths = parseS3Path(s3Path);
         return listFiles(s3, paths[0], paths[1]);
+    }
+
+    public static void copy(final AmazonS3 s3, final String sourcePath, final String destinationPath, final Map<String, Object> attributes) {
+        final String[] sourcePaths = parseS3Path(sourcePath);
+        final String[] destinationPaths = parseS3Path(destinationPath);
+        final CopyObjectRequest request = new CopyObjectRequest();
+        request.setSourceBucketName(sourcePaths[0]);
+        request.setSourceKey(sourcePaths[1]);
+        request.setDestinationBucketName(destinationPaths[0]);
+        request.setDestinationKey(destinationPaths[1]);
+        for(Map.Entry<String, Object> entry : attributes.entrySet()) {
+            switch (entry.getKey()) {
+                case "storageClass":
+                    request.setStorageClass((String)entry.getValue());
+                case "objectLockMode":
+                    request.setObjectLockMode((String)entry.getValue());
+                case "bucketKeyEnabled":
+                    request.setBucketKeyEnabled((Boolean)entry.getValue());
+                case "redirectLocation":
+                    request.setRedirectLocation((String)entry.getValue());
+            }
+        }
+        s3.copyObject(request);
     }
 
     private static List<S3ObjectSummary> listFiles(final AmazonS3 s3, final String bucket, final String prefix) {

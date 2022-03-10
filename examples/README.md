@@ -25,16 +25,18 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Cloud Datastore to Delete](datastore-to-delete.json)
     * [AWS S3(Avro) to Cloud Spanner](aws-avro-to-spanner.json)
     * [Cloud SQL to BigQuery](jdbc-to-bigquery.json)
+    * [Google Drive to Cloud Storage](drivefile-to-copyfile.json)
     * [Cloud Storage(Spanner Backup) to Spanner](import-spanner-backup.json)
   * Data Processing
     * [BeamSQL: Join BigQuery and Spanner table](beamsql-join-bigquery-and-spanner-to-spanner.json)
-    * [Filter](avro-to-filter-to-avro.json)
-    * [Partition](avro-to-partition-to-spanner.json)
     * [AutoML(Vertex AI endpoints) batch prediction](bigquery-to-automl-to-spanner.json)
     * [Protobuf deserialize](spanner-to-protobuf-to-avro.json)
     * [Decrypt secret data](spanner-to-decrypt-to-avro.json)
     * [SetOperation: Replace Spanner Table](setoperation-replace-spanner.json)
     * [Multi-armed bandit](pubsub-to-bandit-to-pubsub-bigquery.json)
+  * Data Flow Control
+    * [Filter](avro-to-filter-to-avro.json)
+    * [Partition](avro-to-partition-to-spanner.json)
 * Streaming processing
   * Data Transfer
     * [Cloud PubSub(Avro) to BigQuery](pubsub-avro-to-bigquery.json)
@@ -43,3 +45,5 @@ Try to find and arrange a configuration file that is similar to the data process
   * Microbatch
     * [Spanner(Microbatch) to BigQuery](spanner-microbatch-to-bigquery.json)
     * [BigQuery(Microbatch) to Spanner](bigquery-microbatch-to-spanner.json)
+  * Data Flow Control
+    * [Union PubSub messages to BigQuery](pubsub-to-union-to-bigquery.json)

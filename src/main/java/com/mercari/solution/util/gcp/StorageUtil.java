@@ -54,12 +54,17 @@ public class StorageUtil {
 
     public static String readString(final String gcsPath) {
         final String[] paths = parseGcsPath(gcsPath);
-        return readString(paths[0], paths[1]);
+        return readString(storage(), paths[0], paths[1]);
     }
 
     public static byte[] readBytes(final String gcsPath) {
         final String[] paths = parseGcsPath(gcsPath);
-        return readBytes(paths[0], paths[1]);
+        return readBytes(storage(), paths[0], paths[1]);
+    }
+
+    public static byte[] readBytes(final Storage storage, final String gcsPath) {
+        final String[] paths = parseGcsPath(gcsPath);
+        return readBytes(storage, paths[0], paths[1]);
     }
 
     public static void writeString(final String gcsPath, final String content) throws IOException {
@@ -143,14 +148,14 @@ public class StorageUtil {
         }
     }
 
-    private static String readString(final String bucket, final String object) {
-        final byte[] bytes = readBytes(bucket, object);
+    private static String readString(final Storage storage, final String bucket, final String object) {
+        final byte[] bytes = readBytes(storage, bucket, object);
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    private static byte[] readBytes(final String bucket, final String object) {
+    private static byte[] readBytes(final Storage storage, final String bucket, final String object) {
         try {
-            return ByteStreams.toByteArray(storage()
+            return ByteStreams.toByteArray(storage
                     .objects()
                     .get(bucket, object)
                     .executeMediaAsInputStream());
@@ -204,6 +209,10 @@ public class StorageUtil {
     }
 
     public static void copy(final Storage storage, final String sourceGcsPath, final String destinationGcsPath) throws IOException {
+        copy(storage, sourceGcsPath, destinationGcsPath, null);
+    }
+
+    public static void copy(final Storage storage, final String sourceGcsPath, final String destinationGcsPath, final Map<String, Object> attributes) throws IOException {
         if(sourceGcsPath == null || !sourceGcsPath.startsWith("gs://")) {
             throw new IllegalArgumentException();
         }
@@ -213,7 +222,17 @@ public class StorageUtil {
         final String[] sourcePaths = parseGcsPath(sourceGcsPath);
         final String[] destinationPaths = parseGcsPath(destinationGcsPath);
 
-        storage.objects().copy(sourcePaths[0], sourcePaths[1], destinationPaths[0], destinationPaths[1], new StorageObject());
+        final StorageObject object;
+        if(attributes == null || attributes.size() == 0) {
+            object = storage.objects().get(sourcePaths[0], sourcePaths[1]).execute();
+        } else {
+            object = new StorageObject();
+            for(final Map.Entry<String, Object> entry : attributes.entrySet()) {
+                object.set(entry.getKey(), entry.getValue());
+            }
+        }
+
+        storage.objects().copy(sourcePaths[0], sourcePaths[1], destinationPaths[0], destinationPaths[1], object);
     }
 
     public static String addFilePrefix(String output, String prefix) {
@@ -265,7 +284,7 @@ public class StorageUtil {
     }
 
     public static Schema getParquetSchema(final String bucket, final String object) {
-        try(final ParquetFileReader f = ParquetFileReader.open(new ParquetStream(readBytes(bucket, object)))) {
+        try(final ParquetFileReader f = ParquetFileReader.open(new ParquetStream(readBytes(storage(), bucket, object)))) {
             return new AvroSchemaConverter().convert(f.getFooter().getFileMetaData().getSchema());
         } catch (Exception e) {
             return null;

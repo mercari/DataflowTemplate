@@ -28,10 +28,7 @@ import org.joda.time.Instant;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,7 +55,7 @@ public class DriveUtil {
                     targetPrincipalAccount,
                     null,
                     Arrays.asList(args),
-                    300);
+                    3600);
 
             final HttpRequestInitializer initializer = new ChainingHttpRequestInitializer(
                     new HttpCredentialsAdapter(targetCredentials),
@@ -79,8 +76,19 @@ public class DriveUtil {
         return false;
     }
 
-    public static void copy(final Drive drive, final String sourceFileId, final String destinationFileId) throws IOException {
-        drive.files().copy(sourceFileId, new File().setParents(Arrays.asList(destinationFileId)));
+    public static void copy(final Drive drive, final String sourceFileId, final String destinationFileId, final Map<String, Object> attributes) throws IOException {
+        final File file;
+        if(attributes == null || attributes.size() == 0) {
+            file = drive.files().get(sourceFileId).execute();
+            file.setId(null);
+        } else {
+            file = new File();
+            for(final Map.Entry<String, Object> entry : attributes.entrySet()) {
+                file.set(entry.getKey(), entry.getValue());
+            }
+        }
+        file.setParents(Arrays.asList(destinationFileId));
+        drive.files().copy(sourceFileId, file).execute();
     }
 
     public static byte[] download(final Drive drive, final String fileId) {
