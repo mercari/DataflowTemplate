@@ -1,0 +1,42 @@
+{
+  "name": "drivefile-to-copyfile",
+  "sources": [
+    {
+      "name": "driveInput",
+      "module": "drivefile",
+      "parameters": {
+        "query": "name contains '.csv'",
+        "user": "driveuser@myproject.iam.gserviceaccount.com",
+        "folderId": "xxxxxxxxxxxxxx",
+        "fields": "files(id,name,size,originalFilename,kind,mimeType,fileExtension,createdTime)",
+        "recursive": true
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutput",
+      "module": "bigquery",
+      "input": "driveInput",
+      "parameters": {
+        "table": "myproject:mydataset.mytable",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    },
+    {
+      "name": "copyFile",
+      "module": "copyfile",
+      "input": "driveInput",
+      "parameters": {
+        "sourceService": "drive",
+        "destinationService": "gcs",
+        "source": "${id}",
+        "destination": "gs://example-bucket/drivefile/${id}",
+        "drive": {
+          "user": "driveuser@myproject.iam.gserviceaccount.com"
+        }
+      }
+    }
+  ]
+}
