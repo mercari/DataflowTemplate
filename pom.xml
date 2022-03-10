@@ -12,22 +12,22 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.36.0</beam.version>
+    <beam.version>2.37.0</beam.version>
 
     <joda.version>2.10.3</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
-    <onnx.version>1.9.0-1.5.6</onnx.version>
+    <onnx.version>1.10.2-1.5.7</onnx.version>
     <onnxruntime.version>1.10.0</onnxruntime.version>
-    <iamcredentials.version>1.1.9</iamcredentials.version>
+    <iamcredentials.version>2.0.11</iamcredentials.version>
     <tensorflow.version>1.15.0</tensorflow.version>
     <hadoop.version>3.3.1</hadoop.version>
     <hbase.version>2.4.5</hbase.version>
     <solr.version>8.11.1</solr.version>
     <jst.version>1.18.2</jst.version>
-    <mysql-connector.version>8.0.27</mysql-connector.version>
+    <mysql-connector.version>8.0.28</mysql-connector.version>
     <postgresql-connector.version>42.3.3</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.4.1</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.4.4</jdbc-socket-factory.version>
     <drive.version>v3-rev20220110-1.32.1</drive.version>
     <socketio.version>2.0.1</socketio.version>
     <junit.version>4.13.1</junit.version>
@@ -37,7 +37,7 @@
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
     <slf4j.version>1.7.32</slf4j.version>
-    <log4j.version>2.17.1</log4j.version>
+    <log4j.version>2.17.2</log4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
 

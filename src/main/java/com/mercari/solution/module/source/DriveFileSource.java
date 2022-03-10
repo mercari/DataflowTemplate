@@ -268,7 +268,7 @@ public class DriveFileSource implements SourceModule {
             if(folderId == null) {
                 q = query;
             } else {
-                q = "'" + parentFolderId + "' in parents and (" + query + " or " + "mimeType='" + DriveUtil.MIMETYPE_APPS_FOLDER + "')";
+                q = "'" + parentFolderId + "' in parents and ((" + query + ") or " + "mimeType='" + DriveUtil.MIMETYPE_APPS_FOLDER + "')";
             }
 
             Drive.Files.List list = this.service.files().list()

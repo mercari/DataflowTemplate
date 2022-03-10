@@ -9,6 +9,7 @@
 | [storage](source/storage.md) | ○ | ○(TBA) | Import data from file storage from specified path |
 | [datastore](source/datastore.md) | ○ | ○(TBA) | Import data from Cloud Datastore with a specified gql |
 | [jdbc](source/jdbc.md) | ○ | ○(TBA) | Import data from RDB using JDBC connector with a specified query |
+| [drivefile](source/drivefile.md) | ○ | - | Import file info from Google Drive |
 | [pubsub](source/pubsub.md) | - | ○ | Import data from Cloud PubSub |
 | [websocket](source/websocket.md) | - | ○ | Import data from WebSocket |
 
@@ -42,4 +43,5 @@
 | [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
 | [pubsub](sink/pubsub.md) | ○ | ○ | Publish data to specified PubSub topic |
 | [text](sink/text.md) | ○ | ○(TBA) | Create text files with the template specified for each row |
+| [copyfile](sink/copyfile.md) | ○ | ○(TODO) | Copy files between storage services |
 | [debug](sink/debug.md) | ○ | ○ | Outputting data to the log |

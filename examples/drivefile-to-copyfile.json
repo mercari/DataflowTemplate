@@ -32,7 +32,7 @@
         "sourceService": "drive",
         "destinationService": "gcs",
         "source": "${id}",
-        "destination": "gs://example-bucket/drivefile/${id}",
+        "destination": "gs://example-bucket/drivefile/${name}",
         "drive": {
           "user": "driveuser@myproject.iam.gserviceaccount.com"
         }
