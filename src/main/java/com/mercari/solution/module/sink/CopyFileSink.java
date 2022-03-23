@@ -237,7 +237,7 @@ public class CopyFileSink implements SinkModule {
         }
     }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
 
         final CopyFileSinkParameters parameters = new Gson().fromJson(config.getParameters(), CopyFileSinkParameters.class);
         validateParameters(parameters);

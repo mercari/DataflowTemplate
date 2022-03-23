@@ -14,6 +14,7 @@ public class SinkConfig implements Serializable {
     private String module;
     private String input;
     private List<String> wait;
+    private List<String> sideInputs;
     private String outputAvroSchema;
     private JsonObject parameters;
     private Boolean skip;
@@ -50,6 +51,14 @@ public class SinkConfig implements Serializable {
 
     public void setWait(List<String> wait) {
         this.wait = wait;
+    }
+
+    public List<String> getSideInputs() {
+        return sideInputs;
+    }
+
+    public void setSideInputs(List<String> sideInputs) {
+        this.sideInputs = sideInputs;
     }
 
     public String getOutputAvroSchema() {

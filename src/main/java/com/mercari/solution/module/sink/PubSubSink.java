@@ -135,16 +135,16 @@ public class PubSubSink implements SinkModule {
         protobuf
     }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        write(input, config, waits);
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        write(input, config, waits, sideInputs);
         return new HashMap<>();
     }
 
     private static void write(final FCollection<?> collection, final SinkConfig config) {
-        write(collection, config, null);
+        write(collection, config, null, null);
     }
 
-    private static void write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    private static void write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final PubSubSinkParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSinkParameters.class);
         final Write write = new Write(collection, parameters, waits);
         final PDone output = collection.getCollection().apply(config.getName(), write);

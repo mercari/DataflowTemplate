@@ -226,9 +226,9 @@ public class BigQuerySink implements SinkModule {
 
     public String getName() { return "bigquery"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
         final Map<String, FCollection<?>> outputs = new HashMap<>();
-        final FCollection<?> output = BigQuerySink.write(input, config, waits);
+        final FCollection<?> output = BigQuerySink.write(input, config, waits, sideInputs);
         outputs.put(config.getName(), output);
         final String failuresName = config.getName() + ".failures";
         outputs.put(failuresName, FCollection.of(failuresName, output.getCollection(), output.getDataType(), output.getAvroSchema()));
@@ -236,12 +236,13 @@ public class BigQuerySink implements SinkModule {
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
     public static FCollection<?> write(final FCollection<?> collection,
                                        final SinkConfig config,
-                                       final List<FCollection<?>> waitCollections) {
+                                       final List<FCollection<?>> waitCollections,
+                                       final List<FCollection<?>> sideInputs) {
 
         final BigQuerySinkParameters parameters = new Gson().fromJson(config.getParameters(), BigQuerySinkParameters.class);
 
