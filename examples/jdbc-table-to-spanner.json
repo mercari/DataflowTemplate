@@ -1,0 +1,66 @@
+{
+  "sources": [
+    {
+      "name": "inputMySQL",
+      "module": "jdbc",
+      "parameters": {
+        "url": "jdbc:mysql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.mysql.SocketFactory",
+        "driver": "com.mysql.cj.jdbc.Driver",
+        "user": "projects/myproject/secrets/myuser/versions/latest",
+        "password": "projects/myproject/secrets/mypassword/versions/latest",
+        "table": "mytable",
+        "fields": "field_a AS fieldA, field_b AS fieldB",
+        "keyFields": [
+          "pk1", "pl2"
+        ],
+        "fetchSize": 1000,
+        "enableSplit": true
+      }
+    },
+    {
+      "name": "inputPostgreSQL",
+      "module": "jdbc",
+      "parameters": {
+        "url": "jdbc:postgresql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.postgres.SocketFactory",
+        "driver": "org.postgresql.Driver",
+        "user": "projects/myproject/secrets/myuser/versions/latest",
+        "password": "projects/myproject/secrets/mypassword/versions/latest",
+        "table": "mytable",
+        "fields": "field_a AS fieldA, field_b AS fieldB",
+        "keyFields": [
+          "pk1", "pl2"
+        ],
+        "fetchSize": 1000,
+        "enableSplit": true
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "outputMySQL",
+      "module": "spanner",
+      "input": "inputMySQL",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "createTable": true,
+        "keyFields": ["fieldA"]
+      }
+    },
+    {
+      "name": "outputPostgreSQL",
+      "module": "spanner",
+      "input": "inputPostgreSQL",
+      "parameters": {
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "table": "mytable",
+        "createTable": true,
+        "keyFields": ["fielda"]
+      }
+    }
+  ]
+}
