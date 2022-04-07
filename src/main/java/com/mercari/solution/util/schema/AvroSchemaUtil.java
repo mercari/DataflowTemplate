@@ -51,6 +51,7 @@ public class AvroSchemaUtil {
         TIME,
         DATETIME,
         TIMESTAMP,
+        JSON,
         GEOGRAPHY,
         STRUCT,
         RECORD
@@ -69,6 +70,7 @@ public class AvroSchemaUtil {
     public static final Schema REQUIRED_LONG = Schema.create(Schema.Type.LONG);
     public static final Schema REQUIRED_FLOAT = Schema.create(Schema.Type.FLOAT);
     public static final Schema REQUIRED_DOUBLE = Schema.create(Schema.Type.DOUBLE);
+    public static final Schema REQUIRED_JSON = SchemaBuilder.builder().stringBuilder().prop("sqlType", "JSON").endString();
 
     public static final Schema REQUIRED_LOGICAL_DATE_TYPE = LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT));
     public static final Schema REQUIRED_LOGICAL_TIME_MILLI_TYPE = LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT));
@@ -87,6 +89,10 @@ public class AvroSchemaUtil {
     public static final Schema NULLABLE_LONG = Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.LONG));
     public static final Schema NULLABLE_FLOAT = Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.FLOAT));
     public static final Schema NULLABLE_DOUBLE = Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.DOUBLE));
+    public static final Schema NULLABLE_JSON = SchemaBuilder.unionOf()
+            .stringBuilder().prop("sqlType", "JSON").endString().and()
+            .nullType()
+            .endUnion();
 
     public static final Schema NULLABLE_LOGICAL_DATE_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT)));
     public static final Schema NULLABLE_LOGICAL_TIME_MILLI_TYPE = Schema.createUnion(Schema.create(Schema.Type.NULL), LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT)));
@@ -102,11 +108,38 @@ public class AvroSchemaUtil {
             .stringBuilder().prop("sqlType", "GEOGRAPHY").endString().and()
             .nullType()
             .endUnion();
+    public static final Schema NULLABLE_ARRAY_INT_TYPE = Schema.createUnion(
+            Schema.createArray(Schema.create(Schema.Type.INT)),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_LONG_TYPE = Schema.createUnion(
+            Schema.createArray(Schema.create(Schema.Type.LONG)),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_FLOAT_TYPE = Schema.createUnion(
+            Schema.createArray(Schema.create(Schema.Type.FLOAT)),
+            Schema.create(Schema.Type.NULL));
     public static final Schema NULLABLE_ARRAY_DOUBLE_TYPE = Schema.createUnion(
             Schema.createArray(Schema.create(Schema.Type.DOUBLE)),
             Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_DECIMAL_TYPE = Schema.createUnion(
+            Schema.createArray(LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES))),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_BOOLEAN_TYPE = Schema.createUnion(
+            Schema.createArray(Schema.create(Schema.Type.BOOLEAN)),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_TIME_TYPE = Schema.createUnion(
+            Schema.createArray(LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG))),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_DATE_TYPE = Schema.createUnion(
+            Schema.createArray(LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT))),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_TIMESTAMP_TYPE = Schema.createUnion(
+            Schema.createArray(LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG))),
+            Schema.create(Schema.Type.NULL));
     public static final Schema NULLABLE_ARRAY_STRING_TYPE = Schema.createUnion(
             Schema.createArray(Schema.create(Schema.Type.STRING)),
+            Schema.create(Schema.Type.NULL));
+    public static final Schema NULLABLE_ARRAY_JSON_TYPE = Schema.createUnion(
+            Schema.createArray(SchemaBuilder.builder().stringBuilder().prop("sqlType", "JSON").endString()),
             Schema.create(Schema.Type.NULL));
 
     public static final Schema NULLABLE_MAP_STRING = Schema.createUnion(
@@ -230,6 +263,15 @@ public class AvroSchemaUtil {
         }
         final String sqlType = schema.getProp("sqlType");
         return "GEOGRAPHY".equals(sqlType);
+    }
+
+    public static boolean isSqlTypeJson(Schema schema) {
+        if(schema.getType().equals(Schema.Type.UNION)) {
+            Schema childSchema = unnestUnion(schema);
+            return isSqlTypeJson(childSchema);
+        }
+        final String sqlType = schema.getProp("sqlType");
+        return "JSON".equals(sqlType);
     }
 
     /**
@@ -383,13 +425,13 @@ public class AvroSchemaUtil {
         return builder;
     }
 
-    public static SchemaBuilder.RecordBuilder<Schema> toSchemaBuilder(
+    public static SchemaBuilder.FieldAssembler<Schema> toSchemaBuilder(
             final Schema schema,
             final Collection<String> includeFields,
             final Collection<String> excludeFields) {
 
         SchemaBuilder.RecordBuilder<Schema> builder = SchemaBuilder.record(schema.getName());
-        final SchemaBuilder.FieldAssembler<Schema> schemaFields = builder.fields();
+        SchemaBuilder.FieldAssembler<Schema> schemaFields = builder.fields();
         for(final Schema.Field field : schema.getFields()) {
             if(includeFields != null && !includeFields.contains(field.name())) {
                 continue;
@@ -397,9 +439,9 @@ public class AvroSchemaUtil {
             if(excludeFields != null && excludeFields.contains(field.name())) {
                 continue;
             }
-            schemaFields.name(field.name()).type(field.schema()).noDefault();
+            schemaFields = schemaFields.name(field.name()).type(field.schema()).noDefault();
         }
-        return builder;
+        return schemaFields;
     }
 
     public static Schema renameFields(final Schema schema, final Map<String, String> renameFields) {
@@ -994,6 +1036,22 @@ public class AvroSchemaUtil {
         return ByteString.copyFrom(bytes);
     }
 
+    public static BigDecimal getAsBigDecimal(final Schema fieldSchema, final ByteBuffer byteBuffer) {
+        return getAsBigDecimal(fieldSchema, byteBuffer.array());
+    }
+
+    public static BigDecimal getAsBigDecimal(final Schema fieldSchema, final byte[] bytes) {
+        if(bytes == null) {
+            return null;
+        }
+        if(isLogicalTypeDecimal(fieldSchema)) {
+            final int scale = fieldSchema.getObjectProp("scale") != null ?
+                    Integer.parseInt(fieldSchema.getObjectProp("scale").toString()) : 0;
+            return BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale);
+        }
+        return null;
+    }
+
     public static String convertNumericBytesToString(final byte[] bytes, final int scale) {
         if(bytes == null) {
             return null;
@@ -1097,16 +1155,25 @@ public class AvroSchemaUtil {
             return Schema.createArray(convertSchema(fieldSchema, TableRowFieldMode.REQUIRED, parentNamespace, true));
         }
         switch(TableRowFieldType.valueOf(fieldSchema.getType())) {
-            case DATETIME:
+            case DATETIME: {
                 final Schema datetimeSchema = Schema.create(Schema.Type.STRING);
                 datetimeSchema.addProp("sqlType", "DATETIME");
                 return TableRowFieldMode.NULLABLE.equals(mode) ? Schema.createUnion(Schema.create(Schema.Type.NULL), datetimeSchema) : datetimeSchema;
-            case GEOGRAPHY:
+            }
+            case GEOGRAPHY: {
                 final Schema geoSchema = Schema.create(Schema.Type.STRING);
                 geoSchema.addProp("sqlType", "GEOGRAPHY");
                 return TableRowFieldMode.NULLABLE.equals(mode) ?
                         Schema.createUnion(Schema.create(Schema.Type.NULL), geoSchema) :
                         geoSchema;
+            }
+            case JSON: {
+                final Schema jsonSchema = Schema.create(Schema.Type.STRING);
+                jsonSchema.addProp("sqlType", "JSON");
+                return TableRowFieldMode.NULLABLE.equals(mode) ?
+                        Schema.createUnion(Schema.create(Schema.Type.NULL), jsonSchema) :
+                        jsonSchema;
+            }
             case STRING: return TableRowFieldMode.NULLABLE.equals(mode) ? NULLABLE_STRING : REQUIRED_STRING;
             case BYTES: return TableRowFieldMode.NULLABLE.equals(mode) ? NULLABLE_BYTES : REQUIRED_BYTES;
             case INT64:

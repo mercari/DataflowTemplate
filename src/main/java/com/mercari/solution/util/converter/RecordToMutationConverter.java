@@ -130,16 +130,29 @@ public class RecordToMutationConverter {
                     builder.set(fieldName).to(stringValue);
                 } else if("GEOGRAPHY".equals(sqlType)) {
                     builder.set(fieldName).to(stringValue);
+                } else if("JSON".equals(sqlType)) {
+                    builder.set(fieldName).to(stringValue);
                 } else {
                     builder.set(fieldName).to(stringValue);
                 }
                 break;
             case FIXED:
-            case BYTES:
+            case BYTES: {
                 final ByteArray bytesValue = hide ? (nullableField ? null : ByteArray.copyFrom(""))
-                        : (isNullField ? null : ByteArray.copyFrom(((ByteBuffer)value).array()));
-                builder.set(fieldName).to(bytesValue);
+                        : (isNullField ? null : ByteArray.copyFrom(((ByteBuffer) value).array()));
+                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+                    final BigDecimal decimal;
+                    if(bytesValue == null) {
+                        decimal = null;
+                    } else {
+                        decimal = AvroSchemaUtil.getAsBigDecimal(schema, bytesValue.toByteArray());
+                    }
+                    builder.set(fieldName).to(decimal);
+                } else {
+                    builder.set(fieldName).to(bytesValue);
+                }
                 break;
+            }
             case INT:
                 if(LogicalTypes.date().equals(schema.getLogicalType())) {
                     final Date dateValue = hide ? (nullableField ? null : Date.fromYearMonthDay(1970,1,1))
@@ -151,7 +164,7 @@ public class RecordToMutationConverter {
                     builder.set(fieldName).to(timeValue);
                 } else {
                     final Integer intValue = hide ? (nullableField ? null : 0) : (Integer) value;
-                    builder.set(fieldName).to(intValue);
+                    builder.set(fieldName).to(Long.valueOf(intValue));
                 }
                 break;
             case LONG:
@@ -197,7 +210,7 @@ public class RecordToMutationConverter {
                 final List list = new ArrayList();
                 final Schema elementSchema = AvroSchemaUtil.unnestUnion(schema.getElementType());
                 switch (elementSchema.getType()) {
-                    case BOOLEAN:
+                    case BOOLEAN: {
                         final List<Boolean> booleanList = hide || isNullField ? list :
                                 ((List<Boolean>) value)
                                         .stream()
@@ -205,26 +218,42 @@ public class RecordToMutationConverter {
                                         .collect(Collectors.toList());
                         builder.set(fieldName).toBoolArray(booleanList);
                         break;
+                    }
                     case ENUM:
-                    case STRING:
+                    case STRING: {
                         final List<String> stringList = hide || isNullField ? list :
                                 ((List<Object>) value)
                                         .stream()
                                         .filter(Objects::nonNull)
                                         .map(Object::toString)
                                         .collect(Collectors.toList());
-                        builder.set(fieldName).toStringArray(stringList);
+                        if(AvroSchemaUtil.isSqlTypeJson(elementSchema)) {
+                            builder.set(fieldName).toJsonArray(stringList);
+                        } else {
+                            builder.set(fieldName).toStringArray(stringList);
+                        }
                         break;
+                    }
                     case FIXED:
-                    case BYTES:
-                        final List<ByteArray> bytesList = hide || isNullField ? list :
-                                ((List<ByteBuffer>) value).stream()
-                                        .filter(Objects::nonNull)
-                                        .map(ByteBuffer::array)
-                                        .map(ByteArray::copyFrom)
-                                        .collect(Collectors.toList());
-                        builder.set(fieldName).toBytesArray(bytesList);
+                    case BYTES: {
+                        if(AvroSchemaUtil.isLogicalTypeDecimal(elementSchema)) {
+                            final List<BigDecimal> decimalList = hide || isNullField ? list :
+                                    ((List<ByteBuffer>) value).stream()
+                                            .filter(Objects::nonNull)
+                                            .map(bytes -> AvroSchemaUtil.getAsBigDecimal(elementSchema, bytes))
+                                            .collect(Collectors.toList());
+                            builder.set(fieldName).toNumericArray(decimalList);
+                        } else {
+                            final List<ByteArray> bytesList = hide || isNullField ? list :
+                                    ((List<ByteBuffer>) value).stream()
+                                            .filter(Objects::nonNull)
+                                            .map(ByteBuffer::array)
+                                            .map(ByteArray::copyFrom)
+                                            .collect(Collectors.toList());
+                            builder.set(fieldName).toBytesArray(bytesList);
+                        }
                         break;
+                    }
                     case INT:
                         final List<Integer> intList = ((List<Integer>) value);
                         if (LogicalTypes.date().equals(elementSchema.getLogicalType())) {
@@ -238,7 +267,7 @@ public class RecordToMutationConverter {
                             final List<String> timeList = hide || isNullField ? list :
                                     intList.stream()
                                             .filter(Objects::nonNull)
-                                            .map(Long::new)
+                                            .map(Long::valueOf)
                                             .map(l -> l * 1000 * 1000)
                                             .map(LocalTime::ofNanoOfDay)
                                             .map(l -> l.format(DateTimeFormatter.ISO_LOCAL_TIME))
@@ -248,7 +277,7 @@ public class RecordToMutationConverter {
                             final List<Long> integerList = hide || isNullField ? list :
                                     intList.stream()
                                             .filter(Objects::nonNull)
-                                            .map(Long::new)
+                                            .map(Long::valueOf)
                                             .collect(Collectors.toList());
                             builder.set(fieldName).toInt64Array(integerList);
                         }
@@ -339,20 +368,22 @@ public class RecordToMutationConverter {
                     return Type.string();
                 } else if("GEOGRAPHY".equals(sqlType)) {
                     return Type.string();
+                } else if("JSON".equals(sqlType)) {
+                    return Type.json();
                 }
                 return Type.string();
             }
             case FIXED:
             case BYTES:
                 if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
-                    return Type.string();
+                    return Type.numeric();
                 }
                 return Type.bytes();
             case INT:
                 if(LogicalTypes.date().equals(schema.getLogicalType())) {
                     return Type.date();
                 } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    return Type.int64();
+                    return Type.string();
                 }
                 return Type.int64();
             case LONG:
@@ -361,7 +392,7 @@ public class RecordToMutationConverter {
                 } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
                     return Type.timestamp();
                 } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
-                    return Type.int64();
+                    return Type.string();
                 }
                 return Type.int64();
             case FLOAT:

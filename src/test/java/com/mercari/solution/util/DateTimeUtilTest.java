@@ -5,6 +5,10 @@ import org.junit.Test;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Calendar;
+import java.util.Date;
 
 
 public class DateTimeUtilTest {
@@ -117,6 +121,12 @@ public class DateTimeUtilTest {
         Assert.assertEquals(
                 LocalDate.of(2020, 2, 29).toEpochDay(),
                 DateTimeUtil.toLocalDate("2020/02/29").toEpochDay());
+        Assert.assertEquals(
+                LocalDate.of(2020, 2, 29).toEpochDay(),
+                Long.valueOf(DateTimeUtil.toEpochDay(new Date(2020, Calendar.FEBRUARY, 29))).longValue());
+        Assert.assertEquals(
+                LocalDate.of(2020, 2, 29).toEpochDay(),
+                Long.valueOf(DateTimeUtil.toEpochDay(java.sql.Date.valueOf("2020-02-29"))).longValue());
     }
 
     @Test
@@ -145,6 +155,17 @@ public class DateTimeUtilTest {
     public void testToEpochMicroSecond() {
         Instant instant = Instant.parse("1970-01-01T00:00:00.123456Z");
         Assert.assertEquals(Long.valueOf(123456L), DateTimeUtil.toEpochMicroSecond(instant));
+    }
+
+    @Test
+    public void testToLocalDateTime() {
+        Instant instant1 = Instant.parse("2022-03-25T12:01:32.123Z");
+        final LocalDateTime localDateTime1 = DateTimeUtil.toLocalDateTime(instant1.toEpochMilli() * 1000L);
+        Assert.assertEquals("2022-03-25T12:01:32.123", localDateTime1.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")));
+
+        Instant instant2 = Instant.parse("2022-12-25T22:21:32.999Z");
+        final LocalDateTime localDateTime2 = DateTimeUtil.toLocalDateTime(instant2.toEpochMilli() * 1000L);
+        Assert.assertEquals("2022-12-25T22:21:32.999", localDateTime2.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")));
     }
 
 }

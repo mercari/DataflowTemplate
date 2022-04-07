@@ -144,9 +144,14 @@ public class RecordToRowConverter {
                 return Schema.FieldType.logicalType(EnumerationType.create(avroSchema.getEnumSymbols()));
             case STRING: {
                 final String sqlType = avroSchema.getProp("sqlType");
-                if ("DATETIME".equals(sqlType)) {
+                if(sqlType == null) {
+                    return Schema.FieldType.STRING;
+                }
+                if ("DATETIME".equalsIgnoreCase(sqlType)) {
                     return Schema.FieldType.DATETIME;
-                } else if("GEOGRAPHY".equals(sqlType)) {
+                } else if("JSON".equalsIgnoreCase(sqlType)) {
+                    return Schema.FieldType.STRING;
+                } else if("GEOGRAPHY".equalsIgnoreCase(sqlType)) {
                     return Schema.FieldType.STRING;
                 }
                 return Schema.FieldType.STRING;
@@ -211,8 +216,35 @@ public class RecordToRowConverter {
             builder.setOption("order", Schema.FieldType.STRING, field.order().name());
         }
         builder.setOption("pos", Schema.FieldType.INT32, field.pos());
-        field.getObjectProps().entrySet()
-                .forEach(e -> builder.setOption(e.getKey(), Schema.FieldType.STRING, e.getValue().toString()));
+
+        final org.apache.avro.Schema unnestFieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
+        if(org.apache.avro.Schema.Type.ARRAY.equals(unnestFieldSchema.getType())) {
+            AvroSchemaUtil.unnestUnion(unnestFieldSchema.getElementType()).getObjectProps()
+                    .forEach((key, value) -> {
+                        switch (key) {
+                            case "scale":
+                            case "precision":
+                                builder.setOption(key, Schema.FieldType.INT32, value);
+                                break;
+                            default:
+                                builder.setOption(key, Schema.FieldType.STRING, value.toString());
+                                break;
+                        }
+                    });
+        } else {
+            unnestFieldSchema.getObjectProps()
+                    .forEach((key, value) -> {
+                        switch (key) {
+                            case "scale":
+                            case "precision":
+                                builder.setOption(key, Schema.FieldType.INT32, value);
+                                break;
+                            default:
+                                builder.setOption(key, Schema.FieldType.STRING, value.toString());
+                                break;
+                        }
+                    });
+        }
         return builder.build();
     }
 

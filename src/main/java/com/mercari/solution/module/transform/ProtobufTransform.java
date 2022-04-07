@@ -129,10 +129,9 @@ public class ProtobufTransform implements TransformModule {
                 case AVRO: {
                     final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                     final Schema inputSchema = inputCollection.getAvroSchema();
-                    final SchemaBuilder.RecordBuilder<Schema> avroSchemaBuilder = AvroSchemaUtil
+                    final SchemaBuilder.FieldAssembler<Schema> fieldAssembler = AvroSchemaUtil
                             .toSchemaBuilder(inputSchema, null, excludeFields);
                     final Map<String, String> messageSchemas = new HashMap<>();
-                    final SchemaBuilder.FieldAssembler<Schema> fieldAssembler = avroSchemaBuilder.fields();
                     for(var field : parameters.getFields()) {
                         final Schema messageSchema = ProtoToRecordConverter.convertSchema(descriptors.get(field.getMessageName()));
                         messageSchemas.put(field.getField(), messageSchema.toString());
