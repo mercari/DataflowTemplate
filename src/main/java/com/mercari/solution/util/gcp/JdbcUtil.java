@@ -53,11 +53,22 @@ public class JdbcUtil {
             "LATERAL","LEFT","LIKE","LIMIT","LOOKUP","MERGE","NATURAL","NEW","NO","NOT","NULL","NULLS",
             "OF","ON","OR","ORDER","OUTER","OVER","PARTITION","PRECEDING","PROTO","RANGE");
 
+
     public static DataSource createDataSource(
             final String driverClassName,
             final String url,
             final String username,
             final String password) {
+
+        return createDataSource(driverClassName, url, username, password, false);
+    }
+
+    public static DataSource createDataSource(
+            final String driverClassName,
+            final String url,
+            final String username,
+            final String password,
+            final boolean readOnly) {
 
         final BasicDataSource basicDataSource = new BasicDataSource();
         basicDataSource.setDriverClassName(driverClassName);
@@ -68,6 +79,7 @@ public class JdbcUtil {
         // Wrapping the datasource as a pooling datasource
         final DataSourceConnectionFactory connectionFactory = new DataSourceConnectionFactory(basicDataSource);
         final PoolableConnectionFactory poolableConnectionFactory = new PoolableConnectionFactory(connectionFactory, null);
+
         final GenericObjectPoolConfig poolConfig = new GenericObjectPoolConfig();
         poolConfig.setMaxTotal(1);
         poolConfig.setMinIdle(0);
@@ -76,7 +88,7 @@ public class JdbcUtil {
         final GenericObjectPool connectionPool = new GenericObjectPool(poolableConnectionFactory, poolConfig);
         poolableConnectionFactory.setPool(connectionPool);
         poolableConnectionFactory.setDefaultAutoCommit(false);
-        poolableConnectionFactory.setDefaultReadOnly(false);
+        poolableConnectionFactory.setDefaultReadOnly(readOnly);
         return new PoolingDataSource(connectionPool);
     }
 
@@ -88,32 +100,9 @@ public class JdbcUtil {
             final String query,
             final List<String> prepareCalls) throws Exception {
 
-        try(final BasicDataSource basicDataSource = new BasicDataSource()) {
-
-            basicDataSource.setDriverClassName(driverClassName);
-            basicDataSource.setUrl(url);
-            basicDataSource.setUsername(username);
-            basicDataSource.setPassword(password);
-
-            final DataSourceConnectionFactory connectionFactory = new DataSourceConnectionFactory(basicDataSource);
-            final PoolableConnectionFactory poolableConnectionFactory = new PoolableConnectionFactory(connectionFactory, null);
-            final GenericObjectPoolConfig poolConfig = new GenericObjectPoolConfig();
-            poolConfig.setMaxTotal(1);
-            poolConfig.setMinIdle(0);
-            poolConfig.setMinEvictableIdleTimeMillis(10000);
-            poolConfig.setSoftMinEvictableIdleTimeMillis(30000);
-
-            try(final GenericObjectPool connectionPool = new GenericObjectPool(poolableConnectionFactory, poolConfig)) {
-                poolableConnectionFactory.setPool(connectionPool);
-                poolableConnectionFactory.setDefaultAutoCommit(false);
-                poolableConnectionFactory.setDefaultReadOnly(false);
-
-                try (final PoolingDataSource source = new PoolingDataSource(connectionPool);
-                     final Connection connection = source.getConnection()) {
-
-                    return createAvroSchemaFromQuery(connection, query, prepareCalls);
-                }
-            }
+        final DataSource source = createDataSource(driverClassName, url, username, password, true);
+        try(final Connection connection = source.getConnection()) {
+            return createAvroSchemaFromQuery(connection, query, prepareCalls);
         }
     }
 

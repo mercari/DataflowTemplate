@@ -16,6 +16,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
@@ -297,9 +298,10 @@ public class JdbcSource implements SourceModule {
         }
 
         if(parameters.getTable() != null && parameters.getKeyFields().size() == 0) {
-            final DataSource dataSource = JdbcUtil
-                    .createDataSource(parameters.driver, parameters.url, parameters.user, parameters.password);
-            try(Connection connection = dataSource.getConnection()) {
+
+            final DataSource dataSource = JdbcUtil.createDataSource(
+                    parameters.driver, parameters.url, parameters.user, parameters.password, true);
+            try(final Connection connection = dataSource.getConnection()) {
                 final JdbcUtil.DB db = JdbcUtil.extractDbFromDriver(parameters.driver);
                 parameters.setKeyFields(generateParameterFieldNames(connection, db, "", parameters.table));
             } catch (SQLException | IOException e) {
@@ -311,6 +313,15 @@ public class JdbcSource implements SourceModule {
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
 
         final JdbcSourceParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSourceParameters.class);
+        if(parameters.getUser() == null) {
+            final String serviceAccount = begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).getServiceAccount();
+            LOG.info("Using worker service account: '" + serviceAccount + "' for database user");
+            parameters.setUser(serviceAccount.replace(".gserviceaccount.com", ""));
+            parameters.setPassword("dummy");
+            if(!parameters.getUrl().contains("enableIamAuth")) {
+                parameters.setUrl(parameters.getUrl() + "&enableIamAuth=true");
+            }
+        }
 
         validateParameters(parameters);
         setDefaultParameters(parameters);
@@ -459,7 +470,7 @@ public class JdbcSource implements SourceModule {
 
             @Setup
             public void setup() throws SQLException {
-                this.dataSource = JdbcUtil.createDataSource(this.driver, this.url, user, password);
+                this.dataSource = JdbcUtil.createDataSource(this.driver, this.url, user, password, true);
                 this.connection = dataSource.getConnection();
                 this.outputSchema = AvroSchemaUtil.convertSchema(outputSchemaString);
             }
@@ -655,7 +666,7 @@ public class JdbcSource implements SourceModule {
             }
 
             protected void setup() throws SQLException {
-                this.dataSource = JdbcUtil.createDataSource(this.driver, this.url, user, password);
+                this.dataSource = JdbcUtil.createDataSource(this.driver, this.url, user, password, true);
                 this.connection = dataSource.getConnection();
                 this.outputSchema = AvroSchemaUtil.convertSchema(outputSchemaString);
 
