@@ -20,6 +20,7 @@
     <onnxruntime.version>1.10.0</onnxruntime.version>
     <iamcredentials.version>2.0.11</iamcredentials.version>
     <tensorflow.version>1.15.0</tensorflow.version>
+    <lightgbm.version>3.2.110</lightgbm.version>
     <hadoop.version>3.3.1</hadoop.version>
     <hbase.version>2.4.5</hbase.version>
     <solr.version>8.11.1</solr.version>
@@ -36,7 +37,7 @@
     <maven-jar-plugin.version>3.0.2</maven-jar-plugin.version>
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
-    <slf4j.version>1.7.32</slf4j.version>
+    <slf4j.version>1.7.36</slf4j.version>
     <log4j.version>2.17.2</log4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
@@ -251,6 +252,98 @@
       <version>${beam.version}</version>
     </dependency>
 
+    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql -->
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-extensions-sql</artifactId>
+      <version>${beam.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql-zetasql -->
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-extensions-sql-zetasql</artifactId>
+      <version>${beam.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-jdbc -->
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-io-jdbc</artifactId>
+      <version>${beam.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-parquet -->
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-io-parquet</artifactId>
+      <version>${beam.version}</version>
+    </dependency>
+
+    <!-- Big Data -->
+    <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-client -->
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client</artifactId>
+      <version>${hadoop.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
+    <dependency>
+      <groupId>org.apache.hbase</groupId>
+      <artifactId>hbase-common</artifactId>
+      <version>${hbase.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- Machine Learning -->
+    <!-- https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime -->
+    <dependency>
+      <groupId>com.microsoft.onnxruntime</groupId>
+      <artifactId>onnxruntime</artifactId>
+      <version>${onnxruntime.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx -->
+    <dependency>
+      <groupId>org.bytedeco</groupId>
+      <artifactId>onnx</artifactId>
+      <version>${onnx.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx-platform -->
+    <dependency>
+      <groupId>org.bytedeco</groupId>
+      <artifactId>onnx-platform</artifactId>
+      <version>${onnx.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.tensorflow/tensorflow -->
+    <dependency>
+      <groupId>org.tensorflow</groupId>
+      <artifactId>proto</artifactId>
+      <version>${tensorflow.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/com.microsoft.ml.lightgbm/lightgbmlib -->
+    <dependency>
+      <groupId>com.microsoft.ml.lightgbm</groupId>
+      <artifactId>lightgbmlib</artifactId>
+      <version>${lightgbm.version}</version>
+    </dependency>
+
+    <!-- Search Engine -->
     <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-langid -->
     <dependency>
       <groupId>org.apache.solr</groupId>
@@ -284,100 +377,7 @@
       <version>${jst.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql -->
-    <dependency>
-      <groupId>org.apache.beam</groupId>
-      <artifactId>beam-sdks-java-extensions-sql</artifactId>
-      <version>${beam.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-sql-zetasql -->
-    <dependency>
-      <groupId>org.apache.beam</groupId>
-      <artifactId>beam-sdks-java-extensions-sql-zetasql</artifactId>
-      <version>${beam.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-jdbc -->
-    <dependency>
-      <groupId>org.apache.beam</groupId>
-      <artifactId>beam-sdks-java-io-jdbc</artifactId>
-      <version>${beam.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-parquet -->
-    <dependency>
-      <groupId>org.apache.beam</groupId>
-      <artifactId>beam-sdks-java-io-parquet</artifactId>
-      <version>${beam.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-client -->
-    <dependency>
-      <groupId>org.apache.hadoop</groupId>
-      <artifactId>hadoop-client</artifactId>
-      <version>${hadoop.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
-    <dependency>
-      <groupId>org.apache.hbase</groupId>
-      <artifactId>hbase-common</artifactId>
-      <version>${hbase.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <dependency>
-      <groupId>joda-time</groupId>
-      <artifactId>joda-time</artifactId>
-      <version>${joda.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.freemarker/freemarker -->
-    <dependency>
-      <groupId>org.freemarker</groupId>
-      <artifactId>freemarker</artifactId>
-      <version>${freemarker.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime -->
-    <dependency>
-      <groupId>com.microsoft.onnxruntime</groupId>
-      <artifactId>onnxruntime</artifactId>
-      <version>${onnxruntime.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx -->
-    <dependency>
-      <groupId>org.bytedeco</groupId>
-      <artifactId>onnx</artifactId>
-      <version>${onnx.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx-platform -->
-    <dependency>
-      <groupId>org.bytedeco</groupId>
-      <artifactId>onnx-platform</artifactId>
-      <version>${onnx.version}</version>
-    </dependency>
-
-    <dependency>
-      <groupId>org.tensorflow</groupId>
-      <artifactId>proto</artifactId>
-      <version>${tensorflow.version}</version>
-    </dependency>
-
+    <!-- Google Services -->
     <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-iamcredentials -->
     <dependency>
       <groupId>com.google.cloud</groupId>
@@ -385,13 +385,14 @@
       <version>${iamcredentials.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-firestore -->
+    <!-- https://mvnrepository.com/artifact/com.google.apis/google-api-services-drive -->
     <dependency>
-      <groupId>com.google.cloud</groupId>
-      <artifactId>google-cloud-firestore</artifactId>
-      <version>2.1.0</version>
+      <groupId>com.google.apis</groupId>
+      <artifactId>google-api-services-drive</artifactId>
+      <version>${drive.version}</version>
     </dependency>
 
+    <!-- Databases -->
     <!-- https://mvnrepository.com/artifact/com.google.cloud.sql/mysql-socket-factory -->
     <dependency>
       <groupId>com.google.cloud.sql</groupId>
@@ -434,11 +435,18 @@
       <version>${sqlserver-connector.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/com.google.apis/google-api-services-drive -->
+    <!-- Utils -->
     <dependency>
-      <groupId>com.google.apis</groupId>
-      <artifactId>google-api-services-drive</artifactId>
-      <version>${drive.version}</version>
+      <groupId>joda-time</groupId>
+      <artifactId>joda-time</artifactId>
+      <version>${joda.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.freemarker/freemarker -->
+    <dependency>
+      <groupId>org.freemarker</groupId>
+      <artifactId>freemarker</artifactId>
+      <version>${freemarker.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/io.socket/socket.io-client -->
@@ -447,7 +455,6 @@
       <artifactId>socket.io-client</artifactId>
       <version>${socketio.version}</version>
     </dependency>
-
 
     <!-- Log -->
     <!-- Add slf4j API frontend binding with JUL backend -->

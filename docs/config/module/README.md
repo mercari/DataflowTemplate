@@ -44,4 +44,5 @@
 | [pubsub](sink/pubsub.md) | ○ | ○ | Publish data to specified PubSub topic |
 | [text](sink/text.md) | ○ | ○(TBA) | Create text files with the template specified for each row |
 | [copyfile](sink/copyfile.md) | ○ | ○(TODO) | Copy files between storage services |
+| [solrindex](sink/solrindex.md) | ○ | ○(TODO) | Write solr index file to Cloud Storage |
 | [debug](sink/debug.md) | ○ | ○ | Outputting data to the log |

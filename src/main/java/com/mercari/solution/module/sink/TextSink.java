@@ -151,15 +151,15 @@ public class TextSink implements SinkModule {
 
     public String getName() { return "text"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), TextSink.write(input, config, waits));
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        return Collections.singletonMap(config.getName(), TextSink.write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final TextSinkParameters parameters = new Gson().fromJson(config.getParameters(), TextSinkParameters.class);
         final TextWrite write = new TextWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);

@@ -57,10 +57,10 @@ public class FirestoreSink {
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waitCollections) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waitCollections, final List<FCollection<?>> sideInputs) {
         final FirestoreSinkParameters parameters = new Gson().fromJson(config.getParameters(), FirestoreSinkParameters.class);
         final FirestoreWrite write = new FirestoreWrite(collection, parameters, waitCollections);
         final PDone output = collection.getCollection().apply(config.getName(), write);

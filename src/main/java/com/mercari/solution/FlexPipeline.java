@@ -351,11 +351,22 @@ public class FlexPipeline {
                 continue;
             }
 
+            // Add waits
             final List<FCollection<?>> wait;
             if(sinkConfig.getWait() == null) {
                 wait = null;
             } else {
                 wait = sinkConfig.getWait().stream()
+                        .map(outputs::get)
+                        .collect(Collectors.toList());
+            }
+
+            // Add sideInputs
+            final List<FCollection<?>> sideInputs;
+            if(sinkConfig.getSideInputs() == null) {
+                sideInputs = new ArrayList<>();
+            } else {
+                sideInputs = sinkConfig.getSideInputs().stream()
                         .map(outputs::get)
                         .collect(Collectors.toList());
             }
@@ -369,7 +380,7 @@ public class FlexPipeline {
 
             SinkModule module = ModuleRegistry.getInstance().getSink(sinkConfig.getModule());
             if (module != null) {
-                outputs.putAll(module.expand(input, sinkConfig, wait));
+                outputs.putAll(module.expand(input, sinkConfig, wait, sideInputs));
             } else {
                 throw new UnsupportedOperationException("Module: " + sinkConfig.getModule() + " is not supported !");
             }

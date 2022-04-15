@@ -334,15 +334,15 @@ public class BigtableSink implements SinkModule {
 
     public String getName() { return "bigtable"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), BigtableSink.write(input, config, waits));
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        return Collections.singletonMap(config.getName(), BigtableSink.write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> input, final SinkConfig config) {
-        return write(input, config, null);
+        return write(input, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waits) {
+    public static FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final BigtableSinkParameters parameters = new Gson().fromJson(config.getParameters(), BigtableSinkParameters.class);
         validateParameters(parameters);
         setDefaultParameters(parameters);

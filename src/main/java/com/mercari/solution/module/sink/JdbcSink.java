@@ -130,15 +130,15 @@ public class JdbcSink implements SinkModule {
 
     public String getName() { return "jdbc"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), JdbcSink.write(input, config, waits));
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        return Collections.singletonMap(config.getName(), JdbcSink.write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final JdbcSinkParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSinkParameters.class);
         final JdbcWrite write;
         switch (collection.getDataType()) {

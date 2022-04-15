@@ -57,6 +57,11 @@ public class StorageUtil {
         return readString(storage(), paths[0], paths[1]);
     }
 
+    public static String readString(final Storage storage, final String gcsPath) {
+        final String[] paths = parseGcsPath(gcsPath);
+        return readString(storage, paths[0], paths[1]);
+    }
+
     public static byte[] readBytes(final String gcsPath) {
         final String[] paths = parseGcsPath(gcsPath);
         return readBytes(storage(), paths[0], paths[1]);
@@ -329,6 +334,20 @@ public class StorageUtil {
             throw new IllegalArgumentException("Illegal gcsPath: " + gcsPath);
         }
         return paths;
+    }
+
+    public static String getFilename(String gcsPath) {
+        if(gcsPath == null) {
+            return null;
+        }
+        if(!gcsPath.startsWith("gs://")) {
+            throw new IllegalArgumentException("gcsPath must start with gs://");
+        }
+        final String[] paths = gcsPath.replaceAll("gs://", "").split("/");
+        if(paths.length < 2) {
+            throw new IllegalArgumentException("Illegal gcsPath: " + gcsPath);
+        }
+        return paths[paths.length - 1];
     }
 
 

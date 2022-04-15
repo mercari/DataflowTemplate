@@ -6,5 +6,5 @@ import java.util.List;
 import java.util.Map;
 
 public interface SinkModule extends Module {
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits);
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs);
 }

@@ -120,15 +120,15 @@ public class DatastoreSink implements SinkModule {
 
     public String getName() { return "datastore"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), DatastoreSink.write(input, config, waits));
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        return Collections.singletonMap(config.getName(), DatastoreSink.write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waitCollections) {
+    public static FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waitCollections, final List<FCollection<?>> sideInputs) {
 
         final DatastoreSinkParameters parameters = new Gson().fromJson(config.getParameters(), DatastoreSinkParameters.class);
         validateParameters(parameters);

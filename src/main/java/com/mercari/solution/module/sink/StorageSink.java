@@ -196,15 +196,15 @@ public class StorageSink implements SinkModule {
 
     public String getName() { return "storage"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), StorageSink.write(input, config, waits));
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        return Collections.singletonMap(config.getName(), StorageSink.write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final StorageSinkParameters parameters = new Gson().fromJson(config.getParameters(), StorageSinkParameters.class);
         final StorageWrite write = new StorageWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);

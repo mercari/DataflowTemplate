@@ -75,6 +75,7 @@ The common settings of the sink module are as follows
 | --- | --- | --- | --- |
 | input | String | required | Specify the name of the module from which you want to output data. source or transform name. |
 | wait | Array<String\> | optional | If you want to wait for the completion of other steps and then start the output, assign a step Name to wait for completion. |
+| sideInputs | Array<String\> | optional | Specify the name of the input when additional information is needed for writing. |
 
 ## Settings
 

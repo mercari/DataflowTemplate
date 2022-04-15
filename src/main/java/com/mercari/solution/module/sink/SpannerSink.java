@@ -271,15 +271,15 @@ public class SpannerSink implements SinkModule {
 
     public String getName() { return "spanner"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), SpannerSink.write(input, config, waits));
+    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+        return Collections.singletonMap(config.getName(), SpannerSink.write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
+        return write(collection, config, null, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final SpannerSinkParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSinkParameters.class);
         final SpannerWrite write = new SpannerWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);
