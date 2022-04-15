@@ -43,7 +43,13 @@ public class ResultSetToRecordConverter {
             if(fieldTypeName.startsWith("_")) {
                 fieldTypeName = fieldTypeName.replaceFirst("_", "");
             }
-            schemaFields.name(fieldName).type(convertFieldSchema(fieldType, fieldTypeName.toUpperCase())).noDefault();
+            schemaFields
+                    .name(fieldName)
+                    .prop("tableName", meta.getTableName(column))
+                    .prop("columnTypeName", meta.getColumnTypeName(column))
+                    .prop("isCaseSensitive", Boolean.toString(meta.isCaseSensitive(column)))
+                    .type(convertFieldSchema(fieldType, fieldTypeName.toUpperCase()))
+                    .noDefault();
         }
         return schemaFields.endRecord();
     }
@@ -212,12 +218,17 @@ public class ResultSetToRecordConverter {
     private static Object convertFieldValue(final ResultSet resultSet, final int column, final int columnType) throws SQLException, IOException {
         switch (columnType) {
             case Types.BIT:
-            case Types.BOOLEAN:
-                return resultSet.getBoolean(column);
+            case Types.BOOLEAN: {
+                final Boolean value = resultSet.getBoolean(column);
+                if(resultSet.wasNull()) {
+                    return null;
+                }
+                return value;
+            }
             case Types.NUMERIC:
             case Types.DECIMAL: {
                 final BigDecimal decimal = resultSet.getBigDecimal(column);
-                if (decimal == null) {
+                if(resultSet.wasNull() || decimal == null) {
                     return null;
                 } else if(decimal.scale() > 9) {
                     final BigDecimal newDecimal = decimal
@@ -231,20 +242,41 @@ public class ResultSetToRecordConverter {
             }
             case Types.TINYINT:
             case Types.SMALLINT:
-            case Types.INTEGER:
-                return resultSet.getInt(column);
-            case Types.BIGINT:
-                return resultSet.getLong(column);
-            case Types.REAL:
-                return resultSet.getFloat(column);
+            case Types.INTEGER: {
+                final Integer value = resultSet.getInt(column);
+                if (resultSet.wasNull()) {
+                    return null;
+                }
+                return value;
+            }
+            case Types.BIGINT: {
+                final Long value = resultSet.getLong(column);
+                if(resultSet.wasNull()) {
+                    return null;
+                }
+                return value;
+            }
+            case Types.REAL: {
+                final Float value = resultSet.getFloat(column);
+                if(resultSet.wasNull()) {
+                    return null;
+                }
+                return value;
+            }
             case Types.FLOAT:
-            case Types.DOUBLE:
-                return resultSet.getDouble(column);
+            case Types.DOUBLE: {
+                final Double value = resultSet.getDouble(column);
+                if(resultSet.wasNull()) {
+                    return null;
+                }
+                return value;
+            }
             case Types.CHAR:
             case Types.VARCHAR:
             case Types.LONGVARCHAR:
-            case Types.OTHER:
+            case Types.OTHER: {
                 return resultSet.getString(column);
+            }
             case Types.NVARCHAR:
             case Types.NCHAR:
             case Types.LONGNVARCHAR:
@@ -261,7 +293,7 @@ public class ResultSetToRecordConverter {
             case Types.VARBINARY:
             case Types.LONGVARBINARY: {
                 byte[] binary = resultSet.getBytes(column);
-                if (binary == null) {
+                if(resultSet.wasNull() || binary == null) {
                     return null;
                 } else {
                     return ByteBuffer.wrap(binary);
@@ -269,7 +301,7 @@ public class ResultSetToRecordConverter {
             }
             case Types.BLOB: {
                 final Blob blob = resultSet.getBlob(column);
-                if (blob == null) {
+                if(resultSet.wasNull() || blob == null) {
                     return null;
                 } else {
                     byte[] bytes = IOUtils.toByteArray(blob.getBinaryStream());
@@ -279,7 +311,7 @@ public class ResultSetToRecordConverter {
             case Types.CLOB:
             case Types.NCLOB: {
                 final Clob clob = resultSet.getClob(column);
-                if (clob == null) {
+                if(resultSet.wasNull() || clob == null) {
                     return null;
                 } else {
                     return clob.getSubString(1, (int)clob.length());
@@ -288,7 +320,7 @@ public class ResultSetToRecordConverter {
             case Types.TIME:
             case Types.TIME_WITH_TIMEZONE: {
                 final Time time = resultSet.getTime(column);
-                if (time == null) {
+                if (resultSet.wasNull() || time == null) {
                     return null;
                 } else {
                     return DateTimeUtil.toMicroOfDay(time.toLocalTime());
@@ -296,7 +328,7 @@ public class ResultSetToRecordConverter {
             }
             case Types.DATE: {
                 final java.sql.Date sqlDate = resultSet.getDate(column);
-                if (sqlDate == null) {
+                if (resultSet.wasNull() || sqlDate == null) {
                     return null;
                 } else {
                     final LocalDate localDate = sqlDate.toLocalDate();
@@ -308,7 +340,7 @@ public class ResultSetToRecordConverter {
             case Types.TIMESTAMP:
             case Types.TIMESTAMP_WITH_TIMEZONE: {
                 final java.sql.Timestamp timestamp = resultSet.getTimestamp(column);
-                if (timestamp == null) {
+                if (resultSet.wasNull() || timestamp == null) {
                     return null;
                 } else if (timestamp.before(SQL_TIMESTAMP_MIN)) {
                     return SQL_TIMESTAMP_MIN.getTime() * 1000;
@@ -318,7 +350,7 @@ public class ResultSetToRecordConverter {
             }
             case Types.ARRAY: {
                 final Array array = resultSet.getArray(column);
-                if(array.getArray() == null) {
+                if(resultSet.wasNull() || array.getArray() == null) {
                     return null;
                 }
                 final List<Object> list = new ArrayList<>();

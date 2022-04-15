@@ -1,9 +1,11 @@
 package com.mercari.solution.util.gcp;
 
 import org.apache.avro.Schema;
+import org.apache.commons.codec.binary.Hex;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -53,69 +55,166 @@ public class JdbcUtilTest {
     @Test
     public void testCreateSeekPreparedQuery() {
 
-        final List<JdbcUtil.IndexOffset> startOffsets3 = new ArrayList<>();
-        startOffsets3.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 5));
-        startOffsets3.add(JdbcUtil.IndexOffset.of("intField2", Schema.Type.INT, true, 3));
-        startOffsets3.add(JdbcUtil.IndexOffset.of("intField3", Schema.Type.INT, true, 1));
+        final String table = "mytable";
+        final String fields = "intField1,intField2,intField3";
+
+        final List<JdbcUtil.IndexOffset> startOffsets1 = new ArrayList<>();
+        startOffsets1.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 5));
+        startOffsets1.add(JdbcUtil.IndexOffset.of("intField2", Schema.Type.INT, true, 3));
+        startOffsets1.add(JdbcUtil.IndexOffset.of("intField3", Schema.Type.INT, true, 1));
 
         final List<JdbcUtil.IndexOffset> stopOffsets1 = new ArrayList<>();
         stopOffsets1.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 7));
 
-        final String table = "mytable";
-        final String fields = "intField1,intField2,intField3";
-        final List<String> parameterFields = Arrays.asList("intField1", "intField2", "intField3");
-        final String preparedQuery1 = JdbcUtil.createSeekPreparedQuery(JdbcUtil.IndexPosition.of(startOffsets3, true), JdbcUtil.IndexPosition.of(stopOffsets1, false), fields, table, parameterFields, 1000);
+        final List<String> parameterFields1 = Arrays.asList("intField1", "intField2", "intField3");
+        final String preparedQuery1 = JdbcUtil.createSeekPreparedQuery(JdbcUtil.IndexPosition.of(startOffsets1, true), JdbcUtil.IndexPosition.of(stopOffsets1, false), fields, table, parameterFields1, 1000);
         Assert.assertEquals("SELECT intField1,intField2,intField3 FROM mytable WHERE ((intField1 = ? AND intField2 = ? AND intField3 > ?) OR (intField1 = ? AND intField2 > ?) OR intField1 > ?) AND (intField1 <= ?) ORDER BY intField1, intField2, intField3 LIMIT 1000", preparedQuery1);
+
+        //
+        final List<JdbcUtil.IndexOffset> startOffsets2 = new ArrayList<>();
+        startOffsets2.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 5));
+        startOffsets2.add(JdbcUtil.IndexOffset.of("intField2", Schema.Type.INT, true, null));
+
+        final List<JdbcUtil.IndexOffset> stopOffsets2 = new ArrayList<>();
+        stopOffsets2.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 7));
+
+        final List<String> parameterFields2 = Arrays.asList("intField1", "intField2");
+        final String preparedQuery2 = JdbcUtil.createSeekPreparedQuery(JdbcUtil.IndexPosition.of(startOffsets2, true), JdbcUtil.IndexPosition.of(stopOffsets2, false), fields, table, parameterFields2, 1000);
+        Assert.assertEquals("SELECT intField1,intField2,intField3 FROM mytable WHERE ((intField1 = ? AND intField2 IS NOT NULL) OR intField1 > ?) AND (intField1 <= ?) ORDER BY intField1, intField2 LIMIT 1000", preparedQuery2);
     }
 
     @Test
     public void testSplitIndexRange() {
+        // Split Integer
         final List<JdbcUtil.IndexOffset> startOffsets1 = new ArrayList<>();
         startOffsets1.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 1));
         startOffsets1.add(JdbcUtil.IndexOffset.of("intField2", Schema.Type.INT, true, 3));
         startOffsets1.add(JdbcUtil.IndexOffset.of("intField3", Schema.Type.INT, true, 1));
 
         final List<JdbcUtil.IndexOffset> stopOffsets1 = new ArrayList<>();
-        stopOffsets1.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 30));
+        stopOffsets1.add(JdbcUtil.IndexOffset.of("intField1", Schema.Type.INT, true, 3));
         stopOffsets1.add(JdbcUtil.IndexOffset.of("intField2", Schema.Type.INT, true, 70));
 
-        final JdbcUtil.IndexPosition start = JdbcUtil.IndexPosition.of(startOffsets1, true);
-        final JdbcUtil.IndexPosition stop = JdbcUtil.IndexPosition.of(stopOffsets1, false);
-        final JdbcUtil.IndexRange originalRange = JdbcUtil.IndexRange.of(start, stop);
+        final JdbcUtil.IndexPosition startPosition1 = JdbcUtil.IndexPosition.of(startOffsets1, true);
+        final JdbcUtil.IndexPosition stopPosition1 = JdbcUtil.IndexPosition.of(stopOffsets1, false);
+        final JdbcUtil.IndexRange originalRange = JdbcUtil.IndexRange.of(startPosition1, stopPosition1);
         final List<JdbcUtil.IndexRange> splittedRanges1 = JdbcUtil
                 .splitIndexRange(
                         null,
                         originalRange.getFrom().getOffsets(),
                         originalRange.getTo().getOffsets(),
                         4);
-        for(JdbcUtil.IndexRange range : splittedRanges1) {
-            // TODO
-        }
+
+        Assert.assertEquals(2, splittedRanges1.size());
+        Assert.assertEquals(1, (int)splittedRanges1.get(0).getFrom().getOffsets().get(0).getIntValue());
+        Assert.assertEquals(2, (int)splittedRanges1.get(0).getTo().getOffsets().get(0).getIntValue());
+        Assert.assertEquals(2, (int)splittedRanges1.get(1).getFrom().getOffsets().get(0).getIntValue());
+        Assert.assertEquals(3, (int)splittedRanges1.get(1).getTo().getOffsets().get(0).getIntValue());
     }
 
     @Test
     public void testSplitIndexRangeString() {
+        // isCaseSensitive
         final List<JdbcUtil.IndexOffset> startOffsets1 = new ArrayList<>();
-        startOffsets1.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, ""));
-        startOffsets1.add(JdbcUtil.IndexOffset.of("strField2", Schema.Type.STRING, true, "add"));
-        startOffsets1.add(JdbcUtil.IndexOffset.of("strField3", Schema.Type.STRING, true, "aff"));
+        startOffsets1.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "", true));
+        startOffsets1.add(JdbcUtil.IndexOffset.of("strField2", Schema.Type.STRING, true, "add", true));
+        startOffsets1.add(JdbcUtil.IndexOffset.of("strField3", Schema.Type.STRING, true, "aff", true));
 
         final List<JdbcUtil.IndexOffset> stopOffsets1 = new ArrayList<>();
-        stopOffsets1.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "znbff"));
-        stopOffsets1.add(JdbcUtil.IndexOffset.of("strField2", Schema.Type.STRING, true, "zdf"));
+        stopOffsets1.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "znbff", true));
+        stopOffsets1.add(JdbcUtil.IndexOffset.of("strField2", Schema.Type.STRING, true, "zdf", true));
 
-        final JdbcUtil.IndexPosition start = JdbcUtil.IndexPosition.of(startOffsets1, true);
-        final JdbcUtil.IndexPosition stop = JdbcUtil.IndexPosition.of(stopOffsets1, false);
-        final JdbcUtil.IndexRange originalRange = JdbcUtil.IndexRange.of(start, stop);
+        final JdbcUtil.IndexPosition startPosition1 = JdbcUtil.IndexPosition.of(startOffsets1, true);
+        final JdbcUtil.IndexPosition stopPosition1 = JdbcUtil.IndexPosition.of(stopOffsets1, false);
+        final JdbcUtil.IndexRange originalRange1 = JdbcUtil.IndexRange.of(startPosition1, stopPosition1);
         final List<JdbcUtil.IndexRange> splittedRanges1 = JdbcUtil
                 .splitIndexRange(
                         null,
-                        originalRange.getFrom().getOffsets(),
-                        originalRange.getTo().getOffsets(),
+                        originalRange1.getFrom().getOffsets(),
+                        originalRange1.getTo().getOffsets(),
                         4);
-        for(JdbcUtil.IndexRange range : splittedRanges1) {
-            // TODO
-        }
+
+        Assert.assertEquals(4, splittedRanges1.size());
+        Assert.assertEquals(3, splittedRanges1.get(0).getFrom().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(1).getFrom().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(2).getFrom().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(3).getFrom().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(0).getTo().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(1).getTo().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(2).getTo().getOffsets().size());
+        Assert.assertEquals(1, splittedRanges1.get(3).getTo().getOffsets().size());
+        Assert.assertEquals("", splittedRanges1.get(0).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("add", splittedRanges1.get(0).getFrom().getOffsets().get(1).getStringValue());
+        Assert.assertEquals("aff", splittedRanges1.get(0).getFrom().getOffsets().get(2).getStringValue());
+        Assert.assertEquals("7", splittedRanges1.get(1).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("N", splittedRanges1.get(1).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("N", splittedRanges1.get(2).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("d", splittedRanges1.get(2).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("d", splittedRanges1.get(3).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("znbff", splittedRanges1.get(3).getTo().getOffsets().get(0).getStringValue());
+
+        // isCaseInsensitive alphabet
+        final List<JdbcUtil.IndexOffset> startOffsets2 = new ArrayList<>();
+        startOffsets2.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "A", false));
+        startOffsets2.add(JdbcUtil.IndexOffset.of("strField2", Schema.Type.STRING, true, "add", false));
+
+        final List<JdbcUtil.IndexOffset> stopOffsets2 = new ArrayList<>();
+        stopOffsets2.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "d"));
+
+        final JdbcUtil.IndexPosition startPosition2 = JdbcUtil.IndexPosition.of(startOffsets2, true);
+        final JdbcUtil.IndexPosition stopPosition2 = JdbcUtil.IndexPosition.of(stopOffsets2, false);
+        final JdbcUtil.IndexRange originalRange2 = JdbcUtil.IndexRange.of(startPosition2, stopPosition2);
+        final List<JdbcUtil.IndexRange> splittedRanges2 = JdbcUtil
+                .splitIndexRange(
+                        null,
+                        originalRange2.getFrom().getOffsets(),
+                        originalRange2.getTo().getOffsets(),
+                        4);
+
+        Assert.assertEquals(3, splittedRanges2.size());
+        Assert.assertEquals("A", splittedRanges2.get(0).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("B", splittedRanges2.get(0).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("B", splittedRanges2.get(1).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("C", splittedRanges2.get(1).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("C", splittedRanges2.get(2).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("d", splittedRanges2.get(2).getTo().getOffsets().get(0).getStringValue());
+
+        // isCaseInsensitive
+        final List<JdbcUtil.IndexOffset> startOffsets3 = new ArrayList<>();
+        startOffsets3.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "y", false));
+        startOffsets3.add(JdbcUtil.IndexOffset.of("strField2", Schema.Type.STRING, true, "xyz", false));
+
+        final List<JdbcUtil.IndexOffset> stopOffsets3 = new ArrayList<>();
+        stopOffsets3.add(JdbcUtil.IndexOffset.of("strField1", Schema.Type.STRING, true, "}"));
+
+        final JdbcUtil.IndexPosition startPosition3 = JdbcUtil.IndexPosition.of(startOffsets3, true);
+        final JdbcUtil.IndexPosition stopPosition3 = JdbcUtil.IndexPosition.of(stopOffsets3, false);
+        final JdbcUtil.IndexRange originalRange3 = JdbcUtil.IndexRange.of(startPosition3, stopPosition3);
+        final List<JdbcUtil.IndexRange> splittedRanges3 = JdbcUtil
+                .splitIndexRange(
+                        null,
+                        originalRange3.getFrom().getOffsets(),
+                        originalRange3.getTo().getOffsets(),
+                        4);
+
+        Assert.assertEquals(4, splittedRanges3.size());
+        Assert.assertEquals("y", splittedRanges3.get(0).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("\\", splittedRanges3.get(0).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("\\", splittedRanges3.get(1).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("^", splittedRanges3.get(1).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("^", splittedRanges3.get(2).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("{", splittedRanges3.get(2).getTo().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("{", splittedRanges3.get(3).getFrom().getOffsets().get(0).getStringValue());
+        Assert.assertEquals("}", splittedRanges3.get(3).getTo().getOffsets().get(0).getStringValue());
     }
 
+    @Test
+    public void testIsOverTo() throws Exception {
+        byte[] start = Hex.decodeHex("28dd2d8a0de3c97e23982560e0d2b9b00408ae699c90bb2a2ab552286f6aff9f6a2b15951b0df34dffc2935c10030b47f39c16d05db5eee4280ac604aebb724f".toCharArray());
+        byte[] end = Hex.decodeHex("85".toCharArray());
+        JdbcUtil.IndexPosition startPosition = JdbcUtil.IndexPosition.of(Arrays.asList(JdbcUtil.IndexOffset.of("f1", Schema.Type.BYTES, true, ByteBuffer.wrap(start))), true);
+        JdbcUtil.IndexPosition stopPosition = JdbcUtil.IndexPosition.of(Arrays.asList(JdbcUtil.IndexOffset.of("f1", Schema.Type.BYTES, true, ByteBuffer.wrap(end))), false);
+        Assert.assertFalse(startPosition.isOverTo(stopPosition));
+    }
+    
 }

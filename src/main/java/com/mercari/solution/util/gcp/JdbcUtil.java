@@ -8,6 +8,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.dbcp2.DataSourceConnectionFactory;
 import org.apache.commons.dbcp2.PoolableConnectionFactory;
@@ -20,12 +21,14 @@ import org.slf4j.LoggerFactory;
 import javax.sql.DataSource;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.sql.*;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class JdbcUtil {
 
@@ -248,7 +251,9 @@ public class JdbcUtil {
                                     final Schema fieldSchema,
                                     final Object fieldValue) throws SQLException {
 
-        final boolean isNull = fieldValue == null;
+        if(fieldValue == null) {
+            return;
+        }
         switch (fieldSchema.getType()) {
             case BOOLEAN: {
                 statement.setBoolean(parameterIndex, (Boolean) fieldValue);
@@ -256,76 +261,39 @@ public class JdbcUtil {
             }
             case ENUM:
             case STRING: {
-                if(isNull) {
-                    statement.setString(parameterIndex, null);
-                } else {
-                    statement.setString(parameterIndex, fieldValue.toString());
-                }
+                statement.setString(parameterIndex, fieldValue.toString());
                 break;
             }
             case FIXED:
             case BYTES: {
                 if(AvroSchemaUtil.isLogicalTypeDecimal(fieldSchema)) {
-                    if(isNull) {
-                        statement.setBigDecimal(parameterIndex, null);
-                    } else {
-                        final ByteBuffer byteBuffer = (ByteBuffer) fieldValue;
-                        final BigDecimal decimal = AvroSchemaUtil.getAsBigDecimal(fieldSchema, byteBuffer);
-                        statement.setBigDecimal(parameterIndex, decimal);
-                    }
+                    final ByteBuffer byteBuffer = (ByteBuffer) fieldValue;
+                    final BigDecimal decimal = AvroSchemaUtil.getAsBigDecimal(fieldSchema, byteBuffer);
+                    statement.setBigDecimal(parameterIndex, decimal);
                 } else {
-                    if(isNull) {
-                        statement.setBytes(parameterIndex, null);
-                    } else {
-                        statement.setBytes(parameterIndex, ((ByteBuffer) fieldValue).array());
-                    }
+                    statement.setBytes(parameterIndex, ((ByteBuffer) fieldValue).array());
                 }
                 break;
             }
             case INT: {
                 final Integer value = (Integer) fieldValue;
                 if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
-                    if(isNull) {
-                        statement.setDate(parameterIndex, null);
-                    } else {
-                        statement.setDate(parameterIndex, java.sql.Date.valueOf(LocalDate.ofEpochDay(Long.valueOf(value))));
-                    }
+                    statement.setDate(parameterIndex, java.sql.Date.valueOf(LocalDate.ofEpochDay(Long.valueOf(value))));
                 } else if(LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
-                    if(isNull) {
-                        statement.setTime(parameterIndex, null);
-                    } else {
-                        statement.setTime(parameterIndex, Time.valueOf(LocalTime.ofNanoOfDay(Long.valueOf(value) * 1000_000L)));
-                    }
+                    statement.setTime(parameterIndex, Time.valueOf(LocalTime.ofNanoOfDay(Long.valueOf(value) * 1000_000L)));
                 } else {
-                    try {
-                        statement.setInt(parameterIndex, value);
-
-                    }catch (NullPointerException e) {
-                        throw new RuntimeException("Statement: " + statement + ", fieldSchema: " + fieldSchema + ", parameterIndex: " + parameterIndex + ", value: " + value, e);
-                    }
+                    statement.setInt(parameterIndex, value);
                 }
                 break;
             }
             case LONG: {
                 final Long value = (Long) fieldValue;
                 if(LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
-                    if(isNull) {
-                        statement.setTimestamp(parameterIndex, null);
-                    } else {
-                        statement.setTimestamp(parameterIndex, java.sql.Timestamp.valueOf(DateTimeUtil.toLocalDateTime(value * 1000L)));
-                    }
+                    statement.setTimestamp(parameterIndex, java.sql.Timestamp.valueOf(DateTimeUtil.toLocalDateTime(value * 1000L)));
                 } else if(LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
-                    if(isNull) {
-                        statement.setTimestamp(parameterIndex, null);
-                    } else {
-                        statement.setTimestamp(parameterIndex, java.sql.Timestamp.valueOf(DateTimeUtil.toLocalDateTime(value)));
-                    }
+                    statement.setTimestamp(parameterIndex, java.sql.Timestamp.valueOf(DateTimeUtil.toLocalDateTime(value)));
                 } else if(LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
-                    if(isNull) {
-                        statement.setTime(parameterIndex, null);
-                    } else {
-                        statement.setTime(parameterIndex, Time.valueOf(LocalTime.ofNanoOfDay(Long.valueOf(value) * 1000L)));
-                    }
+                    statement.setTime(parameterIndex, Time.valueOf(LocalTime.ofNanoOfDay(Long.valueOf(value) * 1000L)));
                 } else {
                     statement.setLong(parameterIndex, value);
                 }
@@ -340,10 +308,12 @@ public class JdbcUtil {
                 break;
             }
             case NULL: {
-                statement.setObject(parameterIndex, null);
                 break;
             }
-            case UNION:
+            case UNION: {
+                setStatement(statement, parameterIndex, AvroSchemaUtil.unnestUnion(fieldSchema), fieldValue);
+                break;
+            }
             case MAP:
             case RECORD:
             case ARRAY:
@@ -519,34 +489,45 @@ public class JdbcUtil {
             case INT:
                 splitOffsets = splitInteger(firstFromOffset.getFieldName(),
                         firstFromOffset.getIntValue(), firstToOffset.getIntValue(),
-                        firstToOffset.getAscending(), splitNum);
+                        firstFromOffset.getAscending(), splitNum);
                 break;
             case LONG:
                 splitOffsets = splitLong(firstFromOffset.getFieldName(),
                         firstFromOffset.getLongValue(), firstToOffset.getLongValue(),
-                        firstToOffset.getAscending(), splitNum);
+                        firstFromOffset.getAscending(), splitNum);
                 break;
             case FLOAT:
                 splitOffsets = splitFloat(firstFromOffset.getFieldName(),
                         firstFromOffset.getFloatValue(), firstToOffset.getFloatValue(),
-                        firstToOffset.getAscending(), splitNum);
+                        firstFromOffset.getAscending(), splitNum);
                 break;
             case DOUBLE:
                 splitOffsets = splitDouble(firstFromOffset.getFieldName(),
                         firstFromOffset.getDoubleValue(), firstToOffset.getDoubleValue(),
-                        firstToOffset.getAscending(), splitNum);
+                        firstFromOffset.getAscending(), splitNum);
                 break;
             case ENUM:
             case STRING: {
                 splitOffsets = splitString(firstFromOffset.getFieldName(),
                         firstFromOffset.getStringValue(), firstToOffset.getStringValue(),
-                        firstToOffset.getAscending(), splitNum);
+                        firstFromOffset.getAscending(), splitNum,
+                        firstFromOffset.getIsCaseSensitive());
                 break;
             }
             case FIXED:
-            case BYTES:
+            case BYTES: {
+                splitOffsets = splitBytes(firstFromOffset.getFieldName(),
+                        firstFromOffset.getBytesValue(), firstToOffset.getBytesValue(),
+                        firstFromOffset.getAscending(), splitNum);
+                break;
+            }
+            case UNION:
+            case RECORD:
+            case MAP:
+            case ARRAY:
+            case NULL:
             default: {
-                throw new IllegalArgumentException();
+                throw new IllegalArgumentException("Not supported range type: " + firstFromOffset.getFieldType());
             }
         }
 
@@ -557,6 +538,7 @@ public class JdbcUtil {
 
         if(splitOffsets.size() == 0) {
             if(from.size() > 1 && to.size() > 1 && false) {
+                // TODO recursive splitting
                 return splitIndexRange(parentOffsets, from.subList(1, from.size()), to.subList(1, to.size()), splitNum);
             } else {
                 return Arrays.asList(IndexRange.of(
@@ -591,93 +573,146 @@ public class JdbcUtil {
     }
 
     private static List<IndexOffset> splitInteger(final String name, Integer min, Integer max, final boolean ascending, final int splitNum) {
-        if(min == null) {
-            min = 0;
-        }
-        if (max == null) {
+        final double boundSize;
+        final List<IndexOffset> results = new ArrayList<>();
+        if(min == null && max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.INT, ascending, null));
+            return results;
+        } else if(min == null) {
+            results.add(IndexOffset.of(name, Schema.Type.INT, ascending, null));
+            min = Integer.MIN_VALUE;
+        } else if(max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.INT, ascending, null));
             max = Integer.MAX_VALUE;
         }
-        if(min == max) {
-            return new ArrayList<>();
-        }
-        final List<IndexOffset> results = new ArrayList<>();
-        final double boundSize = (double)(max - min) / splitNum;
+        boundSize = Math.abs((max.doubleValue() / splitNum) - (min.doubleValue() / splitNum));
+
         int prev = min;
         for(int i=1; i<splitNum; i++) {
             int next = (int)Math.round(min + boundSize * i);
-            if(prev == next || next > max) {
+            if(prev == next || next >= max) {
                 continue;
             }
             results.add(IndexOffset.of(name, Schema.Type.INT, ascending, next));
+            prev = next;
         }
         results.add(IndexOffset.of(name, Schema.Type.INT, ascending, max));
         return results;
     }
 
     private static List<IndexOffset> splitLong(final String name, Long min, Long max, final boolean ascending, final int splitNum) {
-        if(min == null) {
-            min = 0L;
-        }
-        if (max == null) {
+        final double boundSize;
+        final List<IndexOffset> results = new ArrayList<>();
+        if(min == null && max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.LONG, ascending, null));
+            return results;
+        } else if(min == null) {
+            results.add(IndexOffset.of(name, Schema.Type.LONG, ascending, null));
+            min = Long.MIN_VALUE;
+        } else if(max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.LONG, ascending, null));
             max = Long.MAX_VALUE;
         }
-        final List<IndexOffset> results = new ArrayList<>();
-        final double boundSize = (double)((max - min) / splitNum);
+        boundSize = Math.abs((max.doubleValue() / splitNum) - (min.doubleValue() / splitNum));
+
         long prev = min;
         for(int i=1; i<splitNum; i++) {
             long next = Math.round(min + boundSize * i);
-            if(prev == next || next > max) {
+            if(prev == next || next >= max) {
                 continue;
             }
             results.add(IndexOffset.of(name, Schema.Type.LONG, ascending, next));
+            prev = next;
         }
         results.add(IndexOffset.of(name, Schema.Type.LONG, ascending, max));
         return results;
     }
 
     private static List<IndexOffset> splitFloat(final String name, Float min, Float max, final boolean ascending, final int splitNum) {
-        if(min == null) {
-            min = 0F;
-        }
-        if (max == null) {
+        final float boundSize;
+        final List<IndexOffset> results = new ArrayList<>();
+        if(min == null && max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.FLOAT, ascending, null));
+            return results;
+        } else if(min == null) {
+            results.add(IndexOffset.of(name, Schema.Type.FLOAT, ascending, null));
+            min = Float.MIN_VALUE;
+        } else if(max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.FLOAT, ascending, null));
             max = Float.MAX_VALUE;
         }
-        final List<IndexOffset> results = new ArrayList<>();
-        final float boundSize = (max - min) / splitNum;
+        boundSize = Math.abs((max / splitNum) - (min / splitNum));
+
         float prev = min;
         for(int i=1; i<splitNum; i++) {
             float next = min + boundSize * i;
-            if(prev == next || next > max) {
+            if(prev == next || next >= max) {
                 continue;
             }
             results.add(IndexOffset.of(name, Schema.Type.FLOAT, ascending, next));
+            prev = next;
         }
         results.add(IndexOffset.of(name, Schema.Type.FLOAT, ascending, max));
         return results;
     }
 
     private static List<IndexOffset> splitDouble(final String name, Double min, Double max, final boolean ascending, final int splitNum) {
-        if(min == null) {
-            min = 0D;
-        }
-        if (max == null) {
+        final double boundSize;
+        final List<IndexOffset> results = new ArrayList<>();
+        if(min == null && max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.DOUBLE, ascending, null));
+            return results;
+        } else if(min == null) {
+            results.add(IndexOffset.of(name, Schema.Type.DOUBLE, ascending, null));
+            min = Double.MIN_VALUE;
+        } else if(max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.DOUBLE, ascending, null));
             max = Double.MAX_VALUE;
         }
-        final List<IndexOffset> results = new ArrayList<>();
-        final double boundSize = (max - min) / splitNum;
+        boundSize = Math.abs((max / splitNum) - (min / splitNum));
+
         double prev = min;
         for(int i=1; i<splitNum; i++) {
             double next = (min + boundSize * i);
-            if(prev == next || next > max) {
+            if(prev == next || next >= max) {
                 continue;
             }
             results.add(IndexOffset.of(name, Schema.Type.DOUBLE, ascending, next));
+            prev = next;
         }
         results.add(IndexOffset.of(name, Schema.Type.DOUBLE, ascending, max));
         return results;
     }
 
-    public static List<IndexOffset> splitString(final String name, String min, String max, final boolean ascending, final int splitNum) {
+    private static List<IndexOffset> splitNumeric(final String name, BigDecimal min, BigDecimal max, final boolean ascending, final int splitNum) {
+        final BigDecimal boundSize;
+        final List<IndexOffset> results = new ArrayList<>();
+        if(min == null && max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, null));
+            return results;
+        } else if(min == null) {
+            results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, null));
+            min = BigDecimal.valueOf(Double.MIN_VALUE);
+        } else if(max == null) {
+            results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, null));
+            max = BigDecimal.valueOf(Double.MAX_VALUE);
+        }
+        boundSize = max.subtract(min).divide(BigDecimal.valueOf(splitNum)).abs();
+
+        BigDecimal prev = min;
+        for(int i=1; i<splitNum; i++) {
+            BigDecimal next = min.add((boundSize.multiply(BigDecimal.valueOf(i))));
+            if(prev == next || next.subtract(max).doubleValue() >= 0D) {
+                continue;
+            }
+            results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, next));
+            prev = next;
+        }
+        results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, max));
+        return results;
+    }
+
+    public static List<IndexOffset> splitString(final String name, String min, String max, final boolean ascending, final int splitNum, final boolean isCaseSensitive) {
         if(min == null || min.length() == 0) {
             final StringBuilder sb = new StringBuilder();
             sb.append(String.valueOf((char) 33).repeat(32));
@@ -685,45 +720,75 @@ public class JdbcUtil {
         }
         if(max == null || max.length() == 0) {
             final StringBuilder sb = new StringBuilder();
-            sb.append(String.valueOf((char) 126).repeat(32));
+            if(isCaseSensitive) {
+                sb.append(String.valueOf((char) 126).repeat(32));
+            } else {
+                sb.append(String.valueOf((char) 126 - 26).repeat(32));
+            }
             max = sb.toString();
         }
 
         final char[] mins = min.toCharArray();
         final char[] maxs = max.toCharArray();
-        final List<String> strs = splitChar(mins, maxs, 0, splitNum);
+        final List<String> strs = splitChar(mins, maxs, 0, splitNum, isCaseSensitive);
         return strs.stream()
                 .map(s -> IndexOffset.of(name, Schema.Type.STRING, ascending, s))
                 .collect(Collectors.toList());
     }
 
-    private static List<IndexOffset> splitNumeric(final String name, BigDecimal min, BigDecimal max, final boolean ascending, final int splitNum) {
-        if(min == null) {
-            min = BigDecimal.ZERO;
-        }
-        if (max == null) {
-            max = BigDecimal.valueOf(Double.MAX_VALUE);
-        }
-        final List<IndexOffset> results = new ArrayList<>();
-        final BigDecimal boundSize = (max.subtract(min)).divide(BigDecimal.valueOf(splitNum));
-        BigDecimal prev = min;
-        for(int i=1; i<splitNum; i++) {
-            BigDecimal next = min.add((boundSize.multiply(BigDecimal.valueOf(i))));
-            if(prev == next || next.subtract(max).doubleValue() > 0D) {
-                continue;
+    public static List<IndexOffset> splitBytes(final String name, ByteBuffer min, ByteBuffer max, final boolean ascending, final int splitNum) {
+        if(min == null && max == null) {
+            return Arrays.asList(IndexOffset.of(name, Schema.Type.BYTES, ascending, null));
+        } else if(min == null) {
+            byte[] bytes = new byte[32];
+            for(int i=0; i<32; i++) {
+                bytes[i] = -128;
             }
-            results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, next));
+            min = ByteBuffer.wrap(bytes);
+        } else if(max == null) {
+            byte[] bytes = new byte[32];
+            for(int i=0; i<32; i++) {
+                bytes[i] = 127;
+            }
+            max = ByteBuffer.wrap(bytes);
         }
-        results.add(IndexOffset.of(name, Schema.Type.BYTES, ascending, max));
-        return results;
+
+        final byte[] mins = min.array();
+        final byte[] maxs = max.array();
+
+        final List<byte[]> bytes = splitByte(mins, maxs, 0, splitNum);
+        return bytes.stream()
+                .map(ByteBuffer::wrap)
+                .map(s -> IndexOffset.of(name, Schema.Type.BYTES, ascending, s))
+                .collect(Collectors.toList());
     }
 
-    private static List<String> splitChar(char[] min, char[] max, int index, int splitNum) {
+    static List<String> splitChar(char[] min, char[] max, int index, int splitNum, final boolean isCaseSensitive) {
         if(index >= min.length || index >= max.length) {
             return new ArrayList<>();
         }
-        final char cmin = min[index];
-        final char cmax = max[index];
+        final char cmin;
+        final char cmax;
+        if(isCaseSensitive) {
+            cmin = min[index];
+            cmax = max[index];
+        } else {
+            if(min[index] >= 97 && min[index] <= 122) {
+                cmin = (char)(min[index] - 32);
+            } else if(min[index] >= 123) {
+                cmin = (char)(min[index] - 26);
+            } else {
+                cmin = min[index];
+            }
+            if(max[index] >= 97 && max[index] <= 122) {
+                cmax = (char)(max[index] - 32);
+            } else if(max[index] >= 123) {
+                cmax = (char)(max[index] - 26);
+            } else {
+                cmax = max[index];
+            }
+        }
+
         final int diff = cmax - cmin;
         if(diff < 0) {
             throw new IllegalStateException("Illegal string min: " + min + ", max: " + max);
@@ -732,17 +797,24 @@ public class JdbcUtil {
                     min,
                     max,
                     index + 1,
-                    splitNum);
+                    splitNum,
+                    isCaseSensitive);
         } else {
             final List<Character> results = new ArrayList<>();
             final double boundSize = (double)diff / (double)splitNum;
             char prev = cmin;
             for(int i=1; i<splitNum; i++) {
                 char next = (char)Math.round(cmin + boundSize * i);
-                if(prev == next || next > cmax) {
+                if(prev == next || next >= cmax) {
                     continue;
                 }
+                if(!isCaseSensitive) {
+                    if(next >= 97 && next <= 122) {
+                        next = (char)(next + 26);
+                    }
+                }
                 results.add(next);
+                prev = next;
             }
             results.add(cmax);
 
@@ -757,6 +829,50 @@ public class JdbcUtil {
                 strs.add(String.valueOf(prefix));
             }
             strs.add(String.valueOf(max));
+            return strs;
+        }
+    }
+
+    static List<byte[]> splitByte(byte[] min, byte[] max, int index, int splitNum) {
+        if(index >= min.length || index >= max.length) {
+            return new ArrayList<>();
+        }
+        final byte cmin = min[index];
+        final byte cmax = max[index];
+        final int diff = cmax - cmin;
+        if(diff < 0) {
+            throw new IllegalStateException("Illegal byte at index: " + index + ", min: " + cmin + ", max: " + cmax);
+        } else if(diff == 0) {
+            return splitByte(
+                    min,
+                    max,
+                    index + 1,
+                    splitNum);
+        } else {
+            final List<Byte> results = new ArrayList<>();
+            final double boundSize = (double)diff / (double)splitNum;
+            byte prev = cmin;
+            for(int i=1; i<splitNum; i++) {
+                byte next = (byte)Math.round(cmin + boundSize * i);
+                if(prev == next || next >= cmax) {
+                    continue;
+                }
+                results.add(next);
+                prev = next;
+            }
+            results.add(cmax);
+
+            byte[] prefix = new byte[index + 1];
+            for(int i=0; i<index; i++) {
+                prefix[i] = min[i];
+            }
+
+            final List<byte[]> strs = new ArrayList<>();
+            for(int i=0; i<results.size() - 1; i++) {
+                prefix[index] = results.get(i);
+                strs.add(Arrays.copyOf(prefix, prefix.length));
+            }
+            strs.add(Arrays.copyOf(max, max.length));
             return strs;
         }
     }
@@ -794,20 +910,30 @@ public class JdbcUtil {
 
         if(offsets.size() == 1) {
             final IndexOffset offset = offsets.get(0);
-            final String operation = (isStart ? Condition.GREATER : Condition.LESSER).getName(offset.getAscending()) + (isOpen ? "" : "=");
-            final String condition = offset.getFieldName() + " " + operation + " ?";
-            return Arrays.asList(condition);
+            if(offset.getValue() == null) {
+                return Arrays.asList(offset.getFieldName() + (isOpen ? " IS NOT NULL" : " IS NULL"));
+            } else {
+                final String operation = (isStart ? Condition.GREATER : Condition.LESSER).getName(offset.getAscending()) + (isOpen ? "" : "=");
+                final String condition = offset.getFieldName() + " " + operation + " ?";
+                return Arrays.asList(condition);
+            }
         }
         final List<String> andConditions = new ArrayList<>();
         for(int i=0; i<offsets.size()-1; i++) {
             final IndexOffset offset = offsets.get(i);
-            final String andCondition = offset.getFieldName() + " = ?";
-            andConditions.add(andCondition);
+            if(offset.getValue() == null) {
+                andConditions.add(offset.getFieldName() + " IS NULL");
+            } else {
+                andConditions.add(offset.getFieldName() + " = ?");
+            }
         }
         final IndexOffset offset = offsets.get(offsets.size() - 1);
-        final String operation = (isStart ? Condition.GREATER : Condition.LESSER).getName(offset.getAscending()) + (isOpen ? "" : "=");
-        final String andCondition = offset.getFieldName() + " " + operation + " ?";
-        andConditions.add(andCondition);
+        if(offset.getValue() == null) {
+            andConditions.add(offset.getFieldName() + (isOpen ? " IS NOT NULL" : " IS NULL"));
+        } else {
+            final String operation = (isStart ? Condition.GREATER : Condition.LESSER).getName(offset.getAscending()) + (isOpen ? "" : "=");
+            andConditions.add(offset.getFieldName() + " " + operation + " ?");
+        }
 
         final String condition = "(" + String.join(" AND ", andConditions) + ")";
         final List<String> conditions = new ArrayList<>();
@@ -834,7 +960,9 @@ public class JdbcUtil {
             }
             final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
             JdbcUtil.setStatement(statement, paramIndex, fieldSchema, value);
-            paramIndex = paramIndex + 1;
+            if(value != null) {
+                paramIndex = paramIndex + 1;
+            }
         }
         if(offsets.size() > 0) {
             paramIndex = setStatementParameters(
@@ -904,6 +1032,12 @@ public class JdbcUtil {
         private Float floatValue;
         @Nullable
         private Double doubleValue;
+
+        @Nullable
+        private String logicalType;
+
+        @Nullable
+        private Boolean isCaseSensitive;
 
 
         public String getFieldName() {
@@ -986,6 +1120,22 @@ public class JdbcUtil {
             this.doubleValue = doubleValue;
         }
 
+        public String getLogicalType() {
+            return logicalType;
+        }
+
+        public void setLogicalType(String logicalType) {
+            this.logicalType = logicalType;
+        }
+
+        public Boolean getIsCaseSensitive() {
+            return isCaseSensitive;
+        }
+
+        public void setIsCaseSensitive(Boolean caseSensitive) {
+            isCaseSensitive = caseSensitive;
+        }
+
         public Object getValue() {
             switch (this.fieldType) {
                 case BOOLEAN: {
@@ -1049,7 +1199,12 @@ public class JdbcUtil {
                 }
                 case FIXED:
                 case BYTES: {
-                    return this.bytesValue.compareTo(another.getBytesValue());
+                    if("decimal".equals(logicalType)) {
+                        return BigDecimal.valueOf(new BigInteger(this.bytesValue.array()).longValue(), 9)
+                                .compareTo(BigDecimal.valueOf(new BigInteger(another.bytesValue.array()).longValue(), 9));
+                    }
+                    return new String(Hex.encodeHex(this.bytesValue.array()))
+                            .compareTo(new String(Hex.encodeHex(another.bytesValue.array())));
                 }
                 case INT: {
                     return this.intValue.compareTo(another.getIntValue());
@@ -1079,14 +1234,82 @@ public class JdbcUtil {
         public String toString() {
             return String.format("IndexOffset: %s = %s",
                     this.getFieldName() + (this.getAscending() ? "" : "(DESC)"),
-                    this.getValue());
+                    this.valueToString());
+        }
+
+        private String valueToString() {
+            if(getValue() == null) {
+                return "null";
+            }
+            switch (this.fieldType) {
+                case BOOLEAN: {
+                    return this.booleanValue.toString();
+                }
+                case ENUM:
+                case STRING: {
+                    return this.stringValue;
+                }
+                case FIXED:
+                case BYTES: {
+                    if("decimal".equals(logicalType)) {
+                        return BigDecimal.valueOf(new BigInteger(this.bytesValue.array()).longValue(), 9).toString();
+                    }
+                    return new String(Hex.encodeHex(this.bytesValue.array()));
+                }
+                case INT: {
+                    if("date".equals(logicalType)) {
+                        return LocalDate.ofEpochDay(this.intValue).toString();
+                    } else if("time-millis".equals(logicalType)) {
+                        return LocalTime.ofNanoOfDay(1000000L * this.intValue).toString();
+                    }
+                    return this.intValue.toString();
+                }
+                case LONG: {
+                    if("timestamp-micros".equals(logicalType)) {
+                        return DateTimeUtil.toLocalDateTime(this.longValue).toString();
+                    } else if("time-micros".equals(logicalType)) {
+                        return LocalTime.ofNanoOfDay(1000L * this.intValue).toString();
+                    }
+                    return this.longValue.toString();
+                }
+                case FLOAT: {
+                    return this.floatValue.toString();
+                }
+                case DOUBLE: {
+                    return this.doubleValue.toString();
+                }
+                case NULL:
+                    return null;
+                case UNION:
+                case MAP:
+                case RECORD:
+                case ARRAY:
+                default: {
+                    throw new IllegalArgumentException("Not supported range type: " + fieldType);
+                }
+            }
         }
 
         public static IndexOffset of(final String fieldName, final Schema.Type fieldType, final Boolean ascending, final Object value) {
+            return of(fieldName, fieldType, ascending, value, null, true);
+        }
+
+        public static IndexOffset of(final String fieldName, final Schema.Type fieldType, final Boolean ascending, final Object value, final String logicalType) {
+            return of(fieldName, fieldType, ascending, value, logicalType, true);
+        }
+
+        public static IndexOffset of(final String fieldName, final Schema.Type fieldType, final Boolean ascending, final Object value, final boolean isCaseSensitive) {
+            return of(fieldName, fieldType, ascending, value, null, isCaseSensitive);
+        }
+
+        public static IndexOffset of(final String fieldName, final Schema.Type fieldType, final Boolean ascending, final Object value,
+                                     final String logicalType, final boolean isCaseSensitive) {
             final IndexOffset indexOffset = new IndexOffset();
             indexOffset.setFieldName(fieldName);
             indexOffset.setFieldType(fieldType);
             indexOffset.setAscending(ascending);
+            indexOffset.setLogicalType(logicalType);
+            indexOffset.setIsCaseSensitive(isCaseSensitive);
             switch (fieldType) {
                 case BOOLEAN: {
                     indexOffset.booleanValue = (Boolean) value;
@@ -1209,7 +1432,7 @@ public class JdbcUtil {
             final String o = this.offsets.stream()
                     .map(offset -> String.format("%s = %s",
                             offset.getFieldName() + (offset.getAscending() ? "" : "(DESC)"),
-                            offset.getValue()))
+                            offset.valueToString()))
                     .collect(Collectors.joining(", "));
 
             return o + " [open=" + isOpen + "]";

@@ -9,7 +9,7 @@
         "user": "projects/myproject/secrets/myuser/versions/latest",
         "password": "projects/myproject/secrets/mypassword/versions/latest",
         "table": "mytable",
-        "fields": "field_a AS fieldA, field_b AS fieldB",
+        "fields": "pk1, pk2, field_a AS fieldA, field_b AS fieldB",
         "keyFields": [
           "pk1", "pl2"
         ],
@@ -26,7 +26,7 @@
         "user": "projects/myproject/secrets/myuser/versions/latest",
         "password": "projects/myproject/secrets/mypassword/versions/latest",
         "table": "mytable",
-        "fields": "field_a AS fieldA, field_b AS fieldB",
+        "fields": "pk1, pl2, field_a AS fieldA, field_b AS fieldB, field_c AS fieldC",
         "keyFields": [
           "pk1", "pl2"
         ],
@@ -46,7 +46,7 @@
         "databaseId": "mydatabase",
         "table": "mytable",
         "createTable": true,
-        "keyFields": ["fieldA"]
+        "keyFields": ["pk1", "pk2"]
       }
     },
     {
@@ -59,7 +59,7 @@
         "databaseId": "mydatabase",
         "table": "mytable",
         "createTable": true,
-        "keyFields": ["fielda"]
+        "keyFields": ["pk1", "pk2"]
       }
     }
   ]

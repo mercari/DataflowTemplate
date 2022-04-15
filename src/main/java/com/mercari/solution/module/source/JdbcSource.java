@@ -367,6 +367,18 @@ public class JdbcSource implements SourceModule {
                 } else {
                     outputSchema = queryOutputSchema;
                 }
+
+                final List<String> notFoundKeyFields = new ArrayList<>();
+                for(final String keyField : parameters.getKeyFields()) {
+                    Schema.Field field = outputSchema.getField(keyField);
+                    if(field == null && outputSchema.getField(keyField.toLowerCase()) == null) {
+                        notFoundKeyFields.add(keyField);
+                    }
+                }
+                if(notFoundKeyFields.size() > 0) {
+                    throw new IllegalArgumentException("Not found keyFields: " + String.join(",", notFoundKeyFields) + ", int outputSchema: " + outputSchema);
+                }
+
                 output = begin
                         .apply(config.getName(), new JdbcBatchTableSource(config, parameters, outputSchema.toString()))
                         .setCoder(AvroCoder.of(outputSchema));
@@ -626,7 +638,7 @@ public class JdbcSource implements SourceModule {
             }
         }
 
-        public class TableReadDoFn extends DoFn<String, GenericRecord> {
+        public abstract class TableReadDoFn extends DoFn<String, GenericRecord> {
 
             protected static final int DEFAULT_FETCH_SIZE = 50_000;
 
@@ -701,6 +713,72 @@ public class JdbcSource implements SourceModule {
                 this.connection.close();
             }
 
+            protected void process(
+                    final ProcessContext c,
+                    final JdbcUtil.IndexPosition startPosition,
+                    final JdbcUtil.IndexPosition stopPosition,
+                    final RestrictionTracker<JdbcUtil.IndexRange, JdbcUtil.IndexPosition> tracker) throws IOException {
+
+                int lastFetchCount = fetchSize;
+                while(lastFetchCount == fetchSize) {
+
+                    if(tracker != null) {
+                        if (!tracker.tryClaim(startPosition)) {
+                            return;
+                        }
+                    }
+
+                    final String preparedQuery = JdbcUtil.createSeekPreparedQuery(
+                            startPosition,
+                            stopPosition,
+                            fields,
+                            table,
+                            parameterFieldNames,
+                            fetchSize);
+                    try (final PreparedStatement statement = connection.prepareStatement(
+                            preparedQuery, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+
+                        statement.setFetchSize(Math.min(DEFAULT_FETCH_SIZE, fetchSize));
+                        int paramIndexOffset = JdbcUtil.setStatementParameters(
+                                statement, startPosition.getOffsets(), parameterFieldsMap, 1);
+                        JdbcUtil.setStatementParameters(
+                                statement, stopPosition.getOffsets(), parameterFieldsMap, paramIndexOffset);
+
+                        int count = 0;
+                        final Instant start = Instant.now();
+                        try (final ResultSet resultSet = statement.executeQuery()) {
+                            while (resultSet.next()) {
+                                final GenericRecord record = ResultSetToRecordConverter.convert(outputSchema, resultSet);
+                                c.output(record);
+                                count++;
+
+                                if(resultSet.isLast()) {
+                                    final List<JdbcUtil.IndexOffset> latestOffsets = new ArrayList<>();
+                                    for (final Schema.Field field : parameterFields) {
+                                        final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
+                                        final Object fieldValue = record.get(field.name());
+                                        final Boolean isCaseSensitive = Boolean.valueOf(field.getProp("isCaseSensitive"));
+                                        latestOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, fieldValue, isCaseSensitive));
+                                    }
+                                    startPosition.setIsOpen(true);
+                                    startPosition.setOffsets(latestOffsets);
+                                    startPosition.setCount(startPosition.getCount() + count);
+                                    if(count == 0) {
+                                        startPosition.setCompleted(true);
+                                    }
+                                }
+                            }
+                        }
+
+                        lastFetchCount = count;
+                        final long time = Instant.now().getMillis() - start.getMillis();
+                        LOG.info(String.format("Finished to read query [%s], total count: [%d], [%d] millisec", statement, count, time));
+                    } catch (SQLException e) {
+                        throw new IllegalStateException("Failed to execute query: " + preparedQuery, e);
+                    }
+                }
+            }
+
             protected JdbcUtil.IndexRange createInitialIndexRange(final List<String> parameterFieldNames) throws SQLException, IOException {
 
                 final String firstFieldName = parameterFieldNames.get(0);
@@ -726,9 +804,12 @@ public class JdbcSource implements SourceModule {
                             // For PostgreSQL
                             field = record.getSchema().getField(firstFieldName.toLowerCase());
                         }
+
                         final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
                         final Object value = record.get(field.name());
-                        indexStartOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, value));
+                        final String logicalType = Optional.ofNullable(fieldSchema.getLogicalType()).map(s -> s.getName().toLowerCase()).orElse(null);
+                        final Boolean isCaseSensitive = Boolean.valueOf(field.getProp("isCaseSensitive"));
+                        indexStartOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, value, logicalType, isCaseSensitive));
                     }
                 }
 
@@ -754,7 +835,8 @@ public class JdbcSource implements SourceModule {
 
                         final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
                         final Object value = record.get(field.name());
-                        indexStopOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, value));
+                        final Boolean isCaseSensitive = Boolean.valueOf(field.getProp("isCaseSensitive"));
+                        indexStopOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, value, isCaseSensitive));
                     }
                 }
 
@@ -787,53 +869,7 @@ public class JdbcSource implements SourceModule {
                 startPosition.setIsOpen(false);
                 final JdbcUtil.IndexPosition stopPosition = JdbcUtil.IndexPosition.of(startPosition.getOffsets(), false);
 
-                int lastFetchCount = fetchSize;
-                while(lastFetchCount == fetchSize) {
-                    final String preparedQuery = JdbcUtil.createSeekPreparedQuery(
-                            startPosition,
-                            stopPosition,
-                            fields,
-                            table,
-                            parameterFieldNames,
-                            fetchSize);
-                    try (final PreparedStatement statement = connection.prepareStatement(
-                            preparedQuery, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-
-                        statement.setFetchSize(Math.min(DEFAULT_FETCH_SIZE, fetchSize));
-                        int paramIndexOffset = JdbcUtil.setStatementParameters(
-                                statement, startPosition.getOffsets(), parameterFieldsMap, 1);
-                        JdbcUtil.setStatementParameters(
-                                statement, stopPosition.getOffsets(), parameterFieldsMap, paramIndexOffset);
-
-                        int count = 0;
-                        final Instant start = Instant.now();
-                        try (final ResultSet resultSet = statement.executeQuery()) {
-                            while (resultSet.next()) {
-                                final GenericRecord record = ResultSetToRecordConverter.convert(outputSchema, resultSet);
-                                c.output(record);
-                                count++;
-
-                                if(resultSet.isLast()) {
-                                    final List<JdbcUtil.IndexOffset> latestOffsets = new ArrayList<>();
-                                    for (final Schema.Field field : parameterFields) {
-                                        final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
-                                        final Object fieldValue = record.get(field.name());
-                                        latestOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, fieldValue));
-                                    }
-                                    startPosition.setIsOpen(true);
-                                    startPosition.setOffsets(latestOffsets);
-                                    startPosition.setCount(startPosition.getCount() + count);
-                                }
-                            }
-                        }
-
-                        lastFetchCount = count;
-                        final long time = Instant.now().getMillis() - start.getMillis();
-                        LOG.info(String.format("Finished to read prepared query [%s], total count: [%d], [%d] millisec", statement, count, time));
-                    } catch (SQLException e) {
-                        throw new IllegalStateException("Failed to execute query: " + preparedQuery, e);
-                    }
-                }
+                process(c, startPosition, stopPosition, null);
             }
         }
 
@@ -869,60 +905,7 @@ public class JdbcSource implements SourceModule {
                 JdbcUtil.IndexPosition startPosition = indexRange.getFrom();
                 final JdbcUtil.IndexPosition stopPosition  = indexRange.getTo();
 
-                int lastFetchCount = fetchSize;
-                while(lastFetchCount == fetchSize) {
-                    if(!tracker.tryClaim(startPosition)) {
-                        return;
-                    }
-
-                    final String preparedQuery = JdbcUtil.createSeekPreparedQuery(
-                            startPosition,
-                            stopPosition,
-                            fields,
-                            table,
-                            parameterFieldNames,
-                            fetchSize);
-                    try (final PreparedStatement statement = connection.prepareStatement(
-                            preparedQuery, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-
-                        statement.setFetchSize(Math.min(DEFAULT_FETCH_SIZE, fetchSize));
-                        int paramIndexOffset = JdbcUtil.setStatementParameters(
-                                statement, startPosition.getOffsets(), parameterFieldsMap, 1);
-                        JdbcUtil.setStatementParameters(
-                                statement, stopPosition.getOffsets(), parameterFieldsMap, paramIndexOffset);
-
-                        int count = 0;
-                        final Instant start = Instant.now();
-                        try (final ResultSet resultSet = statement.executeQuery()) {
-                            while (resultSet.next()) {
-                                final GenericRecord record = ResultSetToRecordConverter.convert(outputSchema, resultSet);
-                                c.output(record);
-                                count++;
-
-                                if(resultSet.isLast()) {
-                                    final List<JdbcUtil.IndexOffset> latestOffsets = new ArrayList<>();
-                                    for (final Schema.Field field : parameterFields) {
-                                        final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
-                                        final Object fieldValue = record.get(field.name());
-                                        latestOffsets.add(JdbcUtil.IndexOffset.of(field.name(), fieldSchema.getType(), true, fieldValue));
-                                    }
-                                    startPosition.setIsOpen(true);
-                                    startPosition.setOffsets(latestOffsets);
-                                    startPosition.setCount(startPosition.getCount() + count);
-                                    if(count == 0) {
-                                        startPosition.setCompleted(true);
-                                    }
-                                }
-                            }
-                        }
-
-                        lastFetchCount = count;
-                        final long time = Instant.now().getMillis() - start.getMillis();
-                        LOG.info(String.format("Finished to read query [%s], total count: [%d], [%d] millisec", statement, count, time));
-                    } catch (SQLException e) {
-                        throw new IllegalStateException("Failed to execute query: " + preparedQuery, e);
-                    }
-                }
+                process(c, startPosition, stopPosition, tracker);
             }
 
             @GetInitialRestriction
@@ -967,16 +950,16 @@ public class JdbcSource implements SourceModule {
                 }
             }
 
-            @GetSize
-            public double getSize(@Restriction JdbcUtil.IndexRange restriction) throws Exception {
-                return 0.5D;//getRecordCountAndSize(file, restriction).getSize();
-            }
-
             @NewTracker
             public RestrictionTracker<JdbcUtil.IndexRange, JdbcUtil.IndexPosition> newTracker(
                     @Restriction JdbcUtil.IndexRange restriction) {
 
                 return new IndexRangeTracker(this.enableSplit, restriction, 0L);
+            }
+
+            //@GetSize
+            public double getSize(@Restriction JdbcUtil.IndexRange restriction) throws Exception {
+                return 0.5D;//getRecordCountAndSize(file, restriction).getSize();
             }
 
         }
