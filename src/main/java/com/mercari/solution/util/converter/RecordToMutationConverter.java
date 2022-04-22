@@ -124,7 +124,9 @@ public class RecordToMutationConverter {
                 break;
             case ENUM:
             case STRING:
-                final String stringValue = hide ? (nullableField ? null : "") : isNullField ? null : value.toString();
+                final String stringValue = hide ?
+                        (nullableField ? null : "") :
+                        (isNullField ? null : value.toString());
                 final String sqlType = schema.getProp("sqlType");
                 if("DATETIME".equals(sqlType)) {
                     builder.set(fieldName).to(stringValue);
@@ -138,8 +140,9 @@ public class RecordToMutationConverter {
                 break;
             case FIXED:
             case BYTES: {
-                final ByteArray bytesValue = hide ? (nullableField ? null : ByteArray.copyFrom(""))
-                        : (isNullField ? null : ByteArray.copyFrom(((ByteBuffer) value).array()));
+                final ByteArray bytesValue = hide ?
+                        (nullableField ? null : ByteArray.copyFrom("")) :
+                        (isNullField ? null : ByteArray.copyFrom(((ByteBuffer) value).array()));
                 if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
                     final BigDecimal decimal;
                     if(bytesValue == null) {
@@ -155,16 +158,20 @@ public class RecordToMutationConverter {
             }
             case INT:
                 if(LogicalTypes.date().equals(schema.getLogicalType())) {
-                    final Date dateValue = hide ? (nullableField ? null : Date.fromYearMonthDay(1970,1,1))
-                            : convertEpochDaysToDate((Integer)value);
+                    final Date dateValue = hide ?
+                            (nullableField ? null : Date.fromYearMonthDay(1970,1,1)) :
+                            convertEpochDaysToDate((Integer)value);
                     builder.set(fieldName).to(dateValue);
                 } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    final String timeValue = hide ? (nullableField ? null : "00:00:00") :
-                            (isNullField ? null : LocalTime.ofNanoOfDay(new Long((Integer) value) * 1000 * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME));
+                    final String timeValue = hide ?
+                            (nullableField ? null : "00:00:00") :
+                            (isNullField ? null : LocalTime.ofNanoOfDay(Long.valueOf((Integer) value) * 1000 * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME));
                     builder.set(fieldName).to(timeValue);
                 } else {
-                    final Integer intValue = hide ? (nullableField ? null : 0) : (Integer) value;
-                    builder.set(fieldName).to(Long.valueOf(intValue));
+                    final Long intValue = hide ?
+                            (nullableField ? null : 0L) :
+                            (isNullField ? null : Long.valueOf((Integer)value));
+                    builder.set(fieldName).to(intValue);
                 }
                 break;
             case LONG:
@@ -186,7 +193,9 @@ public class RecordToMutationConverter {
                 }
                 break;
             case FLOAT:
-                final Float floatValue = hide ? (nullableField ? null : 0F) : (Float) value;
+                final Double floatValue = hide ?
+                        (nullableField ? null : 0D) :
+                        (isNullField ? null : Double.valueOf((Float) value));
                 builder.set(fieldName).to(floatValue);
                 break;
             case DOUBLE:
@@ -320,7 +329,7 @@ public class RecordToMutationConverter {
                                 ((List<Float>) value)
                                         .stream()
                                         .filter(Objects::nonNull)
-                                        .map(Double::new)
+                                        .map(Double::valueOf)
                                         .collect(Collectors.toList());
                         builder.set(fieldName).toFloat64Array(floatList);
                         break;
