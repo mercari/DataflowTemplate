@@ -107,8 +107,12 @@ public class ResultSetToRecordConverter {
             case Types.VARCHAR:
             case Types.NVARCHAR:
             case Types.LONGVARCHAR:
-            case Types.LONGNVARCHAR:
+            case Types.LONGNVARCHAR: {
+                if("json".equalsIgnoreCase(typeName)) {
+                    return AvroSchemaUtil.NULLABLE_JSON;
+                }
                 return AvroSchemaUtil.NULLABLE_STRING;
+            }
             case Types.TIME:
                 return AvroSchemaUtil.NULLABLE_LOGICAL_TIME_MICRO_TYPE;
             case Types.DATE:
@@ -128,6 +132,7 @@ public class ResultSetToRecordConverter {
                 if("json".equalsIgnoreCase(typeName)) {
                     return AvroSchemaUtil.NULLABLE_JSON;
                 }
+                LOG.warn("Type Other, TypeName: " + typeName + " as NULLABLE STRING");
                 return AvroSchemaUtil.NULLABLE_STRING;
             }
             case Types.ARRAY: {
