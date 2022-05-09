@@ -139,6 +139,12 @@ public class BeamSQLTransform implements TransformModule {
                     // UDAFs
                     .registerUdaf("MDT_ARRAY_AGG_INT64", new AggregateFunctions.ArrayAggInt64Fn())
                     .registerUdaf("MDT_ARRAY_AGG_STRING", new AggregateFunctions.ArrayAggStringFn())
+                    .registerUdaf("MDT_ARRAY_AGG_DISTINCT_STRING", new AggregateFunctions.ArrayAggDistinctStringFn())
+                    .registerUdaf("MDT_ARRAY_AGG_DISTINCT_FLOAT64", new AggregateFunctions.ArrayAggDistinctFloat64Fn())
+                    .registerUdaf("MDT_ARRAY_AGG_DISTINCT_INT64", new AggregateFunctions.ArrayAggDistinctInt64Fn())
+                    .registerUdaf("MDT_COUNT_DISTINCT_STRING", new AggregateFunctions.CountDistinctStringFn())
+                    .registerUdaf("MDT_COUNT_DISTINCT_FLOAT64", new AggregateFunctions.CountDistinctFloat64Fn())
+                    .registerUdaf("MDT_COUNT_DISTINCT_INT64", new AggregateFunctions.CountDistinctInt64Fn())
                     );
         }
 
