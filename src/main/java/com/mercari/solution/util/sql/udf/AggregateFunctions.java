@@ -71,15 +71,15 @@ public class AggregateFunctions {
 
     }
 
-    public static class ArrayAggDistinctStringFn extends Combine.CombineFn<String, Set<String>, List<String>> {
+    private static abstract class AggDistinctFn<InputT, OutputT> extends Combine.CombineFn<InputT, Set<InputT>, OutputT> {
 
         @Override
-        public Set<String> createAccumulator() {
+        public Set<InputT> createAccumulator() {
             return new HashSet<>();
         }
 
         @Override
-        public Set<String> addInput(Set<String> accumulator, String input) {
+        public Set<InputT> addInput(Set<InputT> accumulator, InputT input) {
             if(input != null) {
                 accumulator.add(input);
             }
@@ -87,48 +87,68 @@ public class AggregateFunctions {
         }
 
         @Override
-        public Set<String> mergeAccumulators(Iterable<Set<String>> accumulators) {
-            final Set<String> mergedAccumulator = new HashSet<>();
-            for(final Set<String> accumulator : accumulators) {
+        public Set<InputT> mergeAccumulators(Iterable<Set<InputT>> accumulators) {
+            final Set<InputT> mergedAccumulator = new HashSet<>();
+            for(final Set<InputT> accumulator : accumulators) {
                 mergedAccumulator.addAll(accumulator);
             }
             return mergedAccumulator;
         }
+    }
 
+    public static class ArrayAggDistinctStringFn extends AggDistinctFn<String, List<String>> {
         @Override
         public List<String> extractOutput(final Set<String> accumulator) {
+            return new ArrayList<>(accumulator);
+        }
+    }
+
+    public static class CountDistinctStringFn extends AggDistinctFn<String, Long>  {
+
+        @Override
+        public Long extractOutput(final Set<String> accumulator) {
+            if (accumulator == null) {
+                return null;
+            }
+            return (long) accumulator.size();
+        }
+
+    }
+
+    public static class ArrayAggDistinctFloat64Fn extends AggDistinctFn<Double, List<Double>> {
+        @Override
+        public List<Double> extractOutput(final Set<Double> accumulator) {
             return new ArrayList<>(accumulator);
         }
 
     }
 
-    public static class ArrayAggDistinctFloat64Fn extends Combine.CombineFn<Double, Set<Double>, List<Double>> {
-
+    public static class CountDistinctFloat64Fn extends AggDistinctFn<Double, Long> {
         @Override
-        public Set<Double> createAccumulator() {
-            return new HashSet<>();
-        }
-
-        @Override
-        public Set<Double> addInput(Set<Double> accumulator, Double input) {
-            if(input != null) {
-                accumulator.add(input);
+        public Long extractOutput(final Set<Double> accumulator) {
+            if (accumulator == null) {
+                return null;
             }
-            return accumulator;
+            return (long) accumulator.size();
         }
 
-        @Override
-        public Set<Double> mergeAccumulators(Iterable<Set<Double>> accumulators) {
-            final Set<Double> mergedAccumulator = new HashSet<>();
-            for(final Set<Double> accumulator : accumulators) {
-                mergedAccumulator.addAll(accumulator);
-            }
-            return mergedAccumulator;
-        }
+    }
 
+    public static class ArrayAggDistinctInt64Fn extends AggDistinctFn<Long, List<Long>> {
         @Override
-        public List<Double> extractOutput(final Set<Double> accumulator) {
+        public List<Long> extractOutput(final Set<Long> accumulator) {
             return new ArrayList<>(accumulator);
+        }
+
+    }
+
+    public static class CountDistinctInt64Fn extends AggDistinctFn<Long, Long> {
+        @Override
+        public Long extractOutput(final Set<Long> accumulator) {
+            if (accumulator == null) {
+                return null;
+            }
+            return (long) accumulator.size();
         }
 
     }

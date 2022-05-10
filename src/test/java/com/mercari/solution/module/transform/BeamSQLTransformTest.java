@@ -241,7 +241,7 @@ public class BeamSQLTransformTest {
         configBeamSql.setInputs(Arrays.asList("withWindow"));
 
         final JsonObject beamsqlParameters = new JsonObject();
-        beamsqlParameters.addProperty("sql", "SELECT stringField, MDT_ARRAY_AGG_INT64(longFieldA) AS lfa, MDT_ARRAY_AGG_INT64(longFieldB) AS lfb, MDT_ARRAY_AGG_STRING(stringFieldA) AS sfa, MDT_ARRAY_AGG_STRING(stringFieldB) AS sfb FROM rowInput GROUP BY stringField");
+        beamsqlParameters.addProperty("sql", "SELECT stringField, MDT_ARRAY_AGG_INT64(longFieldA) AS lfa, MDT_ARRAY_AGG_INT64(longFieldB) AS lfb, MDT_COUNT_DISTINCT_INT64(longFieldB) as ldfb, MDT_ARRAY_AGG_STRING(stringFieldA) AS sfa, MDT_ARRAY_AGG_STRING(stringFieldB) AS sfb, MDT_ARRAY_AGG_DISTINCT_STRING(stringFieldA) AS sfda, MDT_COUNT_DISTINCT_STRING(stringFieldA) AS sfdd FROM rowInput GROUP BY stringField");
         beamsqlParameters.addProperty("planner", planner);
         configBeamSql.setParameters(beamsqlParameters);
 
@@ -271,7 +271,7 @@ public class BeamSQLTransformTest {
                 .withFieldValue("stringField", "a")
                 .withFieldValue("longFieldA", 5L)
                 .withFieldValue("longFieldB", null)
-                .withFieldValue("stringFieldA", "e")
+                .withFieldValue("stringFieldA", "c")
                 .withFieldValue("stringFieldB", null)
                 .build();
 
@@ -286,14 +286,17 @@ public class BeamSQLTransformTest {
             for (final Row row : rows) {
                 count++;
                 Assert.assertEquals("a", row.getString("stringField"));
+                Assert.assertEquals(Long.valueOf(2), row.getInt64("sfdd"));
+                Assert.assertEquals(Long.valueOf(1), row.getInt64("ldfb"));
 
                 Assert.assertEquals(3, row.getArray("sfa").size());
+                Assert.assertEquals(2, row.getArray("sfda").size());
                 Assert.assertEquals(3, row.getArray("lfa").size());
                 Assert.assertEquals(2, row.getArray("sfb").size());
                 Assert.assertEquals(2, row.getArray("lfb").size());
 
                 Assert.assertTrue(Arrays.asList(1L, 3L, 5L).containsAll(row.getArray("lfa")));
-                Assert.assertTrue(Arrays.asList("a", "c", "e").containsAll(row.getArray("sfa")));
+                Assert.assertTrue(Arrays.asList("a", "c", "c").containsAll(row.getArray("sfa")));
                 Assert.assertTrue(Arrays.asList(2L).containsAll(row.getArray("lfb")));
                 Assert.assertTrue(Arrays.asList("b").containsAll(row.getArray("sfb")));
             }
