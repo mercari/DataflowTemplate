@@ -12,7 +12,7 @@ import org.apache.avro.LogicalTypes;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.util.ReleaseInfo;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threeten.bp.Duration;

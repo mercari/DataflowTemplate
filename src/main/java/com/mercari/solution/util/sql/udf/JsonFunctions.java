@@ -1,6 +1,6 @@
 package com.mercari.solution.util.sql.udf;
 
-import com.jayway.jsonpath.JsonPath;
+import org.apache.beam.vendor.calcite.v1_28_0.com.jayway.jsonpath.JsonPath;
 import org.apache.beam.sdk.extensions.sql.BeamSqlUdf;
 
 import java.util.Map;
