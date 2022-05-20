@@ -287,6 +287,72 @@ public class StructSchemaUtilTest {
 
     }
 
+    @Test
+    public void testMerge() {
+        final Struct struct = Struct.newBuilder()
+                .set("str").to("a")
+                .build();
+        final Type childType = Type.struct(
+                Type.StructField.of("str", Type.string()),
+                Type.StructField.of("int", Type.string()),
+                Type.StructField.of("float", Type.float64())
+        );
+        final Type type = Type.struct(
+                Type.StructField.of("str", Type.string()),
+                Type.StructField.of("int", Type.int64()),
+                Type.StructField.of("float", Type.float64()),
+                Type.StructField.of("struct", Type.struct(
+                        Type.StructField.of("str", Type.string()),
+                        Type.StructField.of("float", Type.float64())
+                )),
+                Type.StructField.of("structNo", Type.struct(
+                        Type.StructField.of("str", Type.string()),
+                        Type.StructField.of("float", Type.float64())
+                )),
+                Type.StructField.of("structNull", Type.struct(
+                        Type.StructField.of("str", Type.string()),
+                        Type.StructField.of("float", Type.float64())
+                )),
+                Type.StructField.of("boolArray", Type.array(Type.bool())),
+                Type.StructField.of("dateArray", Type.array(Type.date())),
+                Type.StructField.of("structArray", Type.array(childType))
+        );
+
+        final Map<String, Object> values = new HashMap<>();
+        final Struct child = Struct.newBuilder().set("float").to(1D).build();
+        final List<Struct> children = new ArrayList<>();
+        children.add(Struct.newBuilder().set("str").to("b").build());
+        values.put("struct", child);
+        values.put("structNull", null);
+        values.put("structArray", children);
+        values.put("float", null);
+        values.put("int", -1);
+        values.put("boolArray", Arrays.asList(true, false, true));
+        final Struct merged = StructSchemaUtil.merge(type, struct, values);
+
+        Assert.assertEquals(9, merged.getType().getStructFields().size());
+        Assert.assertEquals("a", merged.getString("str"));
+        Assert.assertEquals(-1, merged.getLong("int"));
+        Assert.assertEquals(Arrays.asList(true, false, true), merged.getBooleanList("boolArray"));
+        Assert.assertTrue(merged.isNull("float"));
+        Assert.assertTrue(merged.isNull("structNo"));
+        Assert.assertTrue(merged.isNull("structNull"));
+        Assert.assertTrue(merged.isNull("dateArray"));
+
+        final Struct mergedChild = merged.getStruct("struct");
+        Assert.assertEquals(2, mergedChild.getType().getStructFields().size());
+        Assert.assertEquals(1D, mergedChild.getDouble("float"), DELTA);
+        Assert.assertTrue(mergedChild.isNull("str"));
+
+        Assert.assertEquals(1, merged.getStructList("structArray").size());
+        for(final Struct c : merged.getStructList("structArray")) {
+            Assert.assertEquals(3, c.getType().getStructFields().size());
+            Assert.assertEquals("b", c.getString("str"));
+            Assert.assertTrue(c.isNull("int"));
+            Assert.assertTrue(c.isNull("float"));
+        }
+    }
+
     private Struct createTestStruct() {
         final Struct grandchild = Struct.newBuilder()
                 .set("gcstringField").to("gcstringValue")
