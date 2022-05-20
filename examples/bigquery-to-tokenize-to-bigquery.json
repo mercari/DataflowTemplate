@@ -1,0 +1,83 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT fieldHtml, fieldJapanese FROM `myproject.mydataset.mytable`",
+        "queryLocation": "US",
+        "queryTempDataset": "temp"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "tokenize",
+      "module": "tokenize",
+      "inputs": [
+        "bigqueryInput"
+      ],
+      "parameters": {
+        "fields": [
+          {
+            "name": "fieldJapaneseTerm",
+            "input": "fieldJapanese",
+            "tokenizer": {
+              "type": "JapaneseTokenizer",
+              "mode": "SEARCH"
+            },
+            "filters": [
+              { "type": "StopFilter" },
+              { "type": "JapanesePartOfSpeechStopFilter" },
+              { "type": "JapaneseBaseFormFilter" },
+              { "type": "JapaneseKatakanaStemFilter" }
+            ]
+          },
+          {
+            "name": "fieldUrlAndMail",
+            "input": "fieldHtml",
+            "charFilters": [
+              {
+                "type": "HTMLStripCharFilter",
+                "escapedTags": ["a", "title"]
+              }
+            ],
+            "tokenizer": {
+              "type": "PatternTokenizer",
+              "pattern": "(<title(?: .+?)?>.*?<\\/title>)|(<a(?: .+?)?>.*?<\\/a>)|(https?://[\\w!\\?/\\+\\-_~=;\\.,\\*&@#\\$%\\(\\)'\\[\\]]+)|([\\w\\-\\._]+@[\\w\\-\\._]+\\.[A-Za-z]+)",
+              "group": 0
+            },
+            "filters": [
+              {
+                "type": "PatternTypingFilter",
+                "rules": [
+                  { "pattern": "<title(?: .+?)?>(.*?)<\\/title>", "typeTemplate": "title" },
+                  { "pattern": "<a .*?>(.*?)<\\/a>", "typeTemplate": "anchor:$1" },
+                  { "pattern": "[\\w\\-\\._]+@[\\w\\-\\._]+\\.[A-Za-z]+", "typeTemplate": "mail" },
+                  { "pattern": "https?://[\\w!\\?/\\+\\-_~=;\\.,\\*&@#\\$%\\(\\)'\\[\\]]+", "typeTemplate": "url" }
+                ]
+              },
+              {
+                "type": "PatternCaptureGroupTokenFilter",
+                "patterns": ["<title(?: .+?)?>(.*?)<\\/title>", "<a href=\"(.*?)\".*?>.*?<\\/a>"],
+                "preserveOriginal": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutput",
+      "module": "bigquery",
+      "input": "tokenize",
+      "parameters": {
+        "table": "myproject:mydataset.tokens",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}

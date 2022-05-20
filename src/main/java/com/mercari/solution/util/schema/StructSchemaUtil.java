@@ -701,46 +701,46 @@ public class StructSchemaUtil {
                             builder.set(setFieldName).to(field.getType(), child);
                             break;
                         }
-                        default:
+                        default: {
                             builder.set(setFieldName).to(struct.getValue(getOuterFieldName));
+                            break;
+                        }
+                    }
+                } else {
+                    setNullValue(field, builder);
+                }
+            } else {
+                final Value value = getStructValue(struct, getFieldName);
+                if (value != null) {
+                    switch (field.getType().getCode()) {
+                        case ARRAY: {
+                            if (field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
+                                final List<Struct> children = new ArrayList<>();
+                                for (final Struct child : struct.getStructList(getFieldName)) {
+                                    if (child == null) {
+                                        children.add(null);
+                                    } else {
+                                        children.add(toBuilder(field.getType().getArrayElementType(), child).build());
+                                    }
+                                }
+                                builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), children);
+                            } else {
+                                builder.set(field.getName()).to(value);
+                            }
+                            break;
+                        }
+                        case STRUCT: {
+                            final Struct child = toBuilder(field.getType(), struct.getStruct(getFieldName)).build();
+                            builder.set(field.getName()).to(child);
+                            break;
+                        }
+                        default:
+                            builder.set(field.getName()).to(value);
                             break;
                     }
                 } else {
                     setNullValue(field, builder);
                 }
-
-                continue;
-            }
-            final Value value = getStructValue(struct, getFieldName);
-            if(value != null) {
-                switch (field.getType().getCode()) {
-                    case ARRAY: {
-                        if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
-                            final List<Struct> children = new ArrayList<>();
-                            for(final Struct child : struct.getStructList(getFieldName)) {
-                                if(child == null) {
-                                    children.add(null);
-                                } else {
-                                    children.add(toBuilder(field.getType().getArrayElementType(), child).build());
-                                }
-                            }
-                            builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), children);
-                        } else {
-                            builder.set(field.getName()).to(value);
-                        }
-                        break;
-                    }
-                    case STRUCT: {
-                        final Struct child = toBuilder(field.getType(), struct.getStruct(getFieldName)).build();
-                        builder.set(field.getName()).to(child);
-                        break;
-                    }
-                    default:
-                        builder.set(field.getName()).to(value);
-                        break;
-                }
-            } else {
-                setNullValue(field, builder);
             }
         }
 
@@ -757,6 +757,71 @@ public class StructSchemaUtil {
             }
         }
         return Type.struct(structFields);
+    }
+
+    public static Struct merge(final Type type, final Struct struct, Map<String, ? extends Object> values) {
+        final Struct.Builder builder = Struct.newBuilder();
+        for(Type.StructField field : type.getStructFields()) {
+            if(values.containsKey(field.getName())) {
+                builder.set(field.getName()).to(toValue(field.getType(), values.get(field.getName())));
+            } else if(hasField(struct, field.getName())) {
+                builder.set(field.getName()).to(struct.getValue(field.getName()));
+            } else {
+                builder.set(field.getName()).to(toValue(field.getType(), null));
+            }
+        }
+        return builder.build();
+    }
+
+    public static Struct create(final Type type, Map<String, Object> values) {
+        final Struct.Builder builder = Struct.newBuilder();
+        for (final Type.StructField field : type.getStructFields()) {
+            final Object value = values.get(field.getName());
+            switch (field.getType().getCode()) {
+                case BOOL:
+                    builder.set(field.getName()).to((Boolean) value);
+                    break;
+                case JSON:
+                case STRING:
+                    builder.set(field.getName()).to((String) value);
+                    break;
+                case BYTES:
+                    builder.set(field.getName()).to((ByteArray) value);
+                    break;
+                case INT64: {
+                    if(value instanceof Integer) {
+                        builder.set(field.getName()).to((Integer) value);
+                    } else {
+                        builder.set(field.getName()).to((Long) value);
+                    }
+                    break;
+                }
+                case FLOAT64: {
+                    if(value instanceof Float) {
+                        builder.set(field.getName()).to((Float) value);
+                    } else {
+                        builder.set(field.getName()).to((Double) value);
+                    }
+                    break;
+                }
+                case NUMERIC:
+                    builder.set(field.getName()).to((BigDecimal) value);
+                    break;
+                case DATE:
+                    builder.set(field.getName()).to((Date) value);
+                    break;
+                case TIMESTAMP:
+                    builder.set(field.getName()).to((Timestamp) value);
+                    break;
+                case STRUCT:
+                    builder.set(field.getName()).to((Struct) value);
+                    break;
+                case ARRAY: {
+                    break;
+                }
+            }
+        }
+        return builder.build();
     }
 
     public static Type selectFields(Type type, final List<String> fields) {
@@ -968,6 +1033,81 @@ public class StructSchemaUtil {
                     }
                 })
                 .collect(Collectors.toList());
+    }
+
+    private static Value toValue(final Type type, final Object value) {
+        switch (type.getCode()) {
+            case BOOL:
+                return Value.bool((Boolean) value);
+            case STRING:
+                return Value.string((String) value);
+            case BYTES:
+                return Value.bytes((ByteArray) value);
+            case JSON:
+                return Value.json((String) value);
+            case INT64: {
+                if(value instanceof Integer) {
+                    return Value.int64((Integer) value);
+                } else {
+                    return Value.int64((Long) value);
+                }
+            }
+            case FLOAT64: {
+                if(value instanceof Float) {
+                    return Value.float64((Float) value);
+                } else {
+                    return Value.float64((Double) value);
+                }
+            }
+            case NUMERIC:
+                return Value.numeric((BigDecimal) value);
+            case DATE:
+                return Value.date((Date) value);
+            case TIMESTAMP:
+                return Value.timestamp((Timestamp) value);
+            case STRUCT: {
+                if(value == null) {
+                    return Value.struct(type, null);
+                }
+                final Struct child = (Struct) value;
+                final Struct mergedChild = merge(type, child, new HashMap<>());
+                return Value.struct(type, mergedChild);
+            }
+            case ARRAY: {
+                switch (type.getArrayElementType().getCode()) {
+                    case BOOL:
+                        return Value.boolArray((Iterable<Boolean>) value);
+                    case STRING:
+                        return Value.stringArray((Iterable<String>) value);
+                    case BYTES:
+                        return Value.bytesArray((Iterable<ByteArray>) value);
+                    case JSON:
+                        return Value.jsonArray((Iterable<String>) value);
+                    case INT64:
+                        return Value.int64Array((Iterable<Long>) value);
+                    case FLOAT64:
+                        return Value.float64Array((Iterable<Double>) value);
+                    case NUMERIC:
+                        return Value.numericArray((Iterable<BigDecimal>) value);
+                    case DATE:
+                        return Value.dateArray((Iterable<Date>) value);
+                    case TIMESTAMP:
+                        return Value.timestampArray((Iterable<Timestamp>) value);
+                    case STRUCT: {
+                        final List<Struct> children = new ArrayList<>();
+                        for(final Struct child : (Iterable<Struct>) value) {
+                            final Struct mergedChild = merge(type.getArrayElementType(), child, new HashMap<>());
+                            children.add(mergedChild);
+                        }
+                        return Value.structArray(type.getArrayElementType(), children);
+                    }
+                    case ARRAY:
+                        throw new IllegalArgumentException("Array in Array is not supported");
+                }
+            }
+            default:
+                throw new IllegalArgumentException("Not supported struct type: " + type);
+        }
     }
 
     private static void setNullValue(final Type.StructField field, Struct.Builder builder) {
