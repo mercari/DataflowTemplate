@@ -51,6 +51,8 @@ public class StructToTableRowConverter {
                 return tableFieldSchema.setType("BOOLEAN");
             case STRING:
                 return tableFieldSchema.setType("STRING");
+            case JSON:
+                return tableFieldSchema.setType("JSON");
             case BYTES:
                 return tableFieldSchema.setType("BYTES");
             case INT64:
@@ -71,7 +73,7 @@ public class StructToTableRowConverter {
             }
             case ARRAY: {
                 if(Type.Code.STRUCT.equals(fieldType.getArrayElementType().getCode())) {
-                    final List<TableFieldSchema> childTableFieldSchemas = fieldType.getStructFields().stream()
+                    final List<TableFieldSchema> childTableFieldSchemas = fieldType.getArrayElementType().getStructFields().stream()
                             .map(StructToTableRowConverter::convertTableFieldSchema)
                             .collect(Collectors.toList());
                     return tableFieldSchema
@@ -90,10 +92,12 @@ public class StructToTableRowConverter {
     }
 
     private static TableRow setFieldValue(TableRow row, final String fieldName, final Type type,final Struct struct) {
-        if(struct.isNull(fieldName)) {
+        if (struct.isNull(fieldName)) {
             return row.set(fieldName, null);
         }
         switch (type.getCode()) {
+            case JSON:
+                return row.set(fieldName, struct.getJson(fieldName));
             case STRING:
                 return row.set(fieldName, struct.getString(fieldName));
             case BYTES:
@@ -133,6 +137,10 @@ public class StructToTableRowConverter {
         switch (type.getCode()) {
             case STRING:
                 return row.set(fieldName, struct.getStringList(fieldName).stream()
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList()));
+            case JSON:
+                return row.set(fieldName, struct.getJsonList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
             case BYTES:
