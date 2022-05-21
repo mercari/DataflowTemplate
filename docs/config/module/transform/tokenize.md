@@ -137,7 +137,7 @@ Tokenize transform module tokenizes and processes input text.
 
 ## Output field schema
 
-Tokenize results are stored in the following schema for each field specified in parameter `fields`.
+The results of tokenization are stored as an array with the following schema as values, for each field specified by the parameter `fields`.
 
 | field | type | target | description |
 | --- | --- | --- | --- |

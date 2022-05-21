@@ -109,7 +109,7 @@ public class TokenAnalyzer extends Analyzer {
                 return new PatternReplaceCharFilter(Pattern.compile(config.getPattern()), config.getReplacement(), reader);
             }
             default: {
-                throw new IllegalStateException();
+                throw new IllegalStateException("Not supported charFilter: " + config.getType());
             }
         }
     }
@@ -169,7 +169,8 @@ public class TokenAnalyzer extends Analyzer {
                     final NLPSentenceDetectorOp sentenceDetectorOp = new NLPSentenceDetectorOp(sentenceModel);
                     return new OpenNLPTokenizer(TokenStream.DEFAULT_TOKEN_ATTRIBUTE_FACTORY, sentenceDetectorOp, tokenizerOp);
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw new RuntimeException("Failed to create OpenNLPTokenizer with tokenizerModel: "
+                            + config.getTokenizerModel() + ", sentenceModel: " + config.getSentenceModel(), e);
                 }
             }
             default:
@@ -279,7 +280,7 @@ public class TokenAnalyzer extends Analyzer {
                     final NLPChunkerOp chunkerOp = new NLPChunkerOp(model);
                     return new OpenNLPChunkerFilter(preTokenStream, chunkerOp);
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw new RuntimeException("Failed to create OpenNLPChunkerFilter with model: " + filter.getModel(), e);
                 }
             }
             case OpenNLPLemmatizerFilter: {
@@ -288,7 +289,7 @@ public class TokenAnalyzer extends Analyzer {
                     final NLPLemmatizerOp lemmatizerOp = new NLPLemmatizerOp(null, model);
                     return new OpenNLPLemmatizerFilter(preTokenStream, lemmatizerOp);
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw new RuntimeException("Failed to create OpenNLPLemmatizerFilter with model: " + filter.getModel(), e);
                 }
             }
             case OpenNLPPOSFilter: {
@@ -297,7 +298,7 @@ public class TokenAnalyzer extends Analyzer {
                     final NLPPOSTaggerOp taggerOp = new NLPPOSTaggerOp(model);
                     return new OpenNLPPOSFilter(preTokenStream, taggerOp);
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw new RuntimeException("Failed to create OpenNLPPOSFilter with model: " + filter.getModel(), e);
                 }
             }
             default:
