@@ -1,15 +1,20 @@
 package com.mercari.solution.util;
 
 import org.apache.commons.lang.StringUtils;
-import org.joda.time.ReadableDateTime;
+import org.joda.time.*;
 
 import java.io.Serializable;
 import java.time.*;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
 
 public class DateTimeUtil {
 
@@ -41,7 +46,6 @@ public class DateTimeUtil {
             .compile("([,\\.][0-9]{1,9})");
     private static final Pattern PATTERN_TIMESTAMP_ZONE = Pattern
             .compile("([Zz]|[-+][01]?[0-9][:]?[0-9]{1,2})$");
-
 
     public static boolean isDate(final String text) {
         return PATTERN_DATE3.matcher(text).find()
@@ -189,10 +193,26 @@ public class DateTimeUtil {
     }
 
     public static Integer toEpochDay(final Date date) {
-        return Long.valueOf(LocalDate.of(date.getYear(), date.getMonth(), date.getDay()).toEpochDay()).intValue();
+        if(date == null) {
+            return null;
+        }
+        return Long.valueOf(LocalDate
+                    .of(date.getYear(), date.getMonth() + 1, date.getDate())
+                    .toEpochDay())
+                .intValue();
+    }
+
+    public static Integer toEpochDay(final java.sql.Date date) {
+        if(date == null) {
+            return null;
+        }
+        return (int)date.toLocalDate().toEpochDay();
     }
 
     public static Integer toEpochDay(final com.google.cloud.Date date) {
+        if(date == null) {
+            return null;
+        }
         return Long.valueOf(LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()).toEpochDay()).intValue();
     }
 
@@ -222,6 +242,15 @@ public class DateTimeUtil {
             return null;
         }
         return datetime.toInstant().getMillis() * 1000;
+    }
+
+    public static LocalDateTime toLocalDateTime(final Long microSeconds) {
+        if(microSeconds == null) {
+            return null;
+        }
+        long second = microSeconds / 1000_000L;
+        long nano   = microSeconds % 1000_000L * 1000L;
+        return LocalDateTime.ofEpochSecond(second, Math.toIntExact(nano), ZoneOffset.UTC);
     }
 
     public static class DateTimeTemplateUtils implements Serializable {

@@ -5,8 +5,10 @@ import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.cloud.spanner.*;
 import com.google.spanner.admin.database.v1.UpdateDatabaseDdlMetadata;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.StructToRowConverter;
+import org.apache.avro.LogicalTypes;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.util.ReleaseInfo;
@@ -351,10 +353,10 @@ public class SpannerUtil {
     }
 
     public static String buildCreateTableSQL(final Schema schema,
-                                              final String table,
-                                              final List<String> primaryKeyFields,
-                                              final String interleavedIn,
-                                              final boolean cascade) {
+                                             final String table,
+                                             final List<String> primaryKeyFields,
+                                             final String interleavedIn,
+                                             final boolean cascade) {
 
         if(primaryKeyFields == null && !schema.getOptions().hasOption("spannerPrimaryKey")) {
             throw new IllegalArgumentException("Runtime parameter: primaryKeyFields must not be null!");
@@ -364,7 +366,7 @@ public class SpannerUtil {
                 .filter(f -> isValidColumnType(f.getType()))
                 .forEach(f -> sb.append(String.format("%s %s%s,",
                         replaceReservedKeyword(f.getName()),
-                        f.getOptions().hasOption("sqlType") ? f.getOptions().getValue("sqlType") : getColumnType(f.getType()),
+                        getColumnType(f.getType(), f.getOptions()),
                         f.getType().getNullable() == null || f.getType().getNullable() ? "" : " NOT NULL")));
         sb.deleteCharAt(sb.length() - 1);
         final String primaryKey;
@@ -373,6 +375,34 @@ public class SpannerUtil {
         } else {
             primaryKey = StringUtils.join(replaceReservedKeyword(primaryKeyFields), ",");
         }
+        sb.append(String.format(") PRIMARY KEY ( %s )", primaryKey));
+        if(interleavedIn != null) {
+            sb.append(",");
+            sb.append("INTERLEAVE IN PARENT ");
+            sb.append(interleavedIn);
+            sb.append(String.format(" ON DELETE %s", cascade ? "CASCADE" : "NO ACTION"));
+        }
+        return sb.toString();
+    }
+
+    public static String buildCreateTableSQL(final org.apache.avro.Schema schema,
+                                             final String table,
+                                             final List<String> primaryKeyFields,
+                                             final String interleavedIn,
+                                             final boolean cascade) {
+
+        if(primaryKeyFields == null || primaryKeyFields.size() == 0) {
+            throw new IllegalArgumentException("Runtime parameter: primaryKeyFields must not be null!");
+        }
+        final StringBuilder sb = new StringBuilder(String.format("CREATE TABLE %s ( ", table));
+        schema.getFields().stream()
+                .filter(f -> isValidColumnType(f.schema()))
+                .forEach(f -> sb.append(String.format("%s %s%s,",
+                        replaceReservedKeyword(f.name()),
+                        getColumnType(f.schema()),
+                        AvroSchemaUtil.isNullable(f.schema()) ? "" : " NOT NULL")));
+        sb.deleteCharAt(sb.length() - 1);
+        final String primaryKey = StringUtils.join(replaceReservedKeyword(primaryKeyFields), ",");
         sb.append(String.format(") PRIMARY KEY ( %s )", primaryKey));
         if(interleavedIn != null) {
             sb.append(",");
@@ -403,13 +433,39 @@ public class SpannerUtil {
         }
     }
 
-    private static String getColumnType(final Schema.FieldType fieldType) {
+    private static boolean isValidColumnType(final org.apache.avro.Schema fieldSchema) {
+        switch (fieldSchema.getType()) {
+            case MAP:
+            case RECORD:
+                return false;
+            case ARRAY:
+                if(!isValidColumnType(fieldSchema.getElementType())) {
+                    return false;
+                }
+                return true;
+            case UNION:
+                return isValidColumnType(AvroSchemaUtil.unnestUnion(fieldSchema));
+            default:
+                return true;
+        }
+    }
+
+    private static String getColumnType(final Schema.FieldType fieldType, final Schema.Options fieldOptions) {
         switch (fieldType.getTypeName()) {
             case BOOLEAN:
                 return "BOOL";
-            case STRING:
+            case STRING: {
+                if(fieldOptions.hasOption("sqlType")) {
+                    final String sqlType = fieldOptions.getValue("sqlType");
+                    switch (sqlType.toUpperCase()) {
+                        case "JSON":
+                            return "JSON";
+                    }
+                }
                 return "STRING(MAX)";
+            }
             case DECIMAL:
+                return "NUMERIC";
             case BYTES:
                 return "BYTES(MAX)";
             case INT16:
@@ -423,7 +479,7 @@ public class SpannerUtil {
                 return "TIMESTAMP";
             case ITERABLE:
             case ARRAY:
-                return "ARRAY<" + getColumnType(fieldType.getCollectionElementType()) + ">";
+                return "ARRAY<" + getColumnType(fieldType.getCollectionElementType(), fieldOptions) + ">";
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return "DATE";
@@ -441,6 +497,52 @@ public class SpannerUtil {
             case BYTE:
             default:
                 throw new IllegalArgumentException(String.format("DataType: %s is not supported!", fieldType.getTypeName().name()));
+
+        }
+    }
+
+    private static String getColumnType(final org.apache.avro.Schema fieldSchema) {
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+                return "BOOL";
+            case ENUM:
+            case STRING:
+                return "STRING(MAX)";
+            case FIXED:
+            case BYTES:
+                return "BYTES(MAX)";
+            case INT: {
+                if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
+                    return "DATE";
+                } else if(LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                    return "STRING(MAX)";
+                } else {
+                    return "INT64";
+                }
+            }
+            case LONG: {
+                if(LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    return "TIMESTAMP";
+                } else if(LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return "TIMESTAMP";
+                } else if(LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                    return "STRING(MAX)";
+                } else {
+                    return "INT64";
+                }
+            }
+            case FLOAT:
+            case DOUBLE:
+                return "FLOAT64";
+            case ARRAY:
+                return "ARRAY<" + getColumnType(fieldSchema.getElementType()) + ">";
+            case UNION: {
+                return getColumnType(AvroSchemaUtil.unnestUnion(fieldSchema));
+            }
+            case RECORD:
+            case MAP:
+            default:
+                throw new IllegalArgumentException(String.format("DataType: %s is not supported!", fieldSchema));
 
         }
     }
@@ -482,22 +584,25 @@ public class SpannerUtil {
                 return Type.float64();
             case "BOOL":
                 return Type.bool();
+            case "JSON":
+                return Type.json();
             case "DATE":
                 return Type.date();
             case "TIMESTAMP":
                 return Type.timestamp();
-            default:
-                if(type.startsWith("STRING")) {
+            default: {
+                if (type.startsWith("STRING")) {
                     return Type.string();
-                } else if(type.startsWith("BYTES")) {
+                } else if (type.startsWith("BYTES")) {
                     return Type.bytes();
-                } else if(type.startsWith("ARRAY")) {
+                } else if (type.startsWith("ARRAY")) {
                     final Matcher m = PATTERN_ARRAY_ELEMENT.matcher(type);
-                    if(m.find()) {
+                    if (m.find()) {
                         return Type.array(convertSchemaField(m.group()));
                     }
                 }
                 throw new IllegalStateException("DataType: " + type + " is not supported!");
+            }
         }
     }
 

@@ -16,19 +16,20 @@
 
     <joda.version>2.10.3</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
-    <onnx.version>1.10.2-1.5.7</onnx.version>
-    <onnxruntime.version>1.10.0</onnxruntime.version>
-    <iamcredentials.version>2.0.11</iamcredentials.version>
-    <tensorflow.version>1.15.0</tensorflow.version>
-    <lightgbm.version>3.2.110</lightgbm.version>
     <hadoop.version>3.3.1</hadoop.version>
     <hbase.version>2.4.5</hbase.version>
+    <onnx.version>1.10.2-1.5.7</onnx.version>
+    <onnxruntime.version>1.11.0</onnxruntime.version>
+    <tensorflow.version>1.15.0</tensorflow.version>
+    <lightgbm.version>3.2.110</lightgbm.version>
     <solr.version>8.11.1</solr.version>
     <jst.version>1.18.2</jst.version>
     <mysql-connector.version>8.0.28</mysql-connector.version>
     <postgresql-connector.version>42.3.3</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.4.4</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.5.0</jdbc-socket-factory.version>
+    <secretmanager.version>2.1.3</secretmanager.version>
+    <iamcredentials.version>2.0.11</iamcredentials.version>
     <drive.version>v3-rev20220110-1.32.1</drive.version>
     <socketio.version>2.0.1</socketio.version>
     <junit.version>4.13.1</junit.version>
@@ -378,6 +379,13 @@
     </dependency>
 
     <!-- Google Services -->
+    <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-secretmanager -->
+    <dependency>
+      <groupId>com.google.cloud</groupId>
+      <artifactId>google-cloud-secretmanager</artifactId>
+      <version>${secretmanager.version}</version>
+    </dependency>
+
     <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-iamcredentials -->
     <dependency>
       <groupId>com.google.cloud</groupId>

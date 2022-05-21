@@ -1,0 +1,40 @@
+{
+  "name": "jdbc-to-bigquery-with-prep-param-queries",
+  "sources": [
+    {
+      "name": "mysql",
+      "module": "jdbc",
+      "parameters": {
+        "url": "jdbc:mysql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.mysql.SocketFactory",
+        "driver": "com.mysql.cj.jdbc.Driver",
+        "user": "projects/myproject/secrets/myusersecret/versions/1",
+        "password": "projects/myproject/secrets/mypasswordsecret/versions/7",
+        "prepareParameterQueries": [
+          {
+            "prepareCalls": [
+              "SET @n=-1",
+              "SET @size=4",
+              "SET @prev=-1000000000",
+              "SET @max=1000000000",
+              "SET @total=(SELECT count(*) FROM mytable)"
+            ],
+            "query": "SELECT @prev AS intFieldPre, IF((@n+1)=@total, @max, (@prev:=intField)) AS intField FROM mytable WHERE (@n:=@n+1)%@size = 0 OR (@n+1) = @total ORDER BY intField"
+          }
+        ],
+        "query": "SELECT * FROM mytable WHERE intField > ? AND intField <= ?"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "output",
+      "module": "bigquery",
+      "input": "input",
+      "parameters": {
+        "table": "myproject:mydataset.mytable",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    }
+  ]
+}

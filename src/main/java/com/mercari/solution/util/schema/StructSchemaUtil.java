@@ -56,6 +56,8 @@ public class StructSchemaUtil {
                 return struct.getBytes(fieldName).toByteArray();
             case STRING:
                 return struct.getString(fieldName);
+            case JSON:
+                return struct.getJson(fieldName);
             case INT64:
                 return struct.getLong(fieldName);
             case FLOAT64:
@@ -88,10 +90,14 @@ public class StructSchemaUtil {
                 return struct.getBytes(field).toBase64();
             case STRING:
                 return struct.getString(field);
+            case JSON:
+                return struct.getJson(field);
             case INT64:
                 return struct.getLong(field);
             case FLOAT64:
                 return struct.getDouble(field);
+            case NUMERIC:
+                return struct.getBigDecimal(field);
             case DATE:
                 return struct.getDate(field).toString();
             case TIMESTAMP:
@@ -120,6 +126,8 @@ public class StructSchemaUtil {
                 return Value.numeric(struct.getBigDecimal(field));
             case STRING:
                 return Value.string(struct.getString(field));
+            case JSON:
+                return Value.json(struct.getJson(field));
             case INT64:
                 return Value.int64(struct.getLong(field));
             case FLOAT64:
@@ -140,6 +148,8 @@ public class StructSchemaUtil {
                         return Value.numericArray(struct.getBigDecimalList(field));
                     case STRING:
                         return Value.stringArray(struct.getStringList(field));
+                    case JSON:
+                        return Value.jsonArray(struct.getJsonList(field));
                     case INT64:
                         return Value.int64Array(struct.getLongArray(field));
                     case FLOAT64:
@@ -168,10 +178,14 @@ public class StructSchemaUtil {
                 return struct.getBytes(field).toBase64();
             case STRING:
                 return struct.getString(field);
+            case JSON:
+                return struct.getJson(field);
             case INT64:
                 return Long.toString(struct.getLong(field));
             case FLOAT64:
                 return Double.toString(struct.getDouble(field));
+            case NUMERIC:
+                return struct.getBigDecimal(field).toString();
             case DATE:
                 return struct.getDate(field).toString();
             case TIMESTAMP:
@@ -204,6 +218,9 @@ public class StructSchemaUtil {
             case DATE:
             case TIMESTAMP:
             case BYTES:
+            case JSON:
+            case STRUCT:
+            case ARRAY:
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
@@ -232,6 +249,9 @@ public class StructSchemaUtil {
             case DATE:
             case TIMESTAMP:
             case BYTES:
+            case JSON:
+            case STRUCT:
+            case ARRAY:
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
@@ -260,6 +280,9 @@ public class StructSchemaUtil {
             case DATE:
             case TIMESTAMP:
             case BYTES:
+            case JSON:
+            case STRUCT:
+            case ARRAY:
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
@@ -282,6 +305,9 @@ public class StructSchemaUtil {
                 break;
             case STRING:
                 bytes = Bytes.toBytes(struct.getString(fieldName));
+                break;
+            case JSON:
+                bytes = Bytes.toBytes(struct.getJson(fieldName));
                 break;
             case BYTES:
                 bytes = struct.getBytes(fieldName).toByteArray();
@@ -325,6 +351,8 @@ public class StructSchemaUtil {
                 return struct.getBytes(field.getName()).toByteArray();
             case STRING:
                 return Base64.getDecoder().decode(struct.getString(fieldName));
+            case JSON:
+                return Base64.getDecoder().decode(struct.getJson(fieldName));
             default:
                 return null;
         }
@@ -384,6 +412,10 @@ public class StructSchemaUtil {
             case FLOAT64:
             case BOOL:
             case BYTES:
+            case JSON:
+            case NUMERIC:
+            case STRUCT:
+            case ARRAY:
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
@@ -463,6 +495,7 @@ public class StructSchemaUtil {
                     case BOOL:
                         builder.set(field.getName()).to((Boolean)null);
                         break;
+                    case JSON:
                     case STRING:
                         builder.set(field.getName()).to((String)null);
                         break;
@@ -497,6 +530,9 @@ public class StructSchemaUtil {
                                 break;
                             case STRING:
                                 builder.set(field.getName()).toStringArray(null);
+                                break;
+                            case JSON:
+                                builder.set(field.getName()).toJsonArray(null);
                                 break;
                             case INT64:
                                 builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
@@ -550,6 +586,9 @@ public class StructSchemaUtil {
                 case STRING:
                     builder.set(field.getName()).to(struct.getString(field.getName()));
                     break;
+                case JSON:
+                    builder.set(field.getName()).to(struct.getJson(field.getName()));
+                    break;
                 case BYTES:
                     builder.set(field.getName()).to(struct.getBytes(field.getName()));
                     break;
@@ -584,6 +623,9 @@ public class StructSchemaUtil {
                             break;
                         case STRING:
                             builder.set(field.getName()).toStringArray(struct.getStringList(field.getName()));
+                            break;
+                        case JSON:
+                            builder.set(field.getName()).toJsonArray(struct.getJsonList(field.getName()));
                             break;
                         case BYTES:
                             builder.set(field.getName()).toBytesArray(struct.getBytesList(field.getName()));
@@ -803,8 +845,12 @@ public class StructSchemaUtil {
                 return Schema.FieldType.INT64;
             case "FLOAT64":
                 return Schema.FieldType.DOUBLE;
+            case "NUMERIC":
+                return Schema.FieldType.DECIMAL;
             case "BOOL":
                 return Schema.FieldType.BOOLEAN;
+            case "JSON":
+                return Schema.FieldType.STRING;
             case "DATE":
                 return CalciteUtils.DATE;
             case "TIMESTAMP":
@@ -814,6 +860,8 @@ public class StructSchemaUtil {
             default:
                 if(type.startsWith("STRING")) {
                     return Schema.FieldType.STRING;
+                } else if(type.startsWith("BYTES")) {
+                    return Schema.FieldType.BYTES;
                 } else if(type.startsWith("ARRAY")) {
                     final Matcher m = PATTERN_ARRAY_ELEMENT.matcher(type);
                     if(m.find()) {
@@ -831,8 +879,12 @@ public class StructSchemaUtil {
                 return Type.int64();
             case "FLOAT64":
                 return Type.float64();
+            case "NUMERIC":
+                return Type.numeric();
             case "BOOL":
                 return Type.bool();
+            case "JSON":
+                return Type.json();
             case "DATE":
                 return Type.date();
             case "TIMESTAMP":
@@ -959,6 +1011,9 @@ public class StructSchemaUtil {
                     case STRING:
                         builder.set(field.getName()).toStringArray(null);
                         break;
+                    case JSON:
+                        builder.set(field.getName()).toJsonArray(null);
+                        break;
                     case INT64:
                         builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
                         break;
@@ -973,9 +1028,6 @@ public class StructSchemaUtil {
                         break;
                     case TIMESTAMP:
                         builder.set(field.getName()).toTimestampArray(null);
-                        break;
-                    case JSON:
-                        builder.set(field.getName()).toJsonArray(null);
                         break;
                     case STRUCT:
                         builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
