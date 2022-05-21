@@ -10,7 +10,7 @@ import org.apache.beam.sdk.state.*;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.*;
 import org.apache.beam.sdk.values.*;
-import org.apache.commons.collections4.ListUtils;
+import org.apache.commons.collections.ListUtils;
 import org.joda.time.Duration;
 import org.joda.time.Instant;
 import org.joda.time.format.ISODateTimeFormat;

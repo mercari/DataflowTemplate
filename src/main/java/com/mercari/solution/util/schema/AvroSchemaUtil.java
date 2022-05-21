@@ -466,6 +466,46 @@ public class AvroSchemaUtil {
         return builder.build();
     }
 
+    public static GenericRecord create(final Schema schema, final Map<String, ? extends Object> values) {
+        final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
+        for(final Schema.Field field : schema.getFields()) {
+            final Schema fieldSchema = unnestUnion(field.schema());
+            final Object fieldValue = values.get(field.name());
+            if (fieldValue == null) {
+                builder.set(field.name(), null);
+                continue;
+            }
+            switch (fieldSchema.getType()) {
+                case ARRAY: {
+                    final Schema elementSchema = unnestUnion(fieldSchema.getElementType());
+                    if (elementSchema.getType().equals(Schema.Type.RECORD)) {
+                        final List<GenericRecord> children = new ArrayList<>();
+                        for (final GenericRecord child : (List<GenericRecord>) fieldValue) {
+                            if (child == null) {
+                                children.add(null);
+                            } else {
+                                children.add(create(elementSchema, (Map<String, ? extends Object>)fieldValue));
+                            }
+                        }
+                        builder.set(field.name(), children);
+                    } else {
+                        builder.set(field.name(), fieldValue);
+                    }
+                    break;
+                }
+                case RECORD: {
+                    final GenericRecord child = create(fieldSchema, (Map<String, ? extends Object>)fieldValue);
+                    builder.set(field.name(), child);
+                    break;
+                }
+                default:
+                    builder.set(field.name(), fieldValue);
+                    break;
+            }
+        }
+        return builder.build();
+    }
+
     public static Schema selectFields(final Schema schema, final List<String> fields) {
         return selectFieldsBuilder(schema, fields, "root").endRecord();
     }

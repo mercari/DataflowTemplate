@@ -182,19 +182,22 @@ public class RowSchemaUtil {
     }
 
     public static Row merge(final Schema schema, final Row row, final Map<String, ? extends Object> values) {
-        final Row.Builder builder = Row.withSchema(schema);
+        final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
         for(Schema.Field field : schema.getFields()) {
             if(values.containsKey(field.getName())) {
-                if(field.getType().getTypeName().isCollectionType()) {
-                    builder.addArray(values.get(field.getName()));
-                } else {
-                    builder.addValue(values.get(field.getName()));
-                }
+                builder.withFieldValue(field.getName(), values.get(field.getName()));
             } else {
-                builder.addValue(row.getValue(field.getName()));
+                builder.withFieldValue(field.getName(), row.getValue(field.getName()));
             }
         }
         return builder.build();
+    }
+
+    public static Row create(final Schema schema, Map<String, Object> values) {
+        return Row
+                .withSchema(schema)
+                .withFieldValues(values)
+                .build();
     }
 
     public static Schema selectFields(Schema schema, final List<String> fields) {

@@ -1,6 +1,6 @@
 package com.mercari.solution.util;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.joda.time.*;
 
 import java.io.Serializable;

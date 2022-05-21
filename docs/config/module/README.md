@@ -28,6 +28,7 @@
 | [protobuf](transform/protobuf.md) | ○ | ○ | Deserialize a value serialized in ProtocolBuffer format. |
 | [bandit](transform/bandit.md) | ○ | ○ | Outputs information about the arm to be selected by the [multi-arm bandit algorithm](https://en.wikipedia.org/wiki/Multi-armed_bandit). |
 | [crypto](transform/crypto.md) | ○ | ○ | Encrypts or decrypts the value of a specified field.(Currently, only decryption is supported) |
+| [tokenize](transform/tokenize.md) | ○ | ○ | Tokenizes and processes input text |
 | [pdfextract](transform/pdfextract.md) | ○ | ○ | Extract text and metadata from PDF files |
 | [bar](transform/bar.md) | ○ | ○ | Generate financial bars from transaction records |
 

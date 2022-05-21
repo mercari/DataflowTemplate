@@ -477,6 +477,92 @@ public class EntitySchemaUtil {
         return builder;
     }
 
+    public static Entity merge(final Schema schema, Entity entity, final Map<String, ? extends Object> values) {
+        final Entity.Builder builder = Entity.newBuilder(entity);
+        for(final Schema.Field field : schema.getFields()) {
+            final Value value;
+            if(!values.containsKey(field.getName()) || values.get(field.getName()) == null) {
+                value = Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+            } else {
+                final Object object = values.get(field.getName());
+                switch (field.getType().getTypeName()) {
+                    case BOOLEAN:
+                        value = Value.newBuilder().setBooleanValue((Boolean)object).build();
+                        break;
+                    case STRING:
+                        value = Value.newBuilder().setStringValue(object.toString()).build();
+                        break;
+                    case BYTES:
+                        value = Value.newBuilder().setBlobValue(ByteString.copyFrom((byte[]) object)).build();
+                        break;
+                    case INT32:
+                        value = Value.newBuilder().setIntegerValue((Integer) object).build();
+                        break;
+                    case INT64:
+                        value = Value.newBuilder().setIntegerValue((Long) object).build();
+                        break;
+                    case FLOAT:
+                        value = Value.newBuilder().setDoubleValue((Float) object).build();
+                        break;
+                    case DOUBLE:
+                        value = Value.newBuilder().setDoubleValue((Double) object).build();
+                        break;
+                    case DECIMAL:
+                        value = Value.newBuilder().setStringValue(object.toString()).build();
+                        break;
+                    default: {
+                        throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
+                    }
+                }
+            }
+            builder.putProperties(field.getName(), value);
+        }
+        return builder.build();
+    }
+
+    public static Entity create(final Schema schema, final Map<String, Object> values) {
+        final Entity.Builder builder = Entity.newBuilder();
+        for(final Schema.Field field : schema.getFields()) {
+            final Value value;
+            if(!values.containsKey(field.getName()) || values.get(field.getName()) == null) {
+                value = Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+            } else {
+                final Object object = values.get(field.getName());
+                switch (field.getType().getTypeName()) {
+                    case BOOLEAN:
+                        value = Value.newBuilder().setBooleanValue((Boolean)object).build();
+                        break;
+                    case STRING:
+                        value = Value.newBuilder().setStringValue(object.toString()).build();
+                        break;
+                    case BYTES:
+                        value = Value.newBuilder().setBlobValue(ByteString.copyFrom((byte[]) object)).build();
+                        break;
+                    case INT32:
+                        value = Value.newBuilder().setIntegerValue((Integer) object).build();
+                        break;
+                    case INT64:
+                        value = Value.newBuilder().setIntegerValue((Long) object).build();
+                        break;
+                    case FLOAT:
+                        value = Value.newBuilder().setDoubleValue((Float) object).build();
+                        break;
+                    case DOUBLE:
+                        value = Value.newBuilder().setDoubleValue((Double) object).build();
+                        break;
+                    case DECIMAL:
+                        value = Value.newBuilder().setStringValue(object.toString()).build();
+                        break;
+                    default: {
+                        throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
+                    }
+                }
+            }
+            builder.putProperties(field.getName(), value);
+        }
+        return builder.build();
+    }
+
     public static byte[] getBytes(final Entity entity, final String fieldName) {
         if(entity == null) {
             return null;
