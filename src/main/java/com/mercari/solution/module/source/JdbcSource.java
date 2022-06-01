@@ -298,14 +298,13 @@ public class JdbcSource implements SourceModule {
         }
 
         if(parameters.getTable() != null && parameters.getKeyFields().size() == 0) {
-
             final DataSource dataSource = JdbcUtil.createDataSource(
                     parameters.driver, parameters.url, parameters.user, parameters.password, true);
             try(final Connection connection = dataSource.getConnection()) {
-                final JdbcUtil.DB db = JdbcUtil.extractDbFromDriver(parameters.driver);
-                parameters.setKeyFields(generateParameterFieldNames(connection, db, "", parameters.table));
-            } catch (SQLException | IOException e) {
-                throw new IllegalStateException(e);
+                final List<String> keyFields = JdbcUtil.getPrimaryKeyNames(connection, null, null, parameters.getTable());
+                parameters.setKeyFields(keyFields);
+            } catch (SQLException e) {
+                throw new IllegalStateException("Failed to get primaryKeys for table: " + parameters.getTable(), e);
             }
         }
     }
@@ -1044,45 +1043,6 @@ public class JdbcSource implements SourceModule {
             }
         }
 
-    }
-
-    private static List<String> generateParameterFieldNames(final Connection connection,
-                                                     final JdbcUtil.DB db,
-                                                     final String database,
-                                                     final String table)
-            throws SQLException, IOException {
-
-        final String parameterFieldsQuery;
-        if(JdbcUtil.DB.MYSQL.equals(db)) {
-            parameterFieldsQuery = String.format("SELECT c.column_name FROM INFORMATION_SCHEMA "
-                    + "WHERE table_schema=%s "
-                    + " AND table_name=%s"
-                    + " AND column_key='PRI'"
-                    + " ORDER BY ordinal_position", database, table);
-        } else if(JdbcUtil.DB.POSTGRESQL.equals(db)) {
-            parameterFieldsQuery = String.format("SELECT c.column_name AS columnName "
-                    + "FROM INFORMATION_SCHEMA "
-                    + "WHERE table_schema=%s "
-                    + " AND table_name=%s"
-                    + " AND column_key='PRI'"
-                    + " ORDER BY ordinal_position", database, table);
-        } else {
-            throw new IllegalArgumentException();
-        }
-
-        try(final PreparedStatement statement = connection
-                .prepareStatement(parameterFieldsQuery, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-
-            try (final ResultSet resultSet = statement.executeQuery()) {
-                final List<String> fieldNames = new ArrayList<>();
-                while(resultSet.next()) {
-                    final GenericRecord record = ResultSetToRecordConverter.convert(resultSet);
-                    final String fieldName = record.get("columnName").toString();
-                    fieldNames.add(fieldName);
-                }
-                return fieldNames;
-            }
-        }
     }
 
 }

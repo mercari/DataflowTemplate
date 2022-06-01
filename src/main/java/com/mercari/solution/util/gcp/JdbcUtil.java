@@ -323,6 +323,26 @@ public class JdbcUtil {
         }
     }
 
+    public static List<String> getPrimaryKeyNames(final Connection connection,
+                                                  final String database,
+                                                  final String namespace,
+                                                  final String table) throws SQLException {
+
+        final DatabaseMetaData metaData = connection.getMetaData();
+        try (final ResultSet resultSet = metaData.getPrimaryKeys(database, namespace, table)) {
+            final Map<Integer,String> primaryKeyNames = new HashMap<>();
+            while(resultSet.next()) {
+                final Integer primaryKeySeq  = resultSet.getInt("KEY_SEQ");
+                final String primaryKeyName = resultSet.getString("COLUMN_NAME");
+                primaryKeyNames.put(primaryKeySeq, primaryKeyName);
+            }
+            return primaryKeyNames.entrySet().stream()
+                    .sorted(Comparator.comparing(Map.Entry::getKey))
+                    .map(Map.Entry::getValue)
+                    .collect(Collectors.toList());
+        }
+    }
+
     public static DB extractDbFromDriver(final String driver) {
         if(driver == null) {
             throw new IllegalArgumentException("driver must not be null");
