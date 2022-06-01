@@ -3,6 +3,8 @@ package com.mercari.solution.util.schema;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.XmlUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -12,12 +14,460 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 
 public class SolrSchemaUtil {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SolrSchemaUtil.class);
+
+    public static class SolrConfig implements Serializable {
+
+        private String dataDir;
+        private DirectoryFactory directoryFactory;
+        private SchemaFactory schemaFactory;
+        private CodecFactory codecFactory;
+        private IndexConfig indexConfig;
+        private List<Lib> libs;
+        private String luceneMatchVersion;
+
+        private List<RequestHandler> requestHandlers;
+        private List<SearchComponent> searchComponents;
+
+
+        public List<String> validate() {
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.directoryFactory != null) {
+                errorMessages.addAll(this.directoryFactory.validate());
+            }
+            if(this.schemaFactory != null) {
+                errorMessages.addAll(this.schemaFactory.validate());
+            }
+            if(this.codecFactory != null) {
+                errorMessages.addAll(this.codecFactory.validate());
+            }
+            if(this.indexConfig != null) {
+                errorMessages.addAll(this.indexConfig.validate());
+            }
+            if(this.libs != null) {
+                for(int i=0; i<libs.size(); i++) {
+                    errorMessages.addAll(libs.get(i).validate(i));
+                }
+            }
+            if(this.requestHandlers != null) {
+                for(int i=0; i<requestHandlers.size(); i++) {
+                    errorMessages.addAll(requestHandlers.get(i).validate(i));
+                }
+            }
+            if(this.searchComponents != null) {
+                for(int i=0; i<searchComponents.size(); i++) {
+                    errorMessages.addAll(searchComponents.get(i).validate(i));
+                }
+            }
+            return errorMessages;
+        }
+
+        public void setDefaults() {
+
+            if(this.dataDir == null) {
+                this.dataDir = "${solr.data.dir:}";
+            }
+
+            // setup DirectoryFactory
+            if(this.directoryFactory == null) {
+                this.directoryFactory = new DirectoryFactory();
+            }
+            this.directoryFactory.setDefaults();
+
+            // setup SchemaFactory
+            if(this.schemaFactory == null) {
+                this.schemaFactory = new SchemaFactory();
+            }
+            this.schemaFactory.setDefaults();
+
+            // setup CodecFactory
+            if(this.codecFactory == null) {
+                this.codecFactory = new CodecFactory();
+            }
+            this.codecFactory.setDefaults();
+
+            // setup IndexConfig
+            if(this.indexConfig == null) {
+                this.indexConfig = new IndexConfig();
+            }
+            this.indexConfig.setDefaults();
+
+            // setup Libs
+            if(this.libs == null) {
+                this.libs = new ArrayList<>();
+            } else {
+                for(final Lib lib : this.libs) {
+                    lib.setDefaults();
+                }
+            }
+
+            // setup RequestHandlers
+            if(this.requestHandlers == null) {
+                this.requestHandlers = new ArrayList<>();
+            }
+            if(this.requestHandlers.size() == 0) {
+                // set default request handler
+                final RequestHandler defaultSearchHandler = new RequestHandler();
+                defaultSearchHandler.name = "/select";
+                defaultSearchHandler.className = "solr.SearchHandler";
+                final Map<String, String> defaults = new HashMap<>();
+                defaults.put("echoParams", "explicit");
+                defaults.put("rows", "10");
+                defaultSearchHandler.defaults = defaults;
+                defaultSearchHandler.setDefaults();
+                this.requestHandlers.add(defaultSearchHandler);
+            }
+
+            // setup SearchComponents
+            if(this.searchComponents == null) {
+                this.searchComponents = new ArrayList<>();
+            }
+
+            if(this.luceneMatchVersion == null) {
+                this.luceneMatchVersion = "9.0.0";
+            }
+
+        }
+
+        public org.w3c.dom.Document createDocument() {
+            final org.w3c.dom.Document document = XmlUtil.createDocument("config");
+            final Element root = document.getDocumentElement();
+
+            final Element luceneMatchVersion = document.createElement("luceneMatchVersion");
+            luceneMatchVersion.setTextContent(this.luceneMatchVersion);
+            root.appendChild(luceneMatchVersion);
+
+            final Element dataDir = document.createElement("dataDir");
+            dataDir.setTextContent(this.dataDir);
+            root.appendChild(dataDir);
+
+            final Element directoryFactory = this.directoryFactory.createElement(document);
+            root.appendChild(directoryFactory);
+
+            final Element schemaFactory = this.schemaFactory.createElement(document);
+            root.appendChild(schemaFactory);
+
+            final Element indexConfig = this.indexConfig.createElement(document);
+            root.appendChild(indexConfig);
+
+            final Element codecFactory = this.codecFactory.createElement(document);
+            root.appendChild(codecFactory);
+
+            for(final Lib lib : this.libs) {
+                final Element libElm = lib.createElement(document);
+                root.appendChild(libElm);
+            }
+
+            for(final RequestHandler requestHandler : this.requestHandlers) {
+                final Element reqElem = requestHandler.createElement(document);
+                root.appendChild(reqElem);
+            }
+
+            for(final SearchComponent searchComponent : this.searchComponents) {
+                final Element scElem = searchComponent.createElement(document);
+                root.appendChild(scElem);
+            }
+
+            return document;
+        }
+
+        private class DirectoryFactory implements Serializable {
+
+            private String className;
+            private Boolean preload;
+
+            public List<String> validate() {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.className == null) {
+                    this.className = "solr.NRTCachingDirectoryFactory";
+                    // or solr.MMapDirectoryFactory or solr.NIOFSDirectoryFactory or org.apache.solr.core.RAMDirectoryFactory
+                }
+                if(this.preload == null) {
+                    this.preload = true;
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element directoryFactory = document.createElement("directoryFactory");
+                directoryFactory.setAttribute("name", "DirectoryFactory");
+                directoryFactory.setAttribute("class", this.className);
+                if("solr.MMapDirectoryFactory".equals(this.className) || "solr.NIOFSDirectoryFactory".equals(this.className)) {
+                    final Element preloadElm = document.createElement("bool");
+                    preloadElm.setAttribute("name", "preload");
+                    preloadElm.setTextContent(this.preload.toString());
+                    directoryFactory.appendChild(preloadElm);
+                }
+                return directoryFactory;
+            }
+        }
+
+        private class SchemaFactory implements Serializable {
+
+            private String className;
+            private Boolean mutable;
+            private String managedSchemaResourceName;
+
+            public List<String> validate() {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.className == null) {
+                    this.className = "ClassicIndexSchemaFactory"; // or ManagedIndexSchemaFactory
+                }
+                if(this.mutable == null) {
+                    this.mutable = true;
+                }
+                if(this.managedSchemaResourceName == null) {
+                    this.managedSchemaResourceName = "managed-schema.xml";
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element schemaFactory = document.createElement("schemaFactory");
+                schemaFactory.setAttribute("class", this.className);
+                if("ManagedIndexSchemaFactory".equals(this.className)) {
+                    final Element mutableElm = document.createElement("bool");
+                    mutableElm.setAttribute("name", "mutable");
+                    mutableElm.setTextContent(this.mutable.toString());
+                    schemaFactory.appendChild(mutableElm);
+
+                    final Element resourceNameElm = document.createElement("str");
+                    resourceNameElm.setAttribute("name", "managedSchemaResourceName");
+                    resourceNameElm.setTextContent(this.managedSchemaResourceName);
+                    schemaFactory.appendChild(resourceNameElm);
+                }
+                return schemaFactory;
+            }
+
+        }
+
+        private class IndexConfig implements Serializable {
+
+            private Integer ramBufferSizeMB;
+            private Integer maxBufferedDocs;
+            private Boolean useCompoundFile;
+            private Integer ramPerThreadHardLimitMB;
+
+            private String lockType;
+
+            public List<String> validate() {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.lockType == null) {
+                    this.lockType = "none";
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element indexConfig = document.createElement("indexConfig");
+                if(this.ramBufferSizeMB != null) {
+                    final Element ramBufferSizeMBElm = document.createElement("ramBufferSizeMB");
+                    ramBufferSizeMBElm.setTextContent(this.ramBufferSizeMB.toString());
+                    indexConfig.appendChild(ramBufferSizeMBElm);
+                }
+                if(this.maxBufferedDocs != null) {
+                    final Element maxBufferedDocsElm = document.createElement("maxBufferedDocs");
+                    maxBufferedDocsElm.setTextContent(this.maxBufferedDocs.toString());
+                    indexConfig.appendChild(maxBufferedDocsElm);
+                }
+                if(this.ramPerThreadHardLimitMB != null) {
+                    final Element ramPerThreadHardLimitMBElm = document.createElement("ramPerThreadHardLimitMB");
+                    ramPerThreadHardLimitMBElm.setTextContent(this.ramPerThreadHardLimitMB.toString());
+                    indexConfig.appendChild(ramPerThreadHardLimitMBElm);
+                }
+                if(this.useCompoundFile != null) {
+                    final Element useCompoundFileElm = document.createElement("useCompoundFile");
+                    useCompoundFileElm.setTextContent(this.useCompoundFile.toString());
+                    indexConfig.appendChild(useCompoundFileElm);
+                }
+                if(this.lockType != null) {
+                    final Element lockTypeElm = document.createElement("lockType");
+                    lockTypeElm.setTextContent(this.lockType);
+                    indexConfig.appendChild(lockTypeElm);
+                }
+                return indexConfig;
+            }
+        }
+
+        private class CodecFactory implements Serializable {
+
+            private String className;
+            private String compressionMode;
+
+            public List<String> validate() {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.className == null) {
+                    this.className = "solr.SchemaCodecFactory"; // or solr.SimpleTextCodecFactory
+                }
+                if(this.compressionMode == null) {
+                    this.compressionMode = "BEST_SPEED"; // BEST_SPEED or BEST_COMPRESSION
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element codecFactory = document.createElement("codecFactory");
+                codecFactory.setAttribute("class", this.className);
+                return codecFactory;
+            }
+
+        }
+
+        private class Lib implements Serializable {
+
+            private String dir;
+            private String regex;
+
+            public List<String> validate(int index) {
+                final List<String> errorMessages = new ArrayList<>();
+                if(this.dir == null) {
+                    errorMessages.add("Solrindex source module solrconfig.lib[" + index + "].dir must not be null.");
+                }
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.regex == null) {
+                    this.regex = ".*\\.jar";
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element lib = document.createElement("lib");
+                lib.setAttribute("dir", this.dir);
+                lib.setAttribute("regex", this.regex);
+                return lib;
+            }
+
+        }
+
+        private class RequestHandler implements Serializable {
+
+            private String name;
+            private String className;
+            private String startup;
+            private Map<String, String> defaults;
+            private Map<String, String> invariants;
+            private List<String> components;
+
+            public List<String> validate(int index) {
+                final List<String> errorMessages = new ArrayList<>();
+                if(this.name == null) {
+                    errorMessages.add("Solrindex source module solrconfig.requestHandler[" + index + "].name must not be null.");
+                }
+                if(this.className == null) {
+                    errorMessages.add("Solrindex source module solrconfig.requestHandler[" + index + "].className must not be null.");
+                }
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.defaults == null) {
+                    this.defaults = new HashMap<>();
+                }
+                if(this.invariants == null) {
+                    this.invariants = new HashMap<>();
+                }
+                if(this.components == null) {
+                    this.components = new ArrayList<>();
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element requestHandler = document.createElement("requestHandler");
+                requestHandler.setAttribute("name", this.name);
+                requestHandler.setAttribute("class", this.className);
+                if(startup != null) {
+                    requestHandler.setAttribute("startup", this.startup);
+                }
+                if(this.defaults.size() > 0) {
+                    final Element defaults = document.createElement("lst");
+                    defaults.setAttribute("name", "defaults");
+                    for(final Map.Entry<String, String> entry : this.defaults.entrySet()) {
+                        final Element d = document.createElement("str");
+                        d.setAttribute("name", entry.getKey());
+                        d.setTextContent(entry.getValue());
+                        defaults.appendChild(d);
+                    }
+                    requestHandler.appendChild(defaults);
+                }
+                if(this.invariants.size() > 0) {
+                    final Element invariants = document.createElement("lst");
+                    invariants.setAttribute("name", "invariants");
+                    for(final Map.Entry<String, String> entry : this.invariants.entrySet()) {
+                        final Element i = document.createElement("str");
+                        i.setAttribute("name", entry.getKey());
+                        i.setTextContent(entry.getValue());
+                        invariants.appendChild(i);
+                    }
+                    requestHandler.appendChild(invariants);
+                }
+                if(this.components.size() > 0) {
+                    final Element components = document.createElement("arr");
+                    components.setAttribute("name", "components");
+                    for(final String component : this.components) {
+                        final Element c = document.createElement("str");
+                        c.setTextContent(component);
+                        components.appendChild(c);
+                    }
+                    requestHandler.appendChild(components);
+                }
+                return requestHandler;
+            }
+
+        }
+
+        private class SearchComponent implements Serializable {
+
+            private String name;
+            private String className;
+
+            public List<String> validate(int index) {
+                final List<String> errorMessages = new ArrayList<>();
+                if(this.name == null) {
+                    errorMessages.add("Solrindex source module solrconfig.searchComponent[" + index + "].name must not be null.");
+                }
+                if(this.className == null) {
+                    errorMessages.add("Solrindex source module solrconfig.searchComponent[" + index + "].className must not be null.");
+                }
+                return errorMessages;
+            }
+
+            public Element createElement(final Document document) {
+                final Element searchComponent = document.createElement("searchComponent");
+                searchComponent.setAttribute("name", this.name);
+                searchComponent.setAttribute("class", this.className);
+                return searchComponent;
+            }
+        }
+    }
+
+    public static SolrConfig createSolrConfig() {
+        final SolrConfig solrconfig = new SolrConfig();
+        solrconfig.setDefaults();
+        return solrconfig;
+    }
 
     public static Document parseSchema(final JsonObject jsonObject) {
         final Document document = createSchemaXML("content");
@@ -254,7 +704,8 @@ public class SolrSchemaUtil {
             }
             return fieldNames;
         } catch (Exception e) {
-            throw new IllegalStateException(e);
+            LOG.error("Failed to parse schema.xml: " + schemaString);
+            throw new IllegalStateException("Failed to parse schema.xml: " + schemaString, e);
         }
     }
 

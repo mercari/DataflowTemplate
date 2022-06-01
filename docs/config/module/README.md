@@ -6,9 +6,9 @@
 | --- | --- | --- | --- |
 | [bigquery](source/bigquery.md) | ○ | ○ | Import data from BigQuery with a specified query or table |
 | [spanner](source/spanner.md) | ○ | ○ | Import data from Cloud Spanner with a specified query or table |
-| [storage](source/storage.md) | ○ | ○(TBA) | Import data from file storage from specified path |
-| [datastore](source/datastore.md) | ○ | ○(TBA) | Import data from Cloud Datastore with a specified gql |
-| [jdbc](source/jdbc.md) | ○ | ○(TBA) | Import data from RDB using JDBC connector with a specified query |
+| [storage](source/storage.md) | ○ | ○(TODO) | Import data from file storage from specified path |
+| [datastore](source/datastore.md) | ○ | ○(TODO) | Import data from Cloud Datastore with a specified gql |
+| [jdbc](source/jdbc.md) | ○ | ○(TODO) | Import data from RDB using JDBC connector with a specified query |
 | [drivefile](source/drivefile.md) | ○ | - | Import file info from Google Drive |
 | [pubsub](source/pubsub.md) | - | ○ | Import data from Cloud PubSub |
 | [websocket](source/websocket.md) | - | ○ | Import data from WebSocket |
@@ -38,12 +38,12 @@
 | --- | --- | --- | --- |
 | [bigquery](sink/bigquery.md) | ○ | ○ | Inserting Data into BigQuery Table |
 | [spanner](sink/spanner.md) | ○ | ○ | Inserting Data into Cloud Spanner Table |
-| [storage](sink/storage.md) | ○ | ○(TBA) | Write file to Cloud Storage |
+| [storage](sink/storage.md) | ○ | ○(TODO) | Write file to Cloud Storage |
 | [datastore](sink/datastore.md) | ○ | ○ | Inserting Data into Cloud Datastore kind |
 | [bigtable](sink/bigtable.md) | ○ | ○ | Inserting Data into Cloud Bigtable table |
-| [jdbc](sink/jdbc.md) | ○ | ○(TBA) | Inserting Data into RDB table using JDBC connector |
+| [jdbc](sink/jdbc.md) | ○ | ○(TODO) | Inserting Data into RDB table using JDBC connector |
 | [pubsub](sink/pubsub.md) | ○ | ○ | Publish data to specified PubSub topic |
-| [text](sink/text.md) | ○ | ○(TBA) | Create text files with the template specified for each row |
+| [text](sink/text.md) | ○ | ○(TODO) | Create text files with the template specified for each row |
 | [copyfile](sink/copyfile.md) | ○ | ○(TODO) | Copy files between storage services |
-| [solrindex](sink/solrindex.md) | ○ | ○(TODO) | Write solr index file to Cloud Storage |
+| [solrindex](sink/solrindex.md) | ○ | - | Create solr index file to Cloud Storage |
 | [debug](sink/debug.md) | ○ | ○ | Outputting data to the log |

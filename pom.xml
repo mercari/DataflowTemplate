@@ -12,17 +12,18 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.38.0</beam.version>
+    <beam.version>2.39.0</beam.version>
 
     <joda.version>2.10.3</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
-    <hadoop.version>3.3.1</hadoop.version>
-    <hbase.version>2.4.5</hbase.version>
+    <hadoop.version>3.3.3</hadoop.version>
+    <hbase.version>2.4.12</hbase.version>
     <onnx.version>1.10.2-1.5.7</onnx.version>
     <onnxruntime.version>1.11.0</onnxruntime.version>
     <tensorflow.version>1.15.0</tensorflow.version>
     <lightgbm.version>3.2.110</lightgbm.version>
-    <solr.version>8.11.1</solr.version>
+    <solr.version>9.0.0</solr.version>
+    <pdfbox.version>2.0.26</pdfbox.version>
     <jst.version>1.18.2</jst.version>
     <mysql-connector.version>8.0.28</mysql-connector.version>
     <postgresql-connector.version>42.3.3</postgresql-connector.version>
@@ -287,12 +288,6 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client</artifactId>
       <version>${hadoop.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
@@ -300,12 +295,6 @@
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-common</artifactId>
       <version>${hbase.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <!-- Machine Learning -->
@@ -345,30 +334,39 @@
     </dependency>
 
     <!-- Search Engine -->
-    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-langid -->
+    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-core -->
     <dependency>
       <groupId>org.apache.solr</groupId>
-      <artifactId>solr-langid</artifactId>
+      <artifactId>solr-core</artifactId>
       <version>${solr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-analysis-extras -->
+    <!-- https://mvnrepository.com/artifact/org.apache.lucene/lucene-analysis-kuromoji -->
     <dependency>
-      <groupId>org.apache.solr</groupId>
-      <artifactId>solr-analysis-extras</artifactId>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-analysis-kuromoji</artifactId>
       <version>${solr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.lucene/lucene-analysis-opennlp -->
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-analysis-opennlp</artifactId>
+      <version>${solr.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.lucene/lucene-analysis-icu -->
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-analysis-icu</artifactId>
+      <version>${solr.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.pdfbox/pdfbox -->
+    <dependency>
+      <groupId>org.apache.pdfbox</groupId>
+      <artifactId>pdfbox</artifactId>
+      <version>${pdfbox.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.locationtech.jts/jts-core -->

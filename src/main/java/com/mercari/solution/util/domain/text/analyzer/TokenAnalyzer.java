@@ -35,7 +35,7 @@ import org.apache.lucene.analysis.opennlp.tools.*;
 import org.apache.lucene.analysis.pattern.*;
 import org.apache.lucene.analysis.shingle.ShingleFilter;
 import org.apache.lucene.analysis.standard.StandardTokenizer;
-import org.apache.lucene.analysis.standard.UAX29URLEmailTokenizer;
+import org.apache.lucene.analysis.email.UAX29URLEmailTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
