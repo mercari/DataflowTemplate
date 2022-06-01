@@ -9,7 +9,6 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
-import com.mercari.solution.util.TemplateFileNaming;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.aws.S3Util;
 import com.mercari.solution.util.converter.*;
@@ -23,6 +22,9 @@ import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
+import org.apache.beam.sdk.transforms.windowing.IntervalWindow;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
@@ -382,7 +384,7 @@ public class TextSink implements SinkModule {
 
             final Map<String, Object> map = this.formatter.formatMap(c.element());
             if(inIntervalWindow) {
-                map.putAll(TemplateFileNaming.createContextParams(bw, c.pane()));
+                map.putAll(createContextParams(bw, c.pane()));
             }
             map.put("_CSVPrinter", new MapToCsvConverter());
 
@@ -477,6 +479,34 @@ public class TextSink implements SinkModule {
                     return Charset.forName(charset);
             }
         }
+
+        public static Map<String, Object> createContextParams(final BoundedWindow window,
+                                                              final PaneInfo pane) {
+
+            final Map<String, Object> map = new HashMap<>();
+
+            // Window Path
+            if(window != GlobalWindow.INSTANCE) {
+                if(!(window instanceof IntervalWindow)) {
+                    throw new IllegalArgumentException("TemplateFileNaming only support IntervalWindow, but got: "
+                            + window.getClass().getSimpleName());
+                }
+                final IntervalWindow iw = ((IntervalWindow)window);
+                map.put("__WINDOW_START__", iw.start());
+                map.put("__WINDOW_END__", iw.end());
+            } else {
+                map.put("__WINDOW_START__", Instant.ofEpochSecond(0L));
+                map.put("__WINDOW_END__", Instant.ofEpochSecond(4102444800L));
+            }
+
+            // Pane Path
+            if(!pane.isFirst() || !pane.isLast()) {
+                map.put("__PANE_INDEX__", pane.getIndex());
+            }
+
+            return map;
+        }
+
 
     }
 
