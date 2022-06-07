@@ -95,7 +95,7 @@ public class BigQueryUtil {
 
             return getQueryDryRunJob(bigquery, queryRunProjectId, query);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to dry run query: " + query + ", for projectId: " + projectId, e);
         }
     }
 
@@ -109,7 +109,7 @@ public class BigQueryUtil {
                             .setDryRun(true)))
                     .execute();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to dry run query: " + query + ", for projectId: " + projectId, e);
         }
     }
 
@@ -123,15 +123,14 @@ public class BigQueryUtil {
 
     public static TableSchema getTableSchemaFromTable(final String tableName, final String defaultProjectId) {
         final Bigquery bigquery = getBigquery();
+        String queryRunProjectId = null;
         try {
             final Credentials credential = GoogleCredentials.getApplicationDefault();
-            final String queryRunProjectId;
             if(defaultProjectId != null) {
                 queryRunProjectId = defaultProjectId;
             } else {
                 queryRunProjectId = getUserDefaultProject(credential);
             }
-
             final TableReference tableReference = getTableReference(tableName, queryRunProjectId);
 
             final Table table = bigquery.tables()
@@ -139,7 +138,7 @@ public class BigQueryUtil {
                     .execute();
             return table.getSchema();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to get schema from BigQuery table: " + tableName + ", for projectId: " + queryRunProjectId, e);
         }
     }
 
@@ -157,13 +156,11 @@ public class BigQueryUtil {
     public static org.apache.avro.Schema getTableSchemaFromTableStorage(
             final TableReference table, final String project, final List<String> fields, final String restriction) {
 
+        final String srcTable = String.format(
+                "projects/%s/datasets/%s/tables/%s",
+                table.getProjectId(), table.getDatasetId(), table.getTableId());
         try(final BigQueryReadClient client = BigQueryReadClient.create()) {
-
-            final String srcTable = String.format(
-                    "projects/%s/datasets/%s/tables/%s",
-                    table.getProjectId(), table.getDatasetId(), table.getTableId());
             final String parent = String.format("projects/%s", project);
-
             ReadSession.TableReadOptions.Builder options = ReadSession.TableReadOptions.newBuilder();
             if(fields != null) {
                 options = options.addAllSelectedFields(fields);
@@ -187,7 +184,7 @@ public class BigQueryUtil {
             final ReadSession session = client.createReadSession(builder.build());
             return new org.apache.avro.Schema.Parser().parse(session.getAvroSchema().getSchema());
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to get schema from BigQuery storage table: " + srcTable, e);
         }
     }
 
