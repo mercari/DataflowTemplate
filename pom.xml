@@ -6,7 +6,7 @@
 
   <groupId>com.mercari</groupId>
   <artifactId>solution</artifactId>
-  <version>0.7.0</version>
+  <version>0.8.0</version>
   <name>Mercari Dataflow Template</name>
 
   <packaging>jar</packaging>
@@ -25,11 +25,11 @@
     <solr.version>9.0.0</solr.version>
     <pdfbox.version>2.0.26</pdfbox.version>
     <jst.version>1.18.2</jst.version>
-    <mysql-connector.version>8.0.28</mysql-connector.version>
-    <postgresql-connector.version>42.3.3</postgresql-connector.version>
+    <mysql-connector.version>8.0.29</mysql-connector.version>
+    <postgresql-connector.version>42.3.6</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.5.0</jdbc-socket-factory.version>
-    <secretmanager.version>2.1.3</secretmanager.version>
+    <jdbc-socket-factory.version>1.6.0</jdbc-socket-factory.version>
+    <secretmanager.version>2.2.0</secretmanager.version>
     <iamcredentials.version>2.0.11</iamcredentials.version>
     <drive.version>v3-rev20220110-1.32.1</drive.version>
     <socketio.version>2.0.1</socketio.version>
