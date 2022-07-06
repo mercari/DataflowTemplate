@@ -4,11 +4,17 @@ import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.*;
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
+import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.*;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -30,10 +36,6 @@ import java.util.stream.Stream;
 public class StructSchemaUtil {
 
     private static final Logger LOG = LoggerFactory.getLogger(StructSchemaUtil.class);
-
-    private static final Pattern PATTERN_DATE1 = Pattern.compile("[0-9]{8}");
-    private static final Pattern PATTERN_DATE2 = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}");
-    private static final Pattern PATTERN_DATE3 = Pattern.compile("[0-9]{4}/[0-9]{2}/[0-9]{2}");
     private static final Pattern PATTERN_ARRAY_ELEMENT = Pattern.compile("(?<=\\<).*?(?=\\>)");
 
 
@@ -64,6 +66,8 @@ public class StructSchemaUtil {
                 return struct.getDouble(fieldName);
             case NUMERIC:
                 return struct.getBigDecimal(fieldName);
+            case PG_NUMERIC:
+                return struct.getString(fieldName);
             case DATE: {
                 final Date date = struct.getDate(fieldName);
                 return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
@@ -98,6 +102,8 @@ public class StructSchemaUtil {
                 return struct.getDouble(field);
             case NUMERIC:
                 return struct.getBigDecimal(field);
+            case PG_NUMERIC:
+                return struct.getString(field);
             case DATE:
                 return struct.getDate(field).toString();
             case TIMESTAMP:
@@ -124,6 +130,8 @@ public class StructSchemaUtil {
                 return Value.bytes(struct.getBytes(field));
             case NUMERIC:
                 return Value.numeric(struct.getBigDecimal(field));
+            case PG_NUMERIC:
+                return Value.pgNumeric(struct.getString(field));
             case STRING:
                 return Value.string(struct.getString(field));
             case JSON:
@@ -146,6 +154,8 @@ public class StructSchemaUtil {
                         return Value.bytesArray(struct.getBytesList(field));
                     case NUMERIC:
                         return Value.numericArray(struct.getBigDecimalList(field));
+                    case PG_NUMERIC:
+                        return Value.pgNumericArray(struct.getStringList(field));
                     case STRING:
                         return Value.stringArray(struct.getStringList(field));
                     case JSON:
@@ -186,6 +196,8 @@ public class StructSchemaUtil {
                 return Double.toString(struct.getDouble(field));
             case NUMERIC:
                 return struct.getBigDecimal(field).toString();
+            case PG_NUMERIC:
+                return struct.getString(field);
             case DATE:
                 return struct.getDate(field).toString();
             case TIMESTAMP:
@@ -215,6 +227,8 @@ public class StructSchemaUtil {
                 return Double.valueOf(struct.getDouble(field)).longValue();
             case NUMERIC:
                 return struct.getBigDecimal(field).longValue();
+            case PG_NUMERIC:
+                return new BigDecimal(struct.getString(field)).longValue();
             case DATE:
             case TIMESTAMP:
             case BYTES:
@@ -246,6 +260,8 @@ public class StructSchemaUtil {
                 return struct.getDouble(field);
             case NUMERIC:
                 return struct.getBigDecimal(field).doubleValue();
+            case PG_NUMERIC:
+                return new BigDecimal(struct.getString(field)).doubleValue();
             case DATE:
             case TIMESTAMP:
             case BYTES:
@@ -277,6 +293,8 @@ public class StructSchemaUtil {
                 return BigDecimal.valueOf(struct.getDouble(field));
             case NUMERIC:
                 return struct.getBigDecimal(field);
+            case PG_NUMERIC:
+                return new BigDecimal(struct.getString(field));
             case DATE:
             case TIMESTAMP:
             case BYTES:
@@ -320,6 +338,9 @@ public class StructSchemaUtil {
                 break;
             case NUMERIC:
                 bytes = Bytes.toBytes(struct.getBigDecimal(fieldName));
+                break;
+            case PG_NUMERIC:
+                bytes = Bytes.toBytes(struct.getString(fieldName));
                 break;
             case DATE: {
                 final Date date = struct.getDate(fieldName);
@@ -370,34 +391,8 @@ public class StructSchemaUtil {
             case STRING: {
                 final String stringValue = struct.getString(field);
                 try {
-                    return Instant.parse(stringValue);
-                } catch (Exception e) {
-                    if(PATTERN_DATE1.matcher(stringValue).find()) {
-                        return new DateTime(
-                                Integer.valueOf(stringValue.substring(0, 4)),
-                                Integer.valueOf(stringValue.substring(4, 6)),
-                                Integer.valueOf(stringValue.substring(6, 8)),
-                                0, 0, DateTimeZone.UTC).toInstant();
-                    }
-
-                    Matcher matcher = PATTERN_DATE2.matcher(stringValue);
-                    if(matcher.find()) {
-                        final String[] values = matcher.group().split("-");
-                        return new DateTime(
-                                Integer.valueOf(values[0]),
-                                Integer.valueOf(values[1]),
-                                Integer.valueOf(values[2]),
-                                0, 0, DateTimeZone.UTC).toInstant();
-                    }
-                    matcher = PATTERN_DATE3.matcher(stringValue);
-                    if(matcher.find()) {
-                        final String[] values = matcher.group().split("/");
-                        return new DateTime(
-                                Integer.valueOf(values[0]),
-                                Integer.valueOf(values[1]),
-                                Integer.valueOf(values[2]),
-                                0, 0, DateTimeZone.UTC).toInstant();
-                    }
+                    return DateTimeUtil.toJodaInstant(stringValue);
+                } catch (IllegalArgumentException e) {
                     return timestampDefault;
                 }
             }
@@ -414,6 +409,7 @@ public class StructSchemaUtil {
             case BYTES:
             case JSON:
             case NUMERIC:
+            case PG_NUMERIC:
             case STRUCT:
             case ARRAY:
             default:
@@ -511,6 +507,9 @@ public class StructSchemaUtil {
                     case NUMERIC:
                         builder.set(field.getName()).to((BigDecimal) null);
                         break;
+                    case PG_NUMERIC:
+                        builder.set(field.getName()).to((String) null);
+                        break;
                     case DATE:
                         builder.set(field.getName()).to((Date)null);
                         break;
@@ -542,6 +541,9 @@ public class StructSchemaUtil {
                                 break;
                             case NUMERIC:
                                 builder.set(field.getName()).toNumericArray(null);
+                                break;
+                            case PG_NUMERIC:
+                                builder.set(field.getName()).toPgNumericArray(null);
                                 break;
                             case DATE:
                                 builder.set(field.getName()).toDateArray(null);
@@ -601,6 +603,9 @@ public class StructSchemaUtil {
                 case NUMERIC:
                     builder.set(field.getName()).to(struct.getBigDecimal(field.getName()));
                     break;
+                case PG_NUMERIC:
+                    builder.set(field.getName()).to(struct.getString(field.getName()));
+                    break;
                 case TIMESTAMP:
                     builder.set(field.getName()).to(struct.getTimestamp(field.getName()));
                     break;
@@ -638,6 +643,9 @@ public class StructSchemaUtil {
                             break;
                         case NUMERIC:
                             builder.set(field.getName()).toNumericArray(struct.getBigDecimalList(field.getName()));
+                            break;
+                        case PG_NUMERIC:
+                            builder.set(field.getName()).toPgNumericArray(struct.getStringList(field.getName()));
                             break;
                         case STRUCT:
                             builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), struct.getStructList(field.getName()));
@@ -807,6 +815,9 @@ public class StructSchemaUtil {
                 case NUMERIC:
                     builder.set(field.getName()).to((BigDecimal) value);
                     break;
+                case PG_NUMERIC:
+                    builder.set(field.getName()).to((String) value);
+                    break;
                 case DATE:
                     builder.set(field.getName()).to((Date) value);
                     break;
@@ -901,6 +912,121 @@ public class StructSchemaUtil {
                     convertSchemaField(struct.getString("SPANNER_TYPE"))));
         }
         return Type.struct(fields);
+    }
+
+    public static Schema createDataChangeRecordRowSchema() {
+        final Schema rowTypeSchema = Schema.builder()
+                .addField(Schema.Field.of("name", Schema.FieldType.STRING))
+                .addField(Schema.Field.of("type", Schema.FieldType.logicalType(EnumerationType
+                        .create("TYPE_CODE_UNSPECIFIED", "BOOL", "INT64", "FLOAT64",
+                                "TIMESTAMP", "DATE", "STRING", "BYTES", "ARRAY", "STRUCT",
+                                "NUMERIC", "JSON"))))
+                .addField(Schema.Field.of("isPrimaryKey", Schema.FieldType.BOOLEAN))
+                .addField(Schema.Field.of("ordinalPosition", Schema.FieldType.INT64))
+                .build();
+        final Schema.Options sqlTypeOption = Schema.Options.builder().setOption("sqlType", Schema.FieldType.STRING, "JSON").build();
+        final Schema modSchema = Schema.builder()
+                .addField(Schema.Field.of("keysJson", Schema.FieldType.STRING).withOptions(sqlTypeOption))
+                .addField(Schema.Field.of("oldValuesJson", Schema.FieldType.STRING.withNullable(true)).withOptions(sqlTypeOption))
+                .addField(Schema.Field.of("newValuesJson", Schema.FieldType.STRING.withNullable(true)).withOptions(sqlTypeOption))
+                .build();
+        final Schema metadataSchema = Schema.builder()
+                .addField(Schema.Field.of("partitionToken", Schema.FieldType.STRING))
+                .addField(Schema.Field.of("recordTimestamp", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("partitionStartTimestamp", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("partitionEndTimestamp", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("partitionCreatedAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("partitionScheduledAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("partitionRunningAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("queryStartedAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("recordStreamStartedAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("recordStreamEndedAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("recordReadAt", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("totalStreamTimeMillis", Schema.FieldType.INT64))
+                .addField(Schema.Field.of("numberOfRecordsRead", Schema.FieldType.INT64))
+                .build();
+        return Schema.builder()
+                .addField(Schema.Field.of("partitionToken", Schema.FieldType.STRING))
+                .addField(Schema.Field.of("commitTimestamp", Schema.FieldType.DATETIME))
+                .addField(Schema.Field.of("serverTransactionId", Schema.FieldType.STRING))
+                .addField(Schema.Field.of("isLastRecordInTransactionInPartition", Schema.FieldType.BOOLEAN))
+                .addField(Schema.Field.of("recordSequence", Schema.FieldType.STRING))
+                .addField(Schema.Field.of("tableName", Schema.FieldType.STRING))
+                .addField(Schema.Field.of("rowType", Schema.FieldType.array(Schema.FieldType.row(rowTypeSchema))))
+                .addField(Schema.Field.of("mods", Schema.FieldType.array(Schema.FieldType.row(modSchema))))
+                .addField(Schema.Field.of("modType", Schema.FieldType.logicalType(EnumerationType.create("INSERT","UPDATE","DELETE"))))
+                .addField(Schema.Field.of("valueCaptureType", Schema.FieldType.logicalType(EnumerationType.create("OLD_AND_NEW_VALUES"))))
+                .addField(Schema.Field.of("numberOfRecordsInTransaction", Schema.FieldType.INT64))
+                .addField(Schema.Field.of("numberOfPartitionsInTransaction", Schema.FieldType.INT64))
+                .addField(Schema.Field.of("metadata", Schema.FieldType.row(metadataSchema).withNullable(true)))
+                .build();
+    }
+
+    public static org.apache.avro.Schema createDataChangeRecordAvroSchema() {
+        final org.apache.avro.Schema rowTypeSchema = org.apache.avro.SchemaBuilder.builder("com.mercari.solution")
+                .record("rowType")
+                .fields()
+                .name("name").type(AvroSchemaUtil.REQUIRED_STRING).noDefault()
+                .name("Type").type(org.apache.avro.Schema
+                        .createEnum("Type", "", "com.mercari.solution", Arrays
+                                .asList("TYPE_CODE_UNSPECIFIED", "BOOL", "INT64", "FLOAT64",
+                                        "TIMESTAMP", "DATE", "STRING", "BYTES", "ARRAY", "STRUCT",
+                                        "NUMERIC", "JSON"))).noDefault()
+                .name("isPrimaryKey").type(AvroSchemaUtil.REQUIRED_BOOLEAN).noDefault()
+                .name("ordinalPosition").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
+                .endRecord();
+
+        final org.apache.avro.Schema jsonSchema = org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING);
+        jsonSchema.addProp("sqlType", "JSON");
+        final org.apache.avro.Schema jsonSchemaNullable = org.apache.avro.Schema.createUnion(
+                jsonSchema,
+                org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL));
+        final org.apache.avro.Schema modSchema = org.apache.avro.SchemaBuilder.builder("com.mercari.solution")
+                .record("mod")
+                .fields()
+                .name("keysJson").type(jsonSchema).noDefault()
+                .name("oldValuesJson").type(jsonSchemaNullable).noDefault()
+                .name("newValuesJson").type(jsonSchemaNullable).noDefault()
+                .endRecord();
+
+        final org.apache.avro.Schema metadataSchema = org.apache.avro.SchemaBuilder.builder("com.mercari.solution")
+                .record("metadata")
+                .fields()
+                .name("partitionToken").type(AvroSchemaUtil.REQUIRED_STRING).noDefault()
+                .name("recordTimestamp").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("partitionStartTimestamp").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("partitionEndTimestamp").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("partitionCreatedAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("partitionScheduledAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("partitionRunningAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("queryStartedAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("recordStreamStartedAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("recordStreamEndedAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("recordReadAt").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("totalStreamTimeMillis").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
+                .name("numberOfRecordsRead").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
+                .endRecord();
+
+        return org.apache.avro.SchemaBuilder.builder("com.mercari.solution")
+                .record("dataChangeRecord")
+                .fields()
+                .name("partitionToken").type(AvroSchemaUtil.REQUIRED_STRING).noDefault()
+                .name("commitTimestamp").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .name("serverTransactionId").type(AvroSchemaUtil.REQUIRED_STRING).noDefault()
+                .name("isLastRecordInTransactionInPartition").type(AvroSchemaUtil.REQUIRED_BOOLEAN).noDefault()
+                .name("recordSequence").type(AvroSchemaUtil.REQUIRED_STRING).noDefault()
+                .name("tableName").type(AvroSchemaUtil.REQUIRED_STRING).noDefault()
+                .name("rowType").type(org.apache.avro.Schema.createArray(rowTypeSchema)).noDefault()
+                .name("mods").type(org.apache.avro.Schema.createArray(modSchema)).noDefault()
+                .name("modType").type(org.apache.avro.Schema
+                        .createEnum("modType", "", "com.mercari.solution", Arrays.asList("INSERT","UPDATE","DELETE"))).noDefault()
+                .name("valueCaptureType").type(org.apache.avro.Schema
+                        .createEnum("valueCaptureType", "", "com.mercari.solution", Arrays.asList("OLD_AND_NEW_VALUES"))).noDefault()
+                .name("numberOfRecordsInTransaction").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
+                .name("numberOfPartitionsInTransaction").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
+                .name("metadata").type(org.apache.avro.Schema.createUnion(
+                        metadataSchema, org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL))).noDefault()
+                .endRecord();
     }
 
     private static Schema.FieldType convertFieldType(final String t) {
@@ -1002,6 +1128,168 @@ public class StructSchemaUtil {
             keyBuilder = keyBuilder.appendObject(function.convert(element, keyField));
         }
         return Mutation.delete(table, keyBuilder.build());
+    }
+
+    public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
+        final String table = record.getTableName();
+        final ModType modType = record.getModType();
+        if(type == null) {
+            throw new IllegalStateException("Not found table: " + table + "'s type.");
+        }
+
+        if(ModType.DELETE.equals(modType)) {
+            final List<Mutation> deletes = new ArrayList<>();
+            for(final Mod mod : record.getMods()) {
+                final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
+                Key.Builder keyBuilder = Key.newBuilder();
+                for(final Map.Entry<String, JsonElement> keyField : keys.entrySet()) {
+                    final Type fieldType = type.getStructFields().get(type.getFieldIndex(keyField.getKey())).getType();
+                    switch (fieldType.getCode()) {
+                        case BOOL:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
+                            break;
+                        case JSON:
+                        case STRING:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            break;
+                        case INT64:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
+                            break;
+                        case FLOAT64:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
+                            break;
+                        case NUMERIC:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
+                            break;
+                        case PG_NUMERIC:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            break;
+                        case DATE:
+                            keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
+                            break;
+                        case TIMESTAMP:
+                            keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
+                            break;
+                        case BYTES:
+                            keyBuilder = keyBuilder.append(ByteArray.copyFrom(keyField.getValue().getAsString()));
+                            break;
+                        case STRUCT:
+                        case ARRAY:
+                        default:
+                            throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
+                    }
+                }
+                deletes.add(Mutation.delete(table, keyBuilder.build()));
+            }
+            return deletes;
+        }
+
+        final List<Mutation> mutations = new ArrayList<>();
+        for(final Mod mod : record.getMods()) {
+            final Mutation.WriteBuilder builder = Mutation.newInsertOrUpdateBuilder(table);
+            final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
+            for(final Map.Entry<String, JsonElement> value : keys.entrySet()) {
+                final Type fieldType = type.getStructFields().get(type.getFieldIndex(value.getKey())).getType();
+                builder.set(value.getKey()).to(getStructValue(fieldType, value.getValue()));
+            }
+
+            final JsonObject values = new Gson().fromJson(mod.getNewValuesJson(), JsonObject.class);
+            for(final Map.Entry<String, JsonElement> value : values.entrySet()) {
+                final Type fieldType = type.getStructFields().get(type.getFieldIndex(value.getKey())).getType();
+                builder.set(value.getKey()).to(getStructValue(fieldType, value.getValue()));
+            }
+            mutations.add(builder.build());
+        }
+        return mutations;
+    }
+
+    private static Struct convert(final Type type, final JsonObject object) {
+        final Struct.Builder builder = Struct.newBuilder();
+        for(final Type.StructField field : type.getStructFields()) {
+            builder.set(field.getName()).to(getStructValue(field.getType(), object.get(field.getName())));
+        }
+        return builder.build();
+    }
+
+    private static Value getStructValue(final Type fieldType, final JsonElement element) {
+        final boolean isNull = element == null || element.isJsonNull();
+        switch (fieldType.getCode()) {
+            case BOOL:
+                return Value.bool(isNull ? null : element.getAsBoolean());
+            case JSON:
+                return Value.json(isNull ? null : element.getAsString());
+            case STRING:
+                return Value.string(isNull ? null : element.getAsString());
+            case INT64:
+                return Value.int64(isNull ? null : element.getAsLong());
+            case FLOAT64:
+                return Value.float64(isNull ? null : element.getAsDouble());
+            case NUMERIC:
+                return Value.numeric(isNull ? null : element.getAsBigDecimal());
+            case PG_NUMERIC:
+                return Value.pgNumeric(isNull ? null : element.getAsString());
+            case DATE:
+                return Value.date(Date.parseDate(isNull ? null : element.getAsString()));
+            case TIMESTAMP:
+                return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(element.getAsString()));
+            case BYTES:
+                return Value.bytes(isNull ? null : ByteArray.copyFrom(element.getAsString()));
+            case STRUCT:
+                return Value.struct(isNull ? null : fieldType, convert(fieldType, element.getAsJsonObject()));
+            case ARRAY: {
+                final List<JsonElement> elements = new ArrayList<>();
+                if(!isNull) {
+                    for (final JsonElement child : element.getAsJsonArray()) {
+                        elements.add(child);
+                    }
+                }
+                switch (fieldType.getArrayElementType().getCode()) {
+                    case BOOL:
+                        return Value.boolArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsBoolean).collect(Collectors.toList()));
+                    case JSON:
+                        return Value.jsonArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                    case STRING:
+                        return Value.stringArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                    case INT64:
+                        return Value.int64Array(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsLong).collect(Collectors.toList()));
+                    case FLOAT64:
+                        return Value.float64Array(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsDouble).collect(Collectors.toList()));
+                    case NUMERIC:
+                        return Value.numericArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsBigDecimal).collect(Collectors.toList()));
+                    case PG_NUMERIC:
+                        return Value.pgNumericArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                    case DATE:
+                        return Value.dateArray(isNull ? new ArrayList<>() : elements.stream().map(e -> Date.parseDate(e.getAsString())).collect(Collectors.toList()));
+                    case TIMESTAMP:
+                        return Value.timestampArray(isNull ? new ArrayList<>() : elements.stream().map(e -> Timestamp.parseTimestamp(e.getAsString())).collect(Collectors.toList()));
+                    case BYTES:
+                        return Value.bytesArray(isNull ? new ArrayList<>() : elements.stream().map(e -> ByteArray.copyFrom(e.getAsString())).collect(Collectors.toList()));
+                    case STRUCT:
+                        return Value.structArray(fieldType.getArrayElementType(),
+                                isNull ? new ArrayList<>() : elements.stream().map(e -> convert(fieldType.getArrayElementType(), e.getAsJsonObject())).collect(Collectors.toList()));
+                    case ARRAY:
+                    default: {
+                        throw new IllegalStateException("Not supported spanner array element type: " + fieldType.getArrayElementType().getCode());
+                    }
+                }
+            }
+            default:
+                throw new IllegalStateException("Not supported spanner field type: " + fieldType.getCode());
+        }
+    }
+
+    public static MutationGroup convertToMutationGroup(final Map<String, Type> tableTypes, final Collection<DataChangeRecord> records) {
+        final List<Mutation> mutations = records
+                .stream()
+                .sorted(Comparator.comparing(DataChangeRecord::getRecordSequence))
+                .flatMap(v -> StructSchemaUtil.convertToMutation(tableTypes.get(v.getTableName()), v).stream())
+                .collect(Collectors.toList());
+        return MutationGroup.create(mutations.get(0), mutations.subList(1, mutations.size()));
+    }
+
+    public static Mutation convertToAccumulateMutation(final Type type, final Collection<DataChangeRecord> records) {
+
+        return null;
     }
 
     private static List<Type.StructField> flattenFields(final Type type, final List<String> paths, final String prefix, final boolean addPrefix) {

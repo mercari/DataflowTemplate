@@ -238,6 +238,31 @@ public class SpannerUtil {
                 .collect(Collectors.toList());
     }
 
+    public static Map<String, Type> getTypesFromDatabase(final String projectId,
+                                                         final String instanceId,
+                                                         final String databaseId,
+                                                         final boolean emulator) {
+
+        final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
+        final String query = String.format("SELECT TABLE_NAME, ARRAY_AGG(STRUCT(COLUMN_NAME, ORDINAL_POSITION, SPANNER_TYPE, IS_NULLABLE)) AS FIELDS FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA != 'SPANNER_SYS' AND NOT STARTS_WITH(TABLE_NAME, 'CDC_Partitions_Metadata_') GROUP BY TABLE_NAME");
+        try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
+            final DatabaseClient client = spanner.getDatabaseClient(database);
+            try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
+                final ResultSet resultSet = transaction.executeQuery(Statement.of(query))) {
+
+                final Map<String, Type> types = new HashMap<>();
+                while(resultSet.next()) {
+                    final Struct struct = resultSet.getCurrentRowAsStruct();
+                    final String name = struct.getString("TABLE_NAME");
+                    final List<Struct> fields = struct.getStructList("FIELDS");
+                    final Type type = convertTypeFromInformationSchema(fields, null);
+                    types.put(name, type);
+                }
+                return types;
+            }
+        }
+    }
+
     private static List<Struct> getSchemaFieldsFromTable(final String projectId,
                                                          final String instanceId,
                                                          final String databaseId,
@@ -506,11 +531,19 @@ public class SpannerUtil {
             case BOOLEAN:
                 return "BOOL";
             case ENUM:
-            case STRING:
+            case STRING: {
+                if(AvroSchemaUtil.isSqlTypeJson(fieldSchema)) {
+                    return "JSON";
+                }
                 return "STRING(MAX)";
+            }
             case FIXED:
-            case BYTES:
+            case BYTES: {
+                if(AvroSchemaUtil.isLogicalTypeDecimal(fieldSchema)) {
+                    return "NUMERIC";
+                }
                 return "BYTES(MAX)";
+            }
             case INT: {
                 if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
                     return "DATE";
@@ -554,8 +587,13 @@ public class SpannerUtil {
                 return Schema.FieldType.INT64;
             case "FLOAT64":
                 return Schema.FieldType.DOUBLE;
+            case "NUMERIC":
+            case "PG_NUMERIC":
+                return Schema.FieldType.DECIMAL;
             case "BOOL":
                 return Schema.FieldType.BOOLEAN;
+            case "JSON":
+                return Schema.FieldType.STRING;
             case "DATE":
                 return CalciteUtils.DATE;
             case "TIMESTAMP":
@@ -582,6 +620,10 @@ public class SpannerUtil {
                 return Type.int64();
             case "FLOAT64":
                 return Type.float64();
+            case "NUMERIC":
+                return Type.numeric();
+            case "PG_NUMERIC":
+                return Type.pgNumeric();
             case "BOOL":
                 return Type.bool();
             case "JSON":
