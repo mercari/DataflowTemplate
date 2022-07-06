@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.joda.time.ReadableInstant;
@@ -96,6 +97,11 @@ public class RowToJsonConverter {
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(field.getType())) {
                     final Instant instant = row.getLogicalTypeValue(fieldName, Instant.class);
                     obj.addProperty(fieldName, isNullField ? null : instant.toString());
+                } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
+                    final EnumerationType.Value enumValue = row.getLogicalTypeValue(fieldName, EnumerationType.Value.class);
+                    obj.addProperty(fieldName, isNullField ? null : RowSchemaUtil.toString(field.getType(), enumValue));
+                } else {
+                    obj.addProperty(fieldName, isNullField ? null : row.getValue(fieldName).toString());
                 }
                 break;
             }

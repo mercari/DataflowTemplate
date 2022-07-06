@@ -151,7 +151,7 @@ public class RowToProtoConverter {
 
             }
             default: {
-                throw new IllegalArgumentException("");
+                throw new IllegalArgumentException("Not supported type: " + field.getJavaType());
             }
         }
     }
