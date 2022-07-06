@@ -101,7 +101,7 @@ public class JsonToRecordConverter {
         return true;
     }
 
-    private static Object convertValue(final Schema schema, final JsonElement jsonElement) {
+    public static Object convertValue(final Schema schema, final JsonElement jsonElement) {
         if(jsonElement == null || jsonElement.isJsonNull()) {
             if(Schema.Type.ARRAY.equals(schema.getType())) {
                 return new ArrayList<>();

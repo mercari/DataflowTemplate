@@ -6,14 +6,16 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
+import com.mercari.solution.util.Filter;
+import com.mercari.solution.util.JsonUtil;
+import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.JsonToRecordConverter;
 import com.mercari.solution.util.converter.JsonToRowConverter;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
-import okhttp3.*;
+import com.mercari.solution.util.schema.SchemaUtil;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.schemas.Schema;
@@ -30,10 +32,14 @@ import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.io.Serializable;
-import java.net.URISyntaxException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 
@@ -45,12 +51,15 @@ public class WebSocketSource implements SourceModule {
 
         private String endpoint;
         private JsonElement requests;
+        private JsonElement heartbeatRequests;
 
-        private Long intervalMillis;
+        private Long intervalSeconds;
+        private Long heartbeatIntervalSeconds;
         private String receivedTimestampField;
 
         private Format format;
         private OutputType outputType;
+        private Boolean ignoreError;
 
         public String getEndpoint() {
             return endpoint;
@@ -68,12 +77,28 @@ public class WebSocketSource implements SourceModule {
             this.requests = requests;
         }
 
-        public Long getIntervalMillis() {
-            return intervalMillis;
+        public JsonElement getHeartbeatRequests() {
+            return heartbeatRequests;
         }
 
-        public void setIntervalMillis(Long intervalMillis) {
-            this.intervalMillis = intervalMillis;
+        public void setHeartbeatRequests(JsonElement heartbeatRequests) {
+            this.heartbeatRequests = heartbeatRequests;
+        }
+
+        public Long getIntervalSeconds() {
+            return intervalSeconds;
+        }
+
+        public void setIntervalSeconds(Long intervalSeconds) {
+            this.intervalSeconds = intervalSeconds;
+        }
+
+        public Long getHeartbeatIntervalSeconds() {
+            return heartbeatIntervalSeconds;
+        }
+
+        public void setHeartbeatIntervalSeconds(Long heartbeatIntervalSeconds) {
+            this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
         }
 
         public String getReceivedTimestampField() {
@@ -99,6 +124,67 @@ public class WebSocketSource implements SourceModule {
         public void setOutputType(OutputType outputType) {
             this.outputType = outputType;
         }
+
+        public Boolean getIgnoreError() {
+            return ignoreError;
+        }
+
+        public void setIgnoreError(Boolean ignoreError) {
+            this.ignoreError = ignoreError;
+        }
+
+        private void validateParameters(final PBegin begin) {
+
+            if(!OptionUtil.isStreaming(begin.getPipeline().getOptions())) {
+                throw new IllegalArgumentException("WebSocket source module only support streaming mode.");
+            }
+
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.getEndpoint() == null) {
+                errorMessages.add("WebSocket source module requires endpoint parameter");
+            }
+            // check optional parameters
+            if(this.getIntervalSeconds() != null) {
+                if(this.getIntervalSeconds() < 1) {
+                    errorMessages.add("WebSocket source module intervalSeconds parameter must over zero");
+                }
+            }
+            if(this.getHeartbeatIntervalSeconds() != null) {
+                if(this.getHeartbeatIntervalSeconds() < 1) {
+                    errorMessages.add("WebSocket source module heartbeatIntervalSeconds parameter must over zero");
+                }
+            }
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+
+        private void setDefaultParameters() {
+            if(this.getFormat() == null) {
+                this.setFormat(Format.json);
+            }
+            if(this.getIntervalSeconds() == null) {
+                this.setIntervalSeconds(1L);
+            }
+            if(this.getHeartbeatIntervalSeconds() == null) {
+                this.setHeartbeatIntervalSeconds(60L);
+            }
+            if(this.getOutputType() == null) {
+                switch (this.getFormat()) {
+                    case json: {
+                        this.setOutputType(OutputType.row);
+                        break;
+                    }
+                    default:
+                        this.setOutputType(OutputType.row);
+                        break;
+                }
+            }
+            if(this.ignoreError == null) {
+                this.ignoreError = false;
+            }
+        }
     }
 
     public String getName() { return "websocket"; }
@@ -117,39 +203,121 @@ public class WebSocketSource implements SourceModule {
 
 
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
-        return Collections.singletonMap(config.getName(), stream(begin, config));
+        return stream(begin, config);
     }
 
-    public static FCollection<?> stream(final PBegin begin, final SourceConfig config) {
+    public static Map<String, FCollection<?>> stream(final PBegin begin, final SourceConfig config) {
 
         final WebSocketSourceParameters parameters = new Gson().fromJson(config.getParameters(), WebSocketSourceParameters.class);
-        validateParameters(begin, parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("WebSocket source module parameters must not be empty!");
+        }
+
+        parameters.validateParameters(begin);
+        parameters.setDefaultParameters();
+
+        final List<SourceConfig.AdditionalOutput> additions = Optional
+                .ofNullable(config.getAdditionalOutputs()).orElse(new ArrayList<>());
+        final TupleTag<KV<Instant, String>> failuresTag = new TupleTag<>() {};
 
         switch (parameters.getFormat()) {
             case json: {
                 switch (parameters.getOutputType()) {
                     case avro: {
-                        final WebSocketStream<GenericRecord> stream = new WebSocketStream<>(config, parameters);
-                        final PCollection<GenericRecord> output = begin.apply(config.getName(), stream);
-                        org.apache.avro.Schema avroSchema = SourceConfig.convertAvroSchema(config.getSchema());
+                        final TupleTag<GenericRecord> outputTag = new TupleTag<>() {};
+                        org.apache.avro.Schema outputSchema = SourceConfig.convertAvroSchema(config.getSchema());
                         if(parameters.getReceivedTimestampField() != null) {
-                            avroSchema = AvroSchemaUtil.toBuilder(avroSchema, avroSchema.getNamespace(), null)
+                            outputSchema = AvroSchemaUtil.toBuilder(outputSchema, outputSchema.getNamespace(), null)
                                     .name(parameters.getReceivedTimestampField()).type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
                                     .endRecord();
                         }
-                        return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
+
+                        final List<KV<TupleTag<GenericRecord>, SourceConfig.Output>> additionalOutputs = additions
+                                .stream()
+                                .map(a -> KV.of(new TupleTag<GenericRecord>(), a.toOutput()))
+                                .collect(Collectors.toList());
+                        final Map<String, String> additionalOutputSchemas = additions
+                                .stream()
+                                .collect(Collectors.toMap(
+                                        SourceConfig.AdditionalOutput::getName,
+                                        o -> {
+                                            final org.apache.avro.Schema s = SourceConfig.convertAvroSchema(o.getSchema());
+                                            if(parameters.getReceivedTimestampField() != null) {
+                                                return AvroSchemaUtil.toBuilder(s, s.getNamespace(), null)
+                                                        .name(parameters.getReceivedTimestampField()).type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                                                        .endRecord()
+                                                        .toString();
+                                            }
+                                            return s.toString();
+                                        }));
+
+                        final WebSocketStream<String, org.apache.avro.Schema, GenericRecord> stream = new WebSocketStream<>(
+                                config.getName(), parameters,
+                                outputTag, failuresTag,
+                                outputSchema.toString(), additionalOutputSchemas,
+                                AvroSchemaUtil::convertSchema, JsonToRecordConverter::convert,
+                                AvroSchemaUtil::merge, (Instant timestamp) -> timestamp.getMillis() * 1000L,
+                                additionalOutputs);
+                        final PCollectionTuple outputs = begin.apply(config.getName(), stream);
+
+                        final Map<String, FCollection<?>> collections = new HashMap<>();
+                        final Coder<GenericRecord> outputCoder = AvroCoder.of(outputSchema);
+                        collections.put(config.getName(), FCollection.of(config.getName(), outputs.get(outputTag).setCoder(outputCoder), DataType.AVRO, outputSchema));
+                        for(final KV<TupleTag<GenericRecord>, SourceConfig.Output> kv : additionalOutputs) {
+                            final String name = config.getName() + "." + kv.getValue().getName();
+                            final org.apache.avro.Schema additionalOutputSchema = AvroSchemaUtil
+                                    .convertSchema(additionalOutputSchemas.get(kv.getValue().getName()));
+                            final Coder<GenericRecord> additionalOutputCoder = AvroCoder.of(additionalOutputSchema);
+                            collections.put(name, FCollection.of(name, outputs.get(kv.getKey()).setCoder(additionalOutputCoder), DataType.AVRO, additionalOutputSchema));
+                        }
+                        return collections;
                     }
                     case row: {
-                        final WebSocketStream<Row> stream = new WebSocketStream<>(config, parameters);
-                        final PCollection<Row> output = begin.apply(config.getName(), stream);
-                        Schema rowSchema = SourceConfig.convertSchema(config.getSchema());
+                        final TupleTag<Row> outputTag = new TupleTag<>() {};
+                        Schema outputSchema = SourceConfig.convertSchema(config.getSchema());
                         if(parameters.getReceivedTimestampField() != null) {
-                            rowSchema = RowSchemaUtil.toBuilder(rowSchema)
+                            outputSchema = RowSchemaUtil.toBuilder(outputSchema)
                                     .addNullableField(parameters.getReceivedTimestampField(), org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
                                     .build();
                         }
-                        return FCollection.of(config.getName(), output, DataType.ROW, rowSchema);
+
+                        final List<KV<TupleTag<Row>, SourceConfig.Output>> additionalOutputs = additions
+                                .stream()
+                                .map(a -> KV.of(new TupleTag<Row>(), a.toOutput()))
+                                .collect(Collectors.toList());
+                        final Map<String, Schema> additionalOutputSchemas = additions
+                                .stream()
+                                .collect(Collectors.toMap(
+                                        SourceConfig.AdditionalOutput::getName,
+                                        o -> {
+                                            final Schema s = SourceConfig.convertSchema(o.getSchema());
+                                            if(parameters.getReceivedTimestampField() != null) {
+                                                return RowSchemaUtil.toBuilder(s)
+                                                        .addNullableField(parameters.getReceivedTimestampField(), org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
+                                                        .build();
+                                            }
+                                            return s;
+                                        }));
+
+                        final WebSocketStream<Schema, Schema, Row> stream = new WebSocketStream<>(
+                                config.getName(), parameters,
+                                outputTag, failuresTag,
+                                outputSchema, additionalOutputSchemas,
+                                s -> s, JsonToRowConverter::convert,
+                                RowSchemaUtil::merge, (Instant timestamp) -> timestamp,
+                                additionalOutputs);
+                        final PCollectionTuple outputs = begin.apply(config.getName(), stream);
+
+                        final Map<String, FCollection<?>> collections = new HashMap<>();
+                        final Coder<Row> outputCoder = RowCoder.of(outputSchema);
+                        collections.put(config.getName(), FCollection.of(config.getName(), outputs.get(outputTag).setCoder(outputCoder), DataType.ROW, outputSchema));
+                        for(final KV<TupleTag<Row>, SourceConfig.Output> kv : additionalOutputs) {
+                            final String name = config.getName() + "." + kv.getValue().getName();
+                            final Schema additionalOutputSchema = additionalOutputSchemas.get(kv.getValue().getName());
+                            final Coder<Row> additionalOutputCoder = RowCoder.of(additionalOutputSchema);
+                            collections.put(name, FCollection.of(name, outputs.get(kv.getKey()).setCoder(additionalOutputCoder), DataType.ROW, additionalOutputSchema));
+                        }
+                        return collections;
                     }
                     default:
                         throw new IllegalStateException("WebSocket source module does not support outputType: " + parameters.getOutputType());
@@ -162,74 +330,57 @@ public class WebSocketSource implements SourceModule {
         }
     }
 
-    private static void validateParameters(final PBegin begin, final WebSocketSourceParameters parameters) {
+    public static class WebSocketStream<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PBegin, PCollectionTuple> {
 
-        if(!begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).isStreaming()) {
-            throw new IllegalArgumentException("WebSocket source module only support streaming mode.");
-        }
-
-        if(parameters == null) {
-            throw new IllegalArgumentException("WebSocket source module parameters must not be empty!");
-        }
-
-        // check required parameters filled
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getEndpoint() == null) {
-            errorMessages.add("WebSocket source module requires endpoint parameter");
-        }
-        // check optional parameters
-        if(parameters.getRequests() != null) {
-            if(parameters.getRequests().isJsonNull()) {
-                errorMessages.add("WebSocket source module requests parameter must be not null. Set JsonObject or JsonArray");
-            } else if(parameters.getRequests().isJsonPrimitive()) {
-                errorMessages.add("WebSocket source module requests parameter must be not primitive. Set JsonObject or JsonArray");
-            }
-        }
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-        }
-    }
-
-    private static void setDefaultParameters(final WebSocketSourceParameters parameters) {
-        if(parameters.getFormat() == null) {
-            parameters.setFormat(Format.json);
-        }
-        if(parameters.getIntervalMillis() == null) {
-            parameters.setIntervalMillis(1000L);
-        }
-        if(parameters.getOutputType() == null) {
-            switch (parameters.getFormat()) {
-                case json: {
-                    parameters.setOutputType(OutputType.row);
-                    break;
-                }
-                default:
-                    parameters.setOutputType(OutputType.row);
-                    break;
-            }
-        }
-    }
-
-    public static class WebSocketStream<T> extends PTransform<PBegin, PCollection<T>> {
-
-        private final SourceConfig.InputSchema schema;
-
+        private final String name;
         private final String endpoint;
         private final Format format;
-        private final OutputType outputType;
         private final List<String> requests;
+        private final List<String> heartbeatRequests;
         private final Long intervalMillis;
+        private final Long heartbeatIntervalMillis;
         private final String receivedTimestampField;
+        private final Boolean ignoreError;
+        private final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs;
 
-        private WebSocketStream(final SourceConfig config, final WebSocketSourceParameters parameters) {
-            this.schema = config.getSchema();
+        private final TupleTag<T> outputTag;
+        private final TupleTag<KV<Instant, String>> failuresTag;
+        private final InputSchemaT inputSchema;
+        private final Map<String, InputSchemaT> additionalOutputInputSchemas;
+        private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+        private final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter;
+        private final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter;
+        private final TimestampConverter timestampConverter;
+
+        private WebSocketStream(final String name,
+                                final WebSocketSourceParameters parameters,
+                                final TupleTag<T> outputTag, final TupleTag<KV<Instant, String>> failuresTag,
+                                final InputSchemaT inputSchema, Map<String, InputSchemaT> additionalOutputInputSchemas,
+                                final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                                final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter,
+                                final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter,
+                                final TimestampConverter timestampConverter,
+                                final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs) {
+
+            this.name = name;
             this.endpoint = parameters.getEndpoint();
             this.format = parameters.getFormat();
-            this.outputType = parameters.getOutputType();
-            this.intervalMillis = parameters.getIntervalMillis();
+            this.intervalMillis = parameters.getIntervalSeconds() * 1000L;
+            this.heartbeatIntervalMillis = parameters.getHeartbeatIntervalSeconds() * 1000L;
             this.receivedTimestampField = parameters.getReceivedTimestampField();
+            this.ignoreError = parameters.getIgnoreError();
 
-            if(parameters.getRequests() != null) {
+            this.outputTag = outputTag;
+            this.failuresTag = failuresTag;
+            this.inputSchema = inputSchema;
+            this.additionalOutputInputSchemas = additionalOutputInputSchemas;
+            this.schemaConverter = schemaConverter;
+            this.jsonConverter = jsonConverter;
+            this.valuesSetter = valuesSetter;
+            this.timestampConverter = timestampConverter;
+            this.additionalOutputs = additionalOutputs;
+
+            if(parameters.getRequests() != null && !parameters.getRequests().isJsonNull()) {
                 final List<String> rs = new ArrayList<>();
                 if(parameters.getRequests().isJsonObject()) {
                     rs.add(parameters.getRequests().toString());
@@ -237,16 +388,40 @@ public class WebSocketSource implements SourceModule {
                     for(final JsonElement element : parameters.getRequests().getAsJsonArray()) {
                         if(element.isJsonObject())  {
                             rs.add(element.toString());
+                        } else if(element.isJsonPrimitive()) {
+                            rs.add(element.getAsString());
                         }
                     }
+                } else if(parameters.getRequests().isJsonPrimitive()) {
+                    rs.add(parameters.getRequests().getAsString());
                 }
                 this.requests = rs;
             } else {
                 this.requests = null;
             }
+
+            if(parameters.getHeartbeatRequests() != null && !parameters.getHeartbeatRequests().isJsonNull()) {
+                final List<String> rs = new ArrayList<>();
+                if(parameters.getHeartbeatRequests().isJsonObject()) {
+                    rs.add(parameters.getHeartbeatRequests().toString());
+                } else if(parameters.getHeartbeatRequests().isJsonArray()) {
+                    for(final JsonElement element : parameters.getHeartbeatRequests().getAsJsonArray()) {
+                        if(element.isJsonObject())  {
+                            rs.add(element.toString());
+                        } else if(element.isJsonPrimitive()) {
+                            rs.add(element.getAsString());
+                        }
+                    }
+                } else if(parameters.getHeartbeatRequests().isJsonPrimitive()) {
+                    rs.add(parameters.getHeartbeatRequests().getAsString());
+                }
+                this.heartbeatRequests = rs;
+            } else {
+                this.heartbeatRequests = null;
+            }
         }
 
-        public PCollection<T> expand(final PBegin begin) {
+        public PCollectionTuple expand(final PBegin begin) {
 
             final PCollection<KV<String, Long>> beats = begin
                     .apply("GenerateSequence", GenerateSequence
@@ -256,300 +431,339 @@ public class WebSocketSource implements SourceModule {
                             .into(TypeDescriptors.kvs(TypeDescriptors.strings(), TypeDescriptors.longs()))
                             .via((beat) -> KV.of("", beat)));
 
-            final TupleTag<KV<Instant, String>> failuresTag = new TupleTag<>() {};
-            final PCollection<T> messages;
-            final PCollection<KV<Instant, String>> failures;
-
             switch (format) {
                 case json: {
-                    final PCollection<KV<Instant, String>> jsons = beats
-                            .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(endpoint, requests)))
-                            .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()));
-                    switch (outputType) {
-                        case avro: {
-                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
-                            org.apache.avro.Schema avroSchema = SourceConfig.convertAvroSchema(schema);
-                            if(receivedTimestampField != null) {
-                                avroSchema = AvroSchemaUtil.toBuilder(avroSchema, avroSchema.getNamespace(), null)
-                                        .name(receivedTimestampField).type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
-                                        .endRecord();
-                            }
-                            final PCollectionTuple tuple = jsons
-                                    .apply("JsonToRecord", ParDo
-                                            .of(new JsonToRecordDoFn(avroSchema.toString(), failuresTag, receivedTimestampField))
-                                            .withOutputTags(outputAvroTag, TupleTagList.of(failuresTag)));
-                            messages = (PCollection<T>) tuple.get(outputAvroTag)
-                                    .setCoder(AvroCoder.of(avroSchema));
-                            failures = tuple.get(failuresTag);
-                            break;
-                        }
-                        case row: {
-                            final TupleTag<Row> outputRowTag = new TupleTag<>() {};
-                            org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(schema);
-                            if(receivedTimestampField != null) {
-                                rowSchema = RowSchemaUtil.toBuilder(rowSchema)
-                                        .addNullableField(receivedTimestampField, org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
-                                        .build();
-                            }
-                            final PCollectionTuple tuple = jsons
-                                    .apply("JsonToRow", ParDo
-                                            .of(new JsonToRowDoFn(rowSchema, failuresTag, receivedTimestampField))
-                                            .withOutputTags(outputRowTag, TupleTagList.of(failuresTag)));
-                            messages = (PCollection<T>) tuple.get(outputRowTag)
-                                    .setCoder(RowCoder.of(rowSchema));
-                            failures = tuple.get(failuresTag);
-                            break;
-                        }
-                        default:
-                            throw new IllegalStateException();
+                    TupleTagList tagList = TupleTagList.of(failuresTag);
+                    for(final KV<TupleTag<T>, SourceConfig.Output> kv : additionalOutputs) {
+                        tagList = tagList.and(kv.getKey());
                     }
-                    break;
+                    return beats
+                            .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(name, endpoint, requests, heartbeatRequests, heartbeatIntervalMillis)))
+                            .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()))
+                            .apply("JsonToRecord", ParDo
+                                    .of(new JsonConvertDoFn<>(
+                                            failuresTag,
+                                            inputSchema, additionalOutputInputSchemas,
+                                            schemaConverter, jsonConverter,
+                                            valuesSetter, timestampConverter,
+                                            receivedTimestampField, ignoreError, additionalOutputs))
+                                    .withOutputTags(outputTag, tagList));
                 }
                 default:
                     throw new IllegalArgumentException();
             }
-
-            return messages;
-        }
-    }
-
-    private static class WebSocketDoFn extends DoFn<KV<String, Long>, KV<Instant, String>> {
-
-        @StateId("state")
-        private final StateSpec<ValueState<Long>> stateSpec = StateSpecs.value(BigEndianLongCoder.of());
-
-        private final String endpoint;
-        private final List<String> requests;
-
-        private transient WebSocket socket;
-        private transient Listener listener;
-
-        WebSocketDoFn(final String endpoint,
-                      final List<String> requests) {
-            this.endpoint = endpoint;
-            this.requests = requests;
         }
 
-        @Setup
-        public void setup() throws URISyntaxException {
-            this.listener = new WebSocketDoFn.Listener(requests);
-            LOG.info("setup");
-            final Request request = new Request.Builder()
-                    .url(endpoint)
-                    .get()
-                    .build();
-            this.socket = new OkHttpClient().newWebSocket(request, this.listener);
-        }
+        private static class WebSocketDoFn extends DoFn<KV<String, Long>, KV<Instant, String>> {
 
-        @Teardown
-        public void teardown() {
-            LOG.info("teardown");
-            socket.close(0, "close");
-        }
+            @StateId("beatState")
+            private final StateSpec<ValueState<Long>> beatStateSpec = StateSpecs.value(BigEndianLongCoder.of());
+            @StateId("prevState")
+            private final StateSpec<ValueState<Long>> prevStateSpec = StateSpecs.value(BigEndianLongCoder.of());
 
-        @ProcessElement
-        public void processElement(final ProcessContext c,
-                                   final @StateId("state") ValueState<Long> state) {
-
-            synchronized (listener) {
-                for(final KV<Instant, String> message : listener.getMessages()) {
-                    //LOG.info("from message: " + message.getValue());
-                    c.output(message);
-                }
-                listener.clearMessages();
-            }
-            state.write(c.element().getValue());
-        }
-
-        private static class Listener extends WebSocketListener {
-
+            private final String name;
+            private final String endpoint;
             private final List<String> requests;
+            private final List<String> heartbeatRequests;
+            private final Long heartbeatIntervalMillis;
 
-            private final List<KV<Instant, String>> messages;
+            private transient java.net.http.WebSocket socket;
+            private transient Listener listener;
 
-            Listener(final List<String> requests) {
+            WebSocketDoFn(final String name,
+                          final String endpoint,
+                          final List<String> requests,
+                          final List<String> heartbeatRequests,
+                          final Long heartbeatIntervalMillis) {
+
+                this.name = name;
+                this.endpoint = endpoint;
                 this.requests = requests;
-                this.messages = Collections.synchronizedList(new ArrayList<>());
+                this.heartbeatRequests = heartbeatRequests;
+                this.heartbeatIntervalMillis = heartbeatIntervalMillis;
             }
 
-            @Override
-            public void onOpen(okhttp3.WebSocket webSocket, Response response) {
-                LOG.info("socket open");
-                super.onOpen(webSocket, response);
-                if(requests != null) {
-                    final Map<String, Object> data = new HashMap<>();
-                    for(final String request : requests) {
-                        final String body = TemplateUtil.executeStrictTemplate(request, data);
-                        webSocket.send(body);
+            private void connect() throws InterruptedException, ExecutionException {
+                this.listener = new Listener(name, requests);
+                final java.net.http.WebSocket.Builder wsb = HttpClient.newHttpClient().newWebSocketBuilder();
+                final CompletableFuture<java.net.http.WebSocket> comp = wsb.buildAsync(URI.create(endpoint), listener);
+                this.socket = comp.get();
+                LOG.info("WebSocket[" + name + "] connected");
+            }
+
+            @Setup
+            public void setup() throws Exception {
+                LOG.info("WebSocket[" + name + "] setup");
+                connect();
+            }
+
+            @Teardown
+            public void teardown() throws InterruptedException, ExecutionException {
+                LOG.info("WebSocket[" + name + "] teardown");
+                final CompletableFuture<java.net.http.WebSocket> end = socket.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, "");
+                end.get();
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c,
+                                       final @StateId("beatState") ValueState<Long> beatState,
+                                       final @StateId("prevState") ValueState<Long> prevState)
+                    throws InterruptedException, ExecutionException {
+
+                synchronized (listener) {
+                    for(final KV<Instant, String> message : listener.getMessages()) {
+                        c.output(message);
                     }
+                    listener.clearMessages();
+                }
+
+                if(listener.isClosed()) {
+                    connect();
+                } else if(this.heartbeatRequests != null) {
+                    final long prevEpochMillis = Optional.ofNullable(prevState.read()).orElse(0L);
+                    final long nextEpochMillis = Instant.now().getMillis();
+                    if(nextEpochMillis - prevEpochMillis > this.heartbeatIntervalMillis) {
+                        for(final String request : this.heartbeatRequests) {
+                            socket.sendText(request, true);
+                        }
+                        prevState.write(nextEpochMillis);
+                    }
+                }
+
+                beatState.write(c.element().getValue());
+            }
+
+            private class Listener implements java.net.http.WebSocket.Listener {
+
+                private String name;
+                private StringBuilder stringBuffer;
+                private ByteBuffer byteBuffer;
+                private boolean isClosed = true;
+                private final List<String> requests;
+
+                private final List<KV<Instant, String>> messages;
+
+                Listener(final String name, final List<String> requests) {
+                    this.name = name;
+                    this.requests = requests;
+                    this.messages = Collections.synchronizedList(new ArrayList<>());
+                }
+
+                @Override
+                public void onOpen(java.net.http.WebSocket webSocket) {
+                    this.stringBuffer = new StringBuilder();
+                    this.byteBuffer = ByteBuffer.allocate(100000);
+                    java.net.http.WebSocket.Listener.super.onOpen(webSocket);
+                    LOG.info("WebSocket[" + name + "] onOpen");
+                    this.isClosed = false;
+                    if(requests != null) {
+                        final Map<String, Object> data = new HashMap<>();
+                        for(final String request : requests) {
+                            final String body = TemplateUtil.executeStrictTemplate(request, data);
+                            webSocket.sendText(body, true);
+                        }
+                    }
+                }
+
+                @Override
+                public CompletionStage<?> onText(java.net.http.WebSocket webSocket, CharSequence data, boolean last) {
+                    this.stringBuffer.append(data);
+                    if(last) {
+                        final String message = this.stringBuffer.toString();
+                        this.stringBuffer.setLength(0);
+                        this.messages.add(KV.of(Instant.now(), message));
+                    }
+                    return java.net.http.WebSocket.Listener.super.onText(webSocket, data, last);
+                }
+
+                @Override
+                public CompletionStage<?> onBinary(java.net.http.WebSocket webSocket, ByteBuffer data, boolean last) {
+                    this.byteBuffer.put(data);
+                    if(last) {
+                        final ByteBuffer message = this.byteBuffer.asReadOnlyBuffer();
+                        this.byteBuffer.clear();
+                        this.messages.add(KV.of(Instant.now(), message.toString()));
+                    }
+                    return java.net.http.WebSocket.Listener.super.onBinary(webSocket, data, last);
+                }
+
+                @Override
+                public CompletionStage<?> onPing(java.net.http.WebSocket webSocket, ByteBuffer message) {
+                    LOG.info("WebSocket[" + name + "] onPing: " + message);
+                    return java.net.http.WebSocket.Listener.super.onPing(webSocket, message);
+                }
+
+                @Override
+                public CompletionStage<?> onPong(java.net.http.WebSocket webSocket, ByteBuffer message) {
+                    LOG.info("WebSocket[" + name + "] onPong: " + message);
+                    return java.net.http.WebSocket.Listener.super.onPong(webSocket, message);
+                }
+
+                @Override
+                public CompletionStage<?> onClose(java.net.http.WebSocket webSocket, int statusCode, String reason) {
+                    LOG.warn("WebSocket[" + name + "] onClosed. statusCode: " + statusCode + ", reason: " + reason);
+                    this.isClosed = true;
+                    return java.net.http.WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
+                }
+
+                @Override
+                public void onError(java.net.http.WebSocket webSocket, Throwable error) {
+                    final String message = "WebSocket[" + name + "] onError. cause: " + error.getMessage();
+                    LOG.error(message);
+                    java.net.http.WebSocket.Listener.super.onError(webSocket, error);
+                    //throw new IllegalStateException(message);
+                }
+                public List<KV<Instant, String>> getMessages() {
+                    return new ArrayList<>(this.messages);
+                }
+
+                public void clearMessages() {
+                    this.messages.clear();
+                }
+
+                public boolean isClosed() {
+                    return this.isClosed;
                 }
             }
 
-            @Override
-            public void onFailure(okhttp3.WebSocket webSocket, Throwable t, @Nullable Response response) {
-                final String message = "socket failure cause: " + t.getMessage() + ". response: " + (response == null ? "" : response.message());
-                LOG.error(message);
-                super.onFailure(webSocket, t, response);
-                throw new IllegalStateException(message);
-            }
-
-            @Override
-            public void onMessage(okhttp3.WebSocket webSocket, String text) {
-                super.onMessage(webSocket, text);
-                this.messages.add(KV.of(Instant.now(), text));
-            }
-
-            @Override
-            public void onClosed(okhttp3.WebSocket webSocket, int code, String reason) {
-                LOG.info("socket closed. code: " + code + ", reason: " + reason);
-                super.onClosed(webSocket, code, reason);
-            }
-
-            @Override
-            public void onClosing(okhttp3.WebSocket webSocket, int code, String reason) {
-                LOG.info("socket closing. code: " + code + ", reason: " + reason);
-                super.onClosing(webSocket, code, reason);
-            }
-
-            public List<KV<Instant, String>> getMessages() {
-                return new ArrayList<>(this.messages);
-            }
-
-            public void clearMessages() {
-                this.messages.clear();
-            }
         }
 
-    }
+        private static class JsonConvertDoFn<InputSchemaT, RuntimeSchemaT, T> extends DoFn<KV<Instant, String>, T> {
 
-    private static class JsonToRowDoFn extends DoFn<KV<Instant, String>, Row> {
+            private final TupleTag<KV<Instant, String>> failuresTag;
+            private final InputSchemaT inputSchema;
+            private final Map<String, InputSchemaT> additionalOutputInputSchemas;
+            private final String receivedTimestampField;
+            private final Boolean ignoreError;
+            private final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs;
+            private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+            private final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter;
+            private final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter;
+            private final TimestampConverter timestampConverter;
 
-        private final TupleTag<KV<Instant, String>> failuresTag;
-        private final org.apache.beam.sdk.schemas.Schema schema;
-        private final String receivedTimestampField;
 
-        private transient Gson gson;
+            private transient Gson gson;
+            private transient RuntimeSchemaT runtimeSchema;
+            private transient Map<String, RuntimeSchemaT> additionalOutputSchemas;
+            private transient Map<String, Filter.ConditionNode> additionalOutputConditions;
 
-        JsonToRowDoFn(final Schema schema,
-                      final TupleTag<KV<Instant, String>> failuresTag,
-                      final String receivedTimestampField) {
+            JsonConvertDoFn(final TupleTag<KV<Instant, String>> failuresTag,
+                            final InputSchemaT inputSchema,
+                            final Map<String, InputSchemaT> additionalOutputInputSchemas,
+                            final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                            final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter,
+                            final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter,
+                            final TimestampConverter timestampConverter,
+                            final String receivedTimestampField,
+                            final Boolean ignoreError,
+                            final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs) {
 
-            this.schema = schema;
-            this.failuresTag = failuresTag;
-            this.receivedTimestampField = receivedTimestampField;
-        }
-
-        @Setup
-        public void setup() {
-            this.gson = new Gson();
-        }
-
-        @ProcessElement
-        public void processElement(ProcessContext c) {
-            final Instant reveivedAt = c.element().getKey();
-            final String json = c.element().getValue();
-            try {
-                final JsonElement element = gson.fromJson(json, JsonElement.class);
-                if(element.isJsonObject()) {
-                    final Row row = JsonToRowConverter.convert(schema, element.getAsJsonObject());
-                    if(receivedTimestampField == null) {
-                        c.output(row);
-                    } else {
-                        final Row rowWithTimestamp = withTimestamp(row, receivedTimestampField, reveivedAt);
-                        c.output(rowWithTimestamp);
-                    }
-                } else if(element.isJsonArray()) {
-                    for(final JsonElement elementArray : element.getAsJsonArray()) {
-                        final Row row = JsonToRowConverter.convert(schema, elementArray.getAsJsonObject());
-                        if(receivedTimestampField == null) {
-                            c.output(row);
-                        } else {
-                            final Row rowWithTimestamp = withTimestamp(row, receivedTimestampField, reveivedAt);
-                            c.output(rowWithTimestamp);
-                        }                    }
-                } else {
-                    throw new IllegalStateException("Illegal input json: " + json);
-                }
-
-            } catch (Exception e) {
-                c.output(failuresTag, c.element());
-                LOG.error("Failed to parse json: " + json + ", cause: " + e.getMessage());
-                throw new IllegalStateException("Failed to parse json: " + json);
+                this.failuresTag = failuresTag;
+                this.inputSchema = inputSchema;
+                this.additionalOutputInputSchemas = additionalOutputInputSchemas;
+                this.schemaConverter = schemaConverter;
+                this.jsonConverter = jsonConverter;
+                this.valuesSetter = valuesSetter;
+                this.timestampConverter = timestampConverter;
+                this.receivedTimestampField = receivedTimestampField;
+                this.ignoreError = ignoreError;
+                this.additionalOutputs = additionalOutputs;
             }
-        }
 
-        private Row withTimestamp(Row row, String field, Instant timestamp) {
-            final Row.FieldValueBuilder builder = RowSchemaUtil.toBuilder(schema, row);
-            builder.withFieldValue(field, timestamp);
-            return builder.build();
-        }
+            @Setup
+            public void setup() {
+                this.gson = new Gson();
+                this.runtimeSchema = schemaConverter.convert(inputSchema);
+                this.additionalOutputSchemas = this.additionalOutputInputSchemas
+                        .entrySet()
+                        .stream()
+                        .collect(Collectors.toMap(
+                                Map.Entry::getKey,
+                                e -> schemaConverter.convert(e.getValue())));
+                this.additionalOutputConditions = this.additionalOutputs
+                        .stream()
+                        .collect(Collectors.toMap(
+                                o -> o.getValue().getName(),
+                                o -> Filter.parse(this.gson.fromJson(o.getValue().getConditions(), JsonElement.class))));
+            }
 
-    }
-
-    private static class JsonToRecordDoFn extends DoFn<KV<Instant, String>, GenericRecord> {
-
-        private final TupleTag<KV<Instant, String>> failuresTag;
-        private final String schemaString;
-        private final String receivedTimestampField;
-
-        private transient Gson gson;
-        private transient org.apache.avro.Schema schema;
-
-        JsonToRecordDoFn(final String schemaString,
-                         final TupleTag<KV<Instant, String>> failuresTag,
-                         final String receivedTimestampField) {
-
-            this.schemaString = schemaString;
-            this.failuresTag = failuresTag;
-            this.receivedTimestampField = receivedTimestampField;
-        }
-
-        @Setup
-        public void setup() {
-            this.gson = new Gson();
-            this.schema = AvroSchemaUtil.convertSchema(schemaString);
-        }
-
-        @ProcessElement
-        public void processElement(ProcessContext c) {
-            final Instant reveivedAt = c.element().getKey();
-            final String json = c.element().getValue();
-            try {
-                final JsonElement element = gson.fromJson(json, JsonElement.class);
-                if(element.isJsonObject()) {
-                    final GenericRecord record = JsonToRecordConverter.convert(schema, element.getAsJsonObject());
-                    if(receivedTimestampField == null) {
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final Instant receivedAt = c.element().getKey();
+                final String json = c.element().getValue();
+                try {
+                    final List<T> results = convert(runtimeSchema, json, receivedAt);
+                    for(final T record : results) {
                         c.output(record);
+                    }
+                } catch (final Exception e) {
+                    for(final KV<TupleTag<T>, SourceConfig.Output> kv : additionalOutputs) {
+                        final Filter.ConditionNode condition = additionalOutputConditions.get(kv.getValue().getName());
+                        if(!Filter.filter(json, JsonUtil::getJsonPathValue, condition)) {
+                            LOG.debug("Not matched condition: " + condition);
+                            continue;
+                        }
+                        final RuntimeSchemaT additionalOutputSchema = this.additionalOutputSchemas.get(kv.getValue().getName());
+                        if(additionalOutputSchema == null) {
+                            throw new IllegalStateException("Not found additionalOutputSchema for: " + kv.getValue().getName() + " in: " + this.additionalOutputSchemas);
+                        }
+                        try {
+                            final List<T> results = convert(additionalOutputSchema, json, receivedAt);
+                            for(final T record : results) {
+                                c.output(kv.getKey(), record);
+                            }
+                            return;
+                        } catch (final RuntimeException ee) {
+                            LOG.info("Not match condition: " + kv.getValue().toString() + " with json: " + json + ", cause: " + ee.getMessage());
+                        }
+                    }
+
+                    c.output(failuresTag, c.element());
+                    LOG.error("Failed to parse json: " + json);
+                    if(this.ignoreError) {
+                        return;
+                    }
+                    throw new IllegalStateException("Failed to parse json: " + json);
+                }
+            }
+
+            private List<T> convert(final RuntimeSchemaT schema, final String json, final Instant receivedAt) {
+                final List<T> results = new ArrayList<>();
+                final JsonElement element = gson.fromJson(json, JsonElement.class);
+
+                if(element.isJsonObject()) {
+                    final T record = jsonConverter.convert(schema, element.getAsJsonObject());
+                    if(receivedTimestampField == null) {
+                        results.add(record);
                     } else {
-                        final GenericRecord recordWithRecievedAt = withTimestamp(record, receivedTimestampField, reveivedAt);
-                        c.output(recordWithRecievedAt);
+                        final Map<String, Object> values = new HashMap<>();
+                        values.put(receivedTimestampField, timestampConverter.convertTimestamp(receivedAt));
+                        final T recordWithReceivedAt = valuesSetter.setValues(schema, record, values);
+                        results.add(recordWithReceivedAt);
                     }
                 } else if(element.isJsonArray()) {
                     for(final JsonElement elementArray : element.getAsJsonArray()) {
-                        final GenericRecord record = JsonToRecordConverter.convert(schema, elementArray.getAsJsonObject());
+                        final T record = jsonConverter.convert(schema, elementArray.getAsJsonObject());
                         if(receivedTimestampField == null) {
-                            c.output(record);
+                            results.add(record);
                         } else {
-                            final GenericRecord recordWithRecievedAt = withTimestamp(record, receivedTimestampField, reveivedAt);
-                            c.output(recordWithRecievedAt);
+                            final Map<String, Object> values = new HashMap<>();
+                            values.put(receivedTimestampField, timestampConverter.convertTimestamp(receivedAt));
+                            final T recordWithReceivedAt = valuesSetter.setValues(schema, record, values);
+                            results.add(recordWithReceivedAt);
                         }
                     }
                 } else {
-                    throw new IllegalStateException("Illegal input json: " + json);
+                    throw new IllegalStateException("Illegal input json: " + element);
                 }
-            } catch (Exception e) {
-                c.output(failuresTag, c.element());
-                LOG.error("Failed to parse json: " + json);
-                throw new IllegalStateException("Failed to parse json: " + json);
+                return results;
             }
-        }
 
-        private GenericRecord withTimestamp(GenericRecord record, String fieldName, Instant timestamp) {
-            return AvroSchemaUtil.toBuilder(schema, record)
-                    .set(fieldName, timestamp.getMillis() * 1000L)
-                    .build();
         }
+    }
 
+    private interface TimestampConverter extends Serializable {
+        Object convertTimestamp(Instant timestamp);
     }
 
 }

@@ -5,10 +5,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.mercari.solution.config.SourceConfig;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
-import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -100,7 +100,7 @@ public class JsonToRowConverter {
 
     private static Object convertValue(final Schema.FieldType fieldType, final JsonElement jsonElement) {
         if(jsonElement == null || jsonElement.isJsonNull()) {
-            if(org.apache.avro.Schema.Type.ARRAY.equals(fieldType)) {
+            if(Schema.TypeName.ARRAY.equals(fieldType.getTypeName())) {
                 return new ArrayList<>();
             }
             return null;
@@ -122,11 +122,29 @@ public class JsonToRowConverter {
                 return jsonElement.isJsonPrimitive() ? jsonElement.getAsDouble() : null;
             case BOOLEAN:
                 return jsonElement.isJsonPrimitive() ? jsonElement.getAsBoolean() : null;
-            case DATETIME:
-                return jsonElement.isJsonPrimitive() ? Instant.parse(jsonElement.getAsString()) : null;
+            case DATETIME: {
+                if(jsonElement.isJsonPrimitive()) {
+                    final JsonPrimitive primitive = jsonElement.getAsJsonPrimitive();
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toJodaInstant(jsonElement.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return DateTimeUtil.toJodaInstant(primitive.getAsLong());
+                    } else {
+                        final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to timestamp";
+                        LOG.warn(message);
+                        throw new IllegalStateException(message);
+                    }
+                } else {
+                    final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to timestamp";
+                    LOG.warn(message);
+                    throw new IllegalStateException(message);
+                }
+            }
             case DECIMAL: {
                 if(!jsonElement.isJsonPrimitive()) {
-                    throw new IllegalStateException("Can not convert Decimal type from jsonElement: " + jsonElement.toString());
+                    final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to decimal";
+                    LOG.warn(message);
+                    throw new IllegalStateException(message);
                 }
                 final JsonPrimitive jsonPrimitive = jsonElement.getAsJsonPrimitive();
                 if(jsonPrimitive.isString()) {
@@ -138,12 +156,40 @@ public class JsonToRowConverter {
                 }
             }
             case LOGICAL_TYPE: {
+                if(!jsonElement.isJsonPrimitive()) {
+                    final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to logicalType";
+                    LOG.warn(message);
+                    throw new IllegalStateException(message);
+                }
+                final JsonPrimitive primitive = jsonElement.getAsJsonPrimitive();
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return LocalDate.parse(jsonElement.getAsString());
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toLocalDate(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return LocalDate.ofEpochDay(primitive.getAsLong());
+                    } else {
+                        throw new IllegalStateException("json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to date");
+                    }
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return LocalTime.parse(jsonElement.getAsString());
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toLocalTime(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return LocalTime.ofSecondOfDay(primitive.getAsLong());
+                    } else {
+                        throw new IllegalStateException("json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to time");
+                    }
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-                    return Instant.parse(jsonElement.getAsString());
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toJodaInstant(jsonElement.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return DateTimeUtil.toJodaInstant(primitive.getAsLong());
+                    } else {
+                        final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to timestamp";
+                        LOG.warn(message);
+                        throw new IllegalStateException(message);
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return primitive.getAsString();
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());

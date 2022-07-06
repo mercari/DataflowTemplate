@@ -59,13 +59,40 @@ public class JsonUtil {
                 .using(CONF_PATH)
                 .parse(json);
 
-        final List<String> paths = dc.read(jsonPath);
+        final List<String> paths;
+        try {
+            paths = dc.read(jsonPath);
+        } catch (Throwable e) {
+            return new ArrayList<>();
+        }
         var values = new ArrayList<KV<String, Object>>();
         for(var path : paths) {
             final Object value = JsonPath.read(json, path);
             values.add(KV.of(path, value));
         }
         return values;
+    }
+
+    public static Object getJsonPathValue(String json, String jsonPath) {
+
+        Configuration.setDefaults(CONF_DEFAULT);
+
+        final DocumentContext dc = JsonPath
+                .using(CONF_PATH)
+                .parse(json);
+
+        final List<String> paths;
+        try {
+            paths = dc.read(jsonPath);
+        } catch (Throwable e) {
+            return null;
+        }
+
+        if(paths == null || paths.size() == 0) {
+            return null;
+        } else {
+            return JsonPath.read(json, paths.get(0));
+        }
     }
 
     public static JsonObject set(JsonObject json, List<KV<String, Object>> pathAndValues) {
