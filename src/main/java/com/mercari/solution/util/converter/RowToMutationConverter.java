@@ -9,6 +9,7 @@ import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.DateTime;
 import org.joda.time.Instant;
@@ -145,6 +146,11 @@ public class RowToMutationConverter {
                                         .toDateTime()
                                         .toString(ISODateTimeFormat.dateTime()));
                         builder.set(fieldName).to(datetimeStrValue);
+                    } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
+                        final String timeValue = hide ?
+                                (nullableField ? null : field.getType().getLogicalType(EnumerationType.class).getValues().get(0)) :
+                                (isNullField ? null : RowSchemaUtil.toString(field.getType(),row.getLogicalTypeValue(fieldName, EnumerationType.Value.class)));
+                        builder.set(fieldName).to(timeValue);
                     } else {
                         throw new IllegalArgumentException(
                                 "Unsupported Beam logical type: " + field.getType().getLogicalType().getIdentifier());
@@ -242,6 +248,16 @@ public class RowToMutationConverter {
                                             .map(Timestamp::parseTimestamp)
                                             .collect(Collectors.toList()));
                                 }
+                            } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType().getCollectionElementType())) {
+                                if(hide) {
+                                    builder.set(fieldName).toStringArray(new ArrayList<>());
+                                } else {
+                                    builder.set(fieldName)
+                                            .toStringArray(isNullField ? null : row.<EnumerationType.Value>getArray(fieldName).stream()
+                                                    .filter(Objects::nonNull)
+                                                    .map(v -> RowSchemaUtil.toString(field.getType().getCollectionElementType(), v))
+                                                    .collect(Collectors.toList()));
+                                }
                             } else {
                                 throw new IllegalArgumentException(
                                         "Unsupported Beam logical type: "
@@ -337,14 +353,14 @@ public class RowToMutationConverter {
         return MutationGroup.create(primary, mutations);
     }
 
-    private static Type convertFieldType(final Schema.FieldType fieldType) {
+    public static Type convertFieldType(final Schema.FieldType fieldType) {
         switch (fieldType.getTypeName()) {
             case BOOLEAN:
                 return Type.bool();
             case BYTES:
                 return Type.bytes();
             case DECIMAL:
-                return Type.string();
+                return Type.numeric();
             case STRING:
                 return Type.string();
             case BYTE:
@@ -364,6 +380,8 @@ public class RowToMutationConverter {
                     return Type.string();
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
                     return Type.timestamp();
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return Type.string();
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType());

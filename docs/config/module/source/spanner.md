@@ -25,6 +25,32 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | fields | optional | Array<String\> | Specify the name of the field you want to read from the table. The default is all fields. |
 | timestampBound | optional | String | Specify when you want to read the data at the specified time. Format: `yyyy-MM-ddTHH:mm:SSZ` |
 | priority | optional | Enum | Specify either `HIGH`, `MEDIUM`, or `LOW` as the query [priority](https://cloud.google.com/spanner/docs/cpu-utilization) to Spanner. The default is `MEDIUM`. |
+| mode | optional | Enum | Specify execution mode either `batch`, `changestream`, or `microbatch`. The default is `batch` when batch mode, `microbatch` when streaming mode and `microbatch` is true, `changestream` in the other case. |
+
+### Spanner source module parameters for changestream mode
+
+(ChangeStream mode is in experimental)
+
+To run in `changestream` mode, specify `streaming=true`, `additional-experiments=use_runner_v2` parameters at runtime.
+
+| parameter | optional | type | description |
+| --- | --- | --- | --- |
+| changeStreamName | required | String | Specify name of the spanner change stream to read from. |
+| changeStreamMode | optional | Enum | Specify either `struct` or `mutation` as the output type. The default is `struct` |
+| metadataInstance | optional | String | Specify spanner instance to use for the change streams connector metadata table. The default is same as `instanceId` |
+| metadataDatabase | optional | String | Specify spanner database to use for the change streams connector metadata table. The default is same as `databaseId` |
+| metadataTable | optional | String | Specify change stream connector metadata table name. If not provided, automatically created. |
+| inclusiveStartAt | optional | String | Specify timestamp to read change streams from. The starting DateTime inclusive |
+| inclusiveEndAt | optional | String | Specify timestamp to read change streams to. The ending DateTime inclusive |
+| outputChangeRecord | optional | Boolean | Specify output original change stream record. the default is true. |
+| tables | optional | Array<String\> | Specify table names you want to output. |
+
+#### changeStreamMode
+
+| name | description |
+| --- | --- |
+| struct | Output changed record itself and additionally output as structs in table schemas. |
+| mutation | Output change record as mutation to insert another spanner table. |
 
 ### Spanner source module parameters for microbatch mode
 
@@ -49,4 +75,6 @@ For more information about microbatch mode parameters, please refer to [microbat
 * [Cloud Spanner to Cloud SQL](../../../../examples/spanner-to-jdbc.json)
 * [Cloud Spanner to Cloud Spanner(Insert)](../../../../examples/spanner-to-spanner.json)
 * [Cloud Spanner to Cloud Spanner(Delete)](../../../../examples/spanner-to-spanner-delete.json)
+* [Cloud Spanner changestream to BigQuery](../../../../examples/spanner-changestream-to-bigquery.json)
+* [Cloud Spanner changestream copy to Cloud Spanner](../../../../examples/spanner-changestream-to-spanner.json)
 * [Cloud Spanner microbatch to BigQuery](../../../../examples/spanner-microbatch-to-bigquery.json)

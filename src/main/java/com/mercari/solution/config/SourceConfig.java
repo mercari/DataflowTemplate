@@ -1,7 +1,9 @@
 package com.mercari.solution.config;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.protobuf.Descriptors;
+import com.mercari.solution.util.Filter;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.RecordToRowConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
@@ -11,9 +13,8 @@ import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class SourceConfig implements Serializable {
 
@@ -28,6 +29,7 @@ public class SourceConfig implements Serializable {
     private List<String> wait;
     private String timestampAttribute;
     private String timestampDefault;
+    private List<AdditionalOutput> additionalOutputs;
     private Boolean skip;
 
     private String description;
@@ -101,6 +103,14 @@ public class SourceConfig implements Serializable {
 
     public void setTimestampDefault(String timestampDefault) {
         this.timestampDefault = timestampDefault;
+    }
+
+    public List<AdditionalOutput> getAdditionalOutputs() {
+        return additionalOutputs;
+    }
+
+    public void setAdditionalOutputs(List<AdditionalOutput> additionalOutputs) {
+        this.additionalOutputs = additionalOutputs;
     }
 
     public Boolean getSkip() {
@@ -349,6 +359,83 @@ public class SourceConfig implements Serializable {
         public void setAlterName(String alterName) {
             this.alterName = alterName;
         }
+    }
+
+    public static class AdditionalOutput implements Serializable {
+
+        private String name;
+        private JsonElement conditions;
+        private InputSchema schema;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public JsonElement getConditions() {
+            return conditions;
+        }
+
+        public void setConditions(JsonElement conditions) {
+            this.conditions = conditions;
+        }
+
+        public InputSchema getSchema() {
+            return schema;
+        }
+
+        public void setSchema(InputSchema schema) {
+            this.schema = schema;
+        }
+
+        public Output toOutput() {
+            final Output output = new Output();
+            output.setName(this.name);
+            output.setConditions(this.conditions.toString());
+            output.setSchema(this.schema);
+            return output;
+        }
+
+    }
+
+    public static class Output implements Serializable {
+
+        private String name;
+        private String conditions;
+        private InputSchema schema;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getConditions() {
+            return conditions;
+        }
+
+        public void setConditions(String conditions) {
+            this.conditions = conditions;
+        }
+
+        public InputSchema getSchema() {
+            return schema;
+        }
+
+        public void setSchema(InputSchema schema) {
+            this.schema = schema;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("name: %s, leaves: %s", this.name, this.conditions);
+        }
+
     }
 
 }

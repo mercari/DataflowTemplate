@@ -1,5 +1,6 @@
 package com.mercari.solution.util;
 
+import com.google.cloud.Timestamp;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.*;
 
@@ -192,6 +193,22 @@ public class DateTimeUtil {
         return toJodaInstant(instant);
     }
 
+    public static org.joda.time.Instant toJodaInstant(Long epoch) {
+        if(epoch == null) {
+            return null;
+        }
+        epoch = assumeEpochMilliSecond(epoch);
+        return org.joda.time.Instant.ofEpochMilli(epoch);
+    }
+
+    public static org.joda.time.Instant toJodaInstant(final Timestamp timestamp) {
+        if(timestamp == null) {
+            return null;
+        }
+        final Long epochMicroSecond = toEpochMicroSecond(timestamp);
+        return org.joda.time.Instant.ofEpochMilli(epochMicroSecond / 1000L);
+    }
+
     public static Integer toEpochDay(final Date date) {
         if(date == null) {
             return null;
@@ -244,6 +261,47 @@ public class DateTimeUtil {
         return datetime.toInstant().getMillis() * 1000;
     }
 
+    public static Long toEpochMicroSecond(final Timestamp timestamp) {
+        if(timestamp == null) {
+            return null;
+        }
+        return timestamp.getSeconds() * 1000_000 + timestamp.getNanos() / 1000;
+    }
+
+    public static Long assumeEpochMicroSecond(final Long epoch) {
+        if(epoch == null) {
+            return null;
+        }
+        switch (assumeEpochType(epoch)) {
+            case MICROS:
+                return epoch;
+            case MILLIS:
+                return epoch * 1000L;
+            case SECOND:
+                return epoch * 1000_000L;
+            case UNKNOWN:
+            default:
+                return null;
+        }
+    }
+
+    public static Long assumeEpochMilliSecond(final Long epoch) {
+        if(epoch == null) {
+            return null;
+        }
+        switch (assumeEpochType(epoch)) {
+            case MICROS:
+                return epoch / 1000L;
+            case MILLIS:
+                return epoch;
+            case SECOND:
+                return epoch * 1000L;
+            case UNKNOWN:
+            default:
+                return null;
+        }
+    }
+
     public static LocalDateTime toLocalDateTime(final Long microSeconds) {
         if(microSeconds == null) {
             return null;
@@ -271,6 +329,27 @@ public class DateTimeUtil {
             return DateTimeFormatter.ofPattern(pattern).format(time);
         }
 
+    }
+
+    private static EpochType assumeEpochType(final Long epoch) {
+        if(epoch == null) {
+            return EpochType.UNKNOWN;
+        }
+        final long l = Math.abs(epoch);
+        if(l > 50000000000000L) {
+            return EpochType.MICROS;
+        } else if(l > 10000000L) {
+            return EpochType.MILLIS;
+        } else {
+            return EpochType.SECOND;
+        }
+    }
+
+    private enum EpochType {
+        UNKNOWN,
+        SECOND,
+        MILLIS,
+        MICROS
     }
 
 }

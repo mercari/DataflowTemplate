@@ -5,18 +5,23 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.JsonUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.ChangeStreamRecordMetadata;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.ColumnType;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.DataChangeRecord;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.Mod;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class StructToRowConverter {
@@ -157,6 +162,7 @@ public class StructToRowConverter {
         switch (type.getCode()) {
             case BYTES:
                 return Schema.FieldType.BYTES.withNullable(true);
+            case JSON:
             case STRING:
                 return Schema.FieldType.STRING;
             case INT64:
@@ -164,6 +170,7 @@ public class StructToRowConverter {
             case FLOAT64:
                 return Schema.FieldType.DOUBLE;
             case NUMERIC:
+            case PG_NUMERIC:
                 return Schema.FieldType.DECIMAL;
             case BOOL:
                 return Schema.FieldType.BOOLEAN;
@@ -176,8 +183,173 @@ public class StructToRowConverter {
             case ARRAY:
                 return Schema.FieldType.array(convertFieldType(type.getArrayElementType()));
             default:
-                throw new IllegalArgumentException("Spanner type: " + type.toString() + " not supported!");
+                throw new IllegalArgumentException("Spanner type: " + type + " not supported!");
         }
+    }
+
+    public static Row convert(final Schema schema, final DataChangeRecord record) {
+        final Map<String, Object> values = new HashMap<>();
+        for(final Mod mod : record.getMods()) {
+            final JsonObject keyJson = JsonUtil.fromJson(mod.getKeysJson()).getAsJsonObject();
+            for(final Map.Entry<String, JsonElement> entry : keyJson.entrySet()) {
+                final Schema.Field field = schema.getField(entry.getKey());
+                values.put(field.getName(), getValue(field.getType(), entry.getValue()));
+            }
+            final JsonObject valuesJson = JsonUtil.fromJson(mod.getNewValuesJson()).getAsJsonObject();
+            for(final Map.Entry<String, JsonElement> entry : valuesJson.entrySet()) {
+                final Schema.Field field = schema.getField(entry.getKey());
+                values.put(field.getName(), getValue(field.getType(), entry.getValue()));
+            }
+        }
+
+        return Row
+                .withSchema(schema)
+                .withFieldValues(values)
+                .build();
+    }
+
+    private static Object getValue(final Schema.FieldType fieldType, final JsonElement element) {
+        if(element == null || element.isJsonNull()) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case STRING:
+                return element.getAsString();
+            case BOOLEAN:
+                return element.getAsBoolean();
+            case BYTE:
+                return element.getAsByte();
+            case INT16:
+                return element.getAsShort();
+            case INT32:
+                return element.getAsInt();
+            case INT64:
+                return element.getAsLong();
+            case FLOAT:
+                return element.getAsFloat();
+            case DOUBLE:
+                return element.getAsDouble();
+            case DECIMAL:
+                return element.getAsBigDecimal();
+            case DATETIME:
+                return DateTimeUtil.toJodaInstant(element.getAsString());
+            case BYTES:
+                return element.getAsString().getBytes();
+            case LOGICAL_TYPE:
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return DateTimeUtil.toLocalDate(element.getAsString());
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return DateTimeUtil.toLocalTime(element.getAsString());
+                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                    return DateTimeUtil.toJodaInstant(element.getAsString());
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return RowSchemaUtil.toEnumerationTypeValue(fieldType, element.getAsString());
+                } else {
+                    return element.getAsString();
+                }
+            case ITERABLE:
+            case ARRAY: {
+                final List<Object> array = new ArrayList<>();
+                for(final JsonElement e : element.getAsJsonArray()) {
+                    array.add(getValue(fieldType.getCollectionElementType(), e));
+                }
+                return array;
+            }
+            case ROW: {
+                final Map<String, Object> values = new HashMap<>();
+                final JsonObject object = element.getAsJsonObject();
+                for(final Map.Entry<String, JsonElement> entry : object.entrySet()) {
+                    final Schema.Field field = fieldType.getRowSchema().getField(entry.getKey());
+                    values.put(field.getName(), getValue(field.getType(), entry.getValue()));
+                }
+                return Row
+                        .withSchema(fieldType.getRowSchema())
+                        .withFieldValues(values)
+                        .build();
+            }
+            case MAP:
+            default:
+                throw new IllegalStateException();
+
+        }
+    }
+
+    public static Row convertToDataChangeRow(final Schema schema, final DataChangeRecord record) {
+        final Map<String, Object> values = new HashMap<>();
+        values.put("partitionToken", record.getPartitionToken());
+        values.put("commitTimestamp", DateTimeUtil.toJodaInstant(record.getCommitTimestamp()));
+        values.put("serverTransactionId", record.getServerTransactionId());
+        values.put("isLastRecordInTransactionInPartition", record.isLastRecordInTransactionInPartition());
+        values.put("recordSequence", record.getRecordSequence());
+        values.put("tableName", record.getTableName());
+
+        final Schema rowTypeSchema = schema.getField("rowType").getType().getCollectionElementType().getRowSchema();
+        final List<Row> rowTypes = new ArrayList<>();
+        for(final ColumnType columnType : record.getRowType()) {
+            final Map<String, Object> rowTypeValues = new HashMap<>();
+            rowTypeValues.put("name", columnType.getName());
+            rowTypeValues.put("type", RowSchemaUtil.toEnumerationTypeValue(rowTypeSchema
+                    .getField("type")
+                    .getType(), columnType.getType().getCode()));
+            rowTypeValues.put("isPrimaryKey", columnType.isPrimaryKey());
+            rowTypeValues.put("ordinalPosition", columnType.getOrdinalPosition());
+            final Row rowType = Row.withSchema(rowTypeSchema)
+                    .withFieldValues(rowTypeValues)
+                    .build();
+            rowTypes.add(rowType);
+        }
+        values.put("rowType", rowTypes);
+
+        final Schema modSchema = schema.getField("mods").getType().getCollectionElementType().getRowSchema();
+        final List<Row> mods = new ArrayList<>();
+        for(final Mod mod : record.getMods()) {
+            final Map<String, Object> modValues = new HashMap<>();
+            modValues.put("keysJson", mod.getKeysJson());
+            modValues.put("oldValuesJson", mod.getOldValuesJson());
+            modValues.put("newValuesJson", mod.getNewValuesJson());
+            mods.add(Row.withSchema(modSchema)
+                    .withFieldValues(modValues)
+                    .build());
+        }
+        values.put("mods", mods);
+
+        values.put("modType", RowSchemaUtil.toEnumerationTypeValue(
+                schema.getField("modType").getType(),
+                record.getModType().name()));
+        values.put("valueCaptureType", RowSchemaUtil.toEnumerationTypeValue(schema
+                .getField("valueCaptureType")
+                .getType(), record.getValueCaptureType().name()));
+        values.put("numberOfRecordsInTransaction", record.getNumberOfRecordsInTransaction());
+        values.put("numberOfPartitionsInTransaction", record.getNumberOfPartitionsInTransaction());
+
+        final ChangeStreamRecordMetadata metadata = record.getMetadata();
+        if(metadata == null) {
+            values.put("metadata", null);
+        } else {
+            final Schema metadataSchema = schema.getField("metadata").getType().getRowSchema();
+            final Map<String, Object> metadataValues = new HashMap<>();
+            metadataValues.put("partitionToken", metadata.getPartitionToken());
+            metadataValues.put("recordTimestamp", DateTimeUtil.toJodaInstant(metadata.getRecordTimestamp()));
+            metadataValues.put("partitionStartTimestamp", DateTimeUtil.toJodaInstant(metadata.getPartitionStartTimestamp()));
+            metadataValues.put("partitionEndTimestamp", DateTimeUtil.toJodaInstant(metadata.getPartitionEndTimestamp()));
+            metadataValues.put("partitionCreatedAt", DateTimeUtil.toJodaInstant(metadata.getPartitionCreatedAt()));
+            metadataValues.put("partitionScheduledAt", DateTimeUtil.toJodaInstant(metadata.getPartitionScheduledAt()));
+            metadataValues.put("partitionRunningAt", DateTimeUtil.toJodaInstant(metadata.getPartitionRunningAt()));
+            metadataValues.put("queryStartedAt", DateTimeUtil.toJodaInstant(metadata.getQueryStartedAt()));
+            metadataValues.put("recordStreamStartedAt", DateTimeUtil.toJodaInstant(metadata.getRecordStreamStartedAt()));
+            metadataValues.put("recordStreamEndedAt", DateTimeUtil.toJodaInstant(metadata.getRecordStreamEndedAt()));
+            metadataValues.put("recordReadAt", DateTimeUtil.toJodaInstant(metadata.getRecordReadAt()));
+            metadataValues.put("totalStreamTimeMillis", metadata.getTotalStreamTimeMillis());
+            metadataValues.put("numberOfRecordsRead", metadata.getNumberOfRecordsRead());
+            values.put("metadata", Row.withSchema(metadataSchema)
+                    .withFieldValues(metadataValues)
+                    .build());
+        }
+
+        return Row
+                .withSchema(schema)
+                .withFieldValues(values)
+                .build();
     }
 
 }

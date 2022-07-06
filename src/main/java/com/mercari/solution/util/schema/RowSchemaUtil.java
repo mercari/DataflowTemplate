@@ -366,6 +366,20 @@ public class RowSchemaUtil {
         return CalciteUtils.TIMESTAMP.typesEqual(fieldType) || CalciteUtils.NULLABLE_TIMESTAMP.typesEqual(fieldType);
     }
 
+    public static boolean isSqlTypeJson(final Schema.Options fieldOptions) {
+        if(fieldOptions == null) {
+            return false;
+        }
+        if(!fieldOptions.hasOption("sqlType")) {
+            return false;
+        }
+        final String sqlType = fieldOptions.getValue("sqlType", String.class);
+        if("json".equalsIgnoreCase(sqlType)) {
+            return true;
+        }
+        return false;
+    }
+
     public static Object getValue(final Row row, final String fieldName) {
         if(row == null) {
             return null;
@@ -736,6 +750,18 @@ public class RowSchemaUtil {
             default:
                 return defaultTimestamp;
         }
+    }
+
+    public static EnumerationType.Value toEnumerationTypeValue(final Schema.FieldType fieldType, final String value) {
+        final int typeCode = fieldType
+                .getLogicalType(EnumerationType.class)
+                .getArgument()
+                .getOrDefault(value, 0);
+        return new EnumerationType.Value(typeCode);
+    }
+
+    public static String toString(final Schema.FieldType fieldType, final EnumerationType.Value value) {
+        return fieldType.getLogicalType(EnumerationType.class).toString(value);
     }
 
 }

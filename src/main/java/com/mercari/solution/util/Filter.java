@@ -12,6 +12,8 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class Filter implements Serializable {
 
@@ -78,6 +80,14 @@ public class Filter implements Serializable {
 
         public void setLeaves(List<ConditionLeaf> leaves) {
             this.leaves = leaves;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("Type: %s, Leaves: %s", this.type, Optional.ofNullable(this.leaves).orElse(new ArrayList<>())
+                    .stream()
+                    .map(s -> String.format("%s %s %s", s.key, s.op, s.value))
+                    .collect(Collectors.joining(" .")));
         }
 
     }

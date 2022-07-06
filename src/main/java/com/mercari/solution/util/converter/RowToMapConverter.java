@@ -2,9 +2,9 @@ package com.mercari.solution.util.converter;
 
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
-import org.joda.time.ReadableDateTime;
 import org.joda.time.ReadableInstant;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
@@ -53,6 +53,9 @@ public class RowToMapConverter {
                     return ((Instant) value).toString(FORMATTER_HH_MM_SS);
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(type)) {
                     return java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
+                } else if(RowSchemaUtil.isLogicalTypeEnum(type)) {
+                    final EnumerationType.Value enumValue = (EnumerationType.Value) value;
+                    return RowSchemaUtil.toString(type, enumValue);
                 } else {
                     throw new IllegalArgumentException("Unsupported Beam logical type: " + type.getLogicalType().getIdentifier());
                 }

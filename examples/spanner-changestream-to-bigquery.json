@@ -1,0 +1,56 @@
+{
+  "sources": [
+    {
+      "name": "spannerInput",
+      "module": "spanner",
+      "parameters": {
+        "mode": "changestream",
+        "changeStreamMode": "struct",
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "metadataDatabase": "mydatabase-cdc",
+        "metadataTable": "mytablecdc",
+        "changeStreamName": "TEST_STREAM",
+        "priority": "LOW",
+        "tables": ["MyTable1", "MyTable2"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryChangeRecord",
+      "module": "bigquery",
+      "input": "spannerInput",
+      "parameters": {
+        "method": "STREAMING_INSERTS",
+        "table": "myproject:mydataset.changerecord",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    },
+    {
+      "name": "bigqueryMyTable1",
+      "module": "bigquery",
+      "input": "spannerInput.MyTable1",
+      "parameters": {
+        "method": "STORAGE_WRITE_API",
+        "table": "myproject:mydataset.mytable1",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND",
+        "optimizedWrites": true
+      }
+    },
+    {
+      "name": "bigqueryMyTable2",
+      "module": "bigquery",
+      "input": "spannerInput.MyTable2",
+      "parameters": {
+        "method": "STORAGE_WRITE_API",
+        "table": "myproject:mydataset.mytable2",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}

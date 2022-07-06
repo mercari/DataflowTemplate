@@ -25,6 +25,7 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
 import org.joda.time.Duration;
+import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -255,7 +256,7 @@ public class BigQuerySink implements SinkModule {
         }
         switch (inputType) {
             case AVRO: {
-                final BigQueryWrite<GenericRecord> write = new BigQueryWrite<GenericRecord>(
+                final BigQueryWrite<GenericRecord> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
@@ -398,18 +399,31 @@ public class BigQuerySink implements SinkModule {
                 }
             }
 
-            boolean isStreamingInsert =
+            final boolean isStreamingInsert =
                     BigQueryIO.Write.Method.STREAMING_INSERTS.equals(parameters.getMethod())
                             || (BigQueryIO.Write.Method.DEFAULT.equals(parameters.getMethod()) && isStreaming);
+            final boolean isStorageApiInsert =
+                    isStreaming && (BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
+                            || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod()));
 
-            if(isStreamingInsert && parameters.getWithExtendedErrorInfo()) {
+            if(isStreamingInsert) {
+                if(parameters.getWithExtendedErrorInfo()) {
                     return writeResult.getFailedInsertsWithErr()
                             .apply("ConvertFailureRecordWithError", ParDo.of(new FailedRecordWithErrorDoFn(name, collection.getAvroSchema().toString())))
                             .setCoder(AvroCoder.of(FailedRecordWithErrorDoFn.createOutputSchema(collection.getAvroSchema())));
-            } else {
+                } else {
                     return writeResult.getFailedInserts()
                             .apply("ConvertFailureRecord", ParDo.of(new FailedRecordDoFn(name, collection.getAvroSchema().toString())))
                             .setCoder(AvroCoder.of(collection.getAvroSchema()));
+                }
+            } else if(isStorageApiInsert) {
+                return writeResult.getFailedStorageApiInserts()
+                        .apply("ConvertFailureSARecord", ParDo.of(new FailedStorageApiRecordDoFn(name, collection.getAvroSchema().toString())))
+                        .setCoder(AvroCoder.of(collection.getAvroSchema()));
+            } else {
+                return writeResult.getFailedInserts()
+                        .apply("ConvertFailureRecord", ParDo.of(new FailedRecordDoFn(name, collection.getAvroSchema().toString())))
+                        .setCoder(AvroCoder.of(collection.getAvroSchema()));
             }
         }
 
@@ -424,7 +438,10 @@ public class BigQuerySink implements SinkModule {
 
             BigQueryIO.Write<T> write = BigQueryIO.<T>write()
                     .withSchema(tableSchema)
-                    .withTableDescription("Auto Generated");
+                    .withTableDescription("Auto Generated at " + Instant.now())
+                    .withWriteDisposition(BigQueryIO.Write.WriteDisposition.valueOf(this.parameters.getWriteDisposition()))
+                    .withCreateDisposition(BigQueryIO.Write.CreateDisposition.valueOf(this.parameters.getCreateDisposition()))
+                    .withMethod(this.parameters.getMethod());
 
             if(this.parameters.getPartitioning() != null) {
                 final String partitioningType = this.parameters.getPartitioning().trim();
@@ -432,10 +449,6 @@ public class BigQuerySink implements SinkModule {
                 final TimePartitioning timePartitioning = new TimePartitioning().setType(partitioningType).setField(partitioningField);
                 write = write.withTimePartitioning(timePartitioning);
             }
-
-            write = write.withWriteDisposition(BigQueryIO.Write.WriteDisposition.valueOf(this.parameters.getWriteDisposition()));
-            write = write.withCreateDisposition(BigQueryIO.Write.CreateDisposition.valueOf(this.parameters.getCreateDisposition()));
-            write = write.withMethod(this.parameters.getMethod());
 
             if(this.parameters.getClustering() != null) {
                 final List<String> clusteringFields = Arrays.asList(this.parameters.getClustering().trim().split(","));
@@ -480,28 +493,26 @@ public class BigQuerySink implements SinkModule {
                     }
                 }
 
-                if(this.parameters.getTriggeringFrequencySecond() != null) {
-                    write = write.withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()));
-                }
-
                 if(parameters.getSchemaUpdateOptions() != null && parameters.getSchemaUpdateOptions().size() > 0) {
                     write = write.withSchemaUpdateOptions(new HashSet<>(parameters.getSchemaUpdateOptions()));
                 }
 
                 switch (parameters.getMethod()) {
                     case FILE_LOADS:
-                    case STORAGE_WRITE_API:
-                    case STORAGE_API_AT_LEAST_ONCE: {
+                    case STORAGE_WRITE_API: {
                         write = write
+                                .withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()))
                                 .withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams())
                                 .useBeamSchema();
                         break;
                     }
+                    case STORAGE_API_AT_LEAST_ONCE: {
+                        write = write.useBeamSchema();
+                        break;
+                    }
                     case DEFAULT:
                     case STREAMING_INSERTS: {
-                        write = write
-                                .useAvroLogicalTypes()
-                                .withFormatFunction(convertTableRowFunction);
+                        write = write.withFormatFunction(convertTableRowFunction);
                         if(parameters.getAutoSharding()) {
                             write = write.withAutoSharding();
                         }
@@ -511,10 +522,6 @@ public class BigQuerySink implements SinkModule {
 
             } else {
                 // For batch mode options
-                if(parameters.getSchemaUpdateOptions() != null && parameters.getSchemaUpdateOptions().size() > 0) {
-                    write = write.withSchemaUpdateOptions(new HashSet<>(parameters.getSchemaUpdateOptions()));
-                }
-
                 if(AvroSchemaUtil.isNestedSchema(collection.getAvroSchema())) {
                     LOG.info("BigQuerySink: TableRowWrite mode.");
                     write = write
@@ -525,6 +532,10 @@ public class BigQuerySink implements SinkModule {
                             .withAvroSchemaFactory(TableRowToRecordConverter::convertSchema)
                             .withAvroFormatFunction(convertAvroFunction)
                             .useAvroLogicalTypes();
+                }
+
+                if(parameters.getSchemaUpdateOptions() != null && parameters.getSchemaUpdateOptions().size() > 0) {
+                    write = write.withSchemaUpdateOptions(new HashSet<>(parameters.getSchemaUpdateOptions()));
                 }
             }
 
@@ -577,8 +588,7 @@ public class BigQuerySink implements SinkModule {
                 parameters.setAutoSharding(false);
             }
             if(BigQueryIO.Write.Method.FILE_LOADS.equals(parameters.getMethod())
-                    || BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
-                    || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod())) {
+                    || BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())) {
                 if(parameters.getTriggeringFrequencySecond() == null) {
                     parameters.setTriggeringFrequencySecond(10L);
                 }
@@ -694,6 +704,34 @@ public class BigQuerySink implements SinkModule {
                         new Schema.Field("errors", Schema.createUnion(Schema.create(Schema.Type.NULL), Schema.createArray(errorSchema)), "", (Object)null),
                         new Schema.Field("record", recordSchema, "", (Object)null)
                 ));
+            }
+
+        }
+
+        private static class FailedStorageApiRecordDoFn extends DoFn<BigQueryStorageApiInsertError, GenericRecord> {
+
+            private final Counter errorCounter;
+            private final String recordSchemaString;
+            private transient Schema recordSchema;
+
+            FailedStorageApiRecordDoFn(final String name, final String schemaString) {
+                this.errorCounter = Metrics.counter(name, "elements_insert_error");
+                this.recordSchemaString = schemaString;
+            }
+
+            @Setup
+            public void setup() {
+                this.recordSchema = AvroSchemaUtil.convertSchema(recordSchemaString);
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                errorCounter.inc();
+                final BigQueryStorageApiInsertError error = c.element();
+                final TableRow tableRow = error.getRow();
+                LOG.error("FailedProcessElement: " + tableRow.toString() + " with error message: " + error.getErrorMessage());
+                final GenericRecord record = TableRowToRecordConverter.convert(recordSchema, tableRow);
+                c.output(record);
             }
 
         }

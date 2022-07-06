@@ -12,12 +12,12 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.39.0</beam.version>
+    <beam.version>2.40.0</beam.version>
 
     <joda.version>2.10.3</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
     <hadoop.version>3.3.3</hadoop.version>
-    <hbase.version>2.4.12</hbase.version>
+    <hbase.version>2.4.13</hbase.version>
     <onnx.version>1.10.2-1.5.7</onnx.version>
     <onnxruntime.version>1.11.0</onnxruntime.version>
     <tensorflow.version>1.15.0</tensorflow.version>
@@ -26,13 +26,12 @@
     <pdfbox.version>2.0.26</pdfbox.version>
     <jst.version>1.18.2</jst.version>
     <mysql-connector.version>8.0.29</mysql-connector.version>
-    <postgresql-connector.version>42.3.6</postgresql-connector.version>
+    <postgresql-connector.version>42.4.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.6.0</jdbc-socket-factory.version>
-    <secretmanager.version>2.2.0</secretmanager.version>
+    <jdbc-socket-factory.version>1.6.1</jdbc-socket-factory.version>
+    <secretmanager.version>2.3.0</secretmanager.version>
     <iamcredentials.version>2.0.11</iamcredentials.version>
     <drive.version>v3-rev20220110-1.32.1</drive.version>
-    <socketio.version>2.0.1</socketio.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -286,7 +285,7 @@
     <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-client -->
     <dependency>
       <groupId>org.apache.hadoop</groupId>
-      <artifactId>hadoop-client</artifactId>
+      <artifactId>hadoop-mapreduce-client-core</artifactId>
       <version>${hadoop.version}</version>
     </dependency>
 
@@ -453,13 +452,6 @@
       <groupId>org.freemarker</groupId>
       <artifactId>freemarker</artifactId>
       <version>${freemarker.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/io.socket/socket.io-client -->
-    <dependency>
-      <groupId>io.socket</groupId>
-      <artifactId>socket.io-client</artifactId>
-      <version>${socketio.version}</version>
     </dependency>
 
     <!-- Log -->

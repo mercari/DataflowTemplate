@@ -10,14 +10,25 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
+import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
+import com.mercari.solution.util.converter.StructToRecordConverter;
+import com.mercari.solution.util.converter.StructToRowConverter;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
+import com.mercari.solution.util.schema.SchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
-import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
+import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.Transaction;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.DataChangeRecord;
+import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
 import org.joda.time.Instant;
@@ -27,26 +38,41 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 public class SpannerSource implements SourceModule {
 
     private static final String SQL_SPLITTER = "--SPLITTER--";
+    private static final Logger LOG = LoggerFactory.getLogger(SpannerSource.class);
 
     private class SpannerSourceParameters implements Serializable {
 
         // common
+        private Mode mode;
         private String projectId;
         private String instanceId;
         private String databaseId;
         private String query;
         private Options.RpcPriority priority;
         private Boolean emulator;
+        private OutputType outputType;
 
         // for batch
         private String table;
         private List<String> fields;
         private List<KeyRangeParameter> keyRange;
         private String timestampBound;
+
+        // for changestream
+        private ChangeStreamMode changeStreamMode;
+        private String changeStreamName;
+        private String metadataInstance;
+        private String metadataDatabase;
+        private String metadataTable;
+        private String inclusiveStartAt;
+        private String inclusiveEndAt;
+        private Boolean outputChangeRecord;
+        private List<String> tables;
 
         // for microbatch
         private Integer intervalSecond;
@@ -58,6 +84,14 @@ public class SpannerSource implements SourceModule {
         private String outputCheckpoint;
         private Boolean useCheckpointAsStartDatetime;
 
+
+        public Mode getMode() {
+            return mode;
+        }
+
+        public void setMode(Mode mode) {
+            this.mode = mode;
+        }
 
         public String getProjectId() {
             return projectId;
@@ -137,6 +171,87 @@ public class SpannerSource implements SourceModule {
 
         public void setEmulator(Boolean emulator) {
             this.emulator = emulator;
+        }
+
+        public ChangeStreamMode getChangeStreamMode() {
+            return changeStreamMode;
+        }
+
+        public OutputType getOutputType() {
+            return outputType;
+        }
+
+        public void setOutputType(OutputType outputType) {
+            this.outputType = outputType;
+        }
+
+        public void setChangeStreamMode(ChangeStreamMode changeStreamMode) {
+            this.changeStreamMode = changeStreamMode;
+        }
+
+        public String getChangeStreamName() {
+            return changeStreamName;
+        }
+
+        public void setChangeStreamName(String changeStreamName) {
+            this.changeStreamName = changeStreamName;
+        }
+
+        public String getMetadataInstance() {
+            return metadataInstance;
+        }
+
+        public void setMetadataInstance(String metadataInstance) {
+            this.metadataInstance = metadataInstance;
+        }
+
+        public String getMetadataDatabase() {
+            return metadataDatabase;
+        }
+
+        public void setMetadataDatabase(String metadataDatabase) {
+            this.metadataDatabase = metadataDatabase;
+        }
+
+        public String getMetadataTable() {
+            return metadataTable;
+        }
+
+        public void setMetadataTable(String metadataTable) {
+            this.metadataTable = metadataTable;
+        }
+
+        public String getInclusiveStartAt() {
+            return inclusiveStartAt;
+        }
+
+        public void setInclusiveStartAt(String inclusiveStartAt) {
+            this.inclusiveStartAt = inclusiveStartAt;
+        }
+
+        public String getInclusiveEndAt() {
+            return inclusiveEndAt;
+        }
+
+        public void setInclusiveEndAt(String inclusiveEndAt) {
+            this.inclusiveEndAt = inclusiveEndAt;
+        }
+
+        public Boolean getOutputChangeRecord() {
+            return outputChangeRecord;
+        }
+
+        public void setOutputChangeRecord(Boolean outputChangeRecord) {
+            this.outputChangeRecord = outputChangeRecord;
+        }
+
+
+        public List<String> getTables() {
+            return tables;
+        }
+
+        public void setTables(List<String> tables) {
+            this.tables = tables;
         }
 
         public Integer getIntervalSecond() {
@@ -234,15 +349,201 @@ public class SpannerSource implements SourceModule {
                 this.endKeys = endKeys;
             }
         }
+
+        private class ChangeStreamFilterParameter {
+
+            private String startType;
+            private String endType;
+            private JsonElement startKeys;
+            private JsonElement endKeys;
+
+            public String getStartType() {
+                return startType;
+            }
+
+            public void setStartType(String startType) {
+                this.startType = startType;
+            }
+
+            public String getEndType() {
+                return endType;
+            }
+
+            public void setEndType(String endType) {
+                this.endType = endType;
+            }
+
+            public JsonElement getStartKeys() {
+                return startKeys;
+            }
+
+            public void setStartKeyValues(JsonElement startKeys) {
+                this.startKeys = startKeys;
+            }
+
+            public JsonElement getEndKeys() {
+                return endKeys;
+            }
+
+            public void setEndKeyValues(JsonElement endKeys) {
+                this.endKeys = endKeys;
+            }
+        }
+
+        public void validateBatchParameters() {
+            final List<String> errorMessages = validateCommonParameters();
+            if(query == null && table == null) {
+                errorMessages.add("spanner source module config requires query or table parameter in batch mode");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+
+        public void validateChangeStreamParameters() {
+            final List<String> errorMessages = validateCommonParameters();
+            if(changeStreamName == null) {
+                errorMessages.add("spanner source module config requires changeStreamName parameter in changestream mode");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+
+        public void validateMicroBatchParameters() {
+            final List<String> errorMessages = validateCommonParameters();
+            if(query == null) {
+                errorMessages.add("spanner source module config requires query parameter in microbatch mode");
+            }
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+
+        private void setBatchDefaultParameters() {
+            this.setCommonDefaultParameters();
+            if(this.outputType == null) {
+                this.outputType = OutputType.avro;
+            }
+        }
+
+        private void setChangeStreamDefaultParameters() {
+            this.setCommonDefaultParameters();
+            if(this.changeStreamMode == null) {
+                this.changeStreamMode = ChangeStreamMode.struct;
+            }
+            if(this.metadataInstance == null) {
+                this.metadataInstance = instanceId;
+            }
+            if(this.metadataDatabase == null) {
+                this.metadataDatabase = databaseId;
+            }
+            if(this.inclusiveStartAt == null) {
+                this.inclusiveStartAt = Timestamp.now().toString();
+            }
+            if(this.inclusiveEndAt == null) {
+                this.inclusiveEndAt = Timestamp.MAX_VALUE.toString();
+            }
+
+            if(this.getTables() == null) {
+                this.setTables(new ArrayList<>());
+            }
+
+            if(this.outputChangeRecord == null) {
+                this.outputChangeRecord = true;
+            }
+
+            if(this.outputType == null) {
+                this.outputType = OutputType.row;
+            }
+
+        }
+
+        private void setMicroBatchDefaultParameters() {
+            this.setCommonDefaultParameters();
+            if(intervalSecond == null) {
+                this.setIntervalSecond(60);
+            }
+            if(gapSecond == null) {
+                this.setGapSecond(30);
+            }
+            if(maxDurationMinute == null) {
+                this.setMaxDurationMinute(60);
+            }
+            if(catchupIntervalSecond == null) {
+                this.setCatchupIntervalSecond(this.getIntervalSecond());
+            }
+            if(useCheckpointAsStartDatetime == null) {
+                this.setUseCheckpointAsStartDatetime(false);
+            }
+
+            if(this.outputType == null) {
+                this.outputType = OutputType.avro;
+            }
+        }
+
+        private List<String> validateCommonParameters() {
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if(projectId == null) {
+                errorMessages.add("spanner source module config requires projectId");
+            }
+            if(instanceId == null) {
+                errorMessages.add("spanner source module config requires instanceId");
+            }
+            if(databaseId == null) {
+                errorMessages.add("spanner source module config requires databaseId");
+            }
+
+            return errorMessages;
+        }
+
+        private void setCommonDefaultParameters() {
+            if (priority == null) {
+                this.setPriority(Options.RpcPriority.MEDIUM);
+            }
+            if (emulator == null) {
+                this.setEmulator(false);
+            }
+        }
+    }
+
+    private enum OutputType implements Serializable {
+        row,
+        avro
+    }
+
+    private enum Mode implements Serializable {
+        batch,
+        microbatch,
+        changestream
+    }
+
+    private enum ChangeStreamMode implements Serializable {
+        struct,
+        mutation
     }
 
     public String getName() { return "spanner"; }
 
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
-        if (config.getMicrobatch() != null && config.getMicrobatch()) {
-            return Collections.singletonMap(config.getName(), SpannerSource.microbatch(beats, config));
-        } else {
-            return Collections.singletonMap(config.getName(), SpannerSource.batch(begin, config));
+        final SpannerSourceParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
+        final boolean isStreaming = OptionUtil.isStreaming(begin.getPipeline().getOptions());
+        final Mode mode = Optional
+                .ofNullable(parameters.getMode())
+                .orElse(isStreaming ? (config.getMicrobatch() != null && config.getMicrobatch() ? Mode.microbatch : Mode.changestream) : Mode.batch);
+
+        switch (mode) {
+            case batch:
+                return Collections.singletonMap(config.getName(), SpannerSource.batch(begin, config));
+            case microbatch:
+                return Collections.singletonMap(config.getName(), SpannerSource.microbatch(beats, config));
+            case changestream:
+                return SpannerSource.changestream(begin, config);
+            default:
+                throw new IllegalStateException("spanner source module does not support mode: " + mode);
         }
     }
 
@@ -250,6 +551,49 @@ public class SpannerSource implements SourceModule {
         final SpannerBatchSource source = new SpannerBatchSource(config);
         final PCollection<Struct> output = begin.apply(config.getName(), source);
         return FCollection.of(config.getName(), output, DataType.STRUCT, source.type);
+    }
+
+    public static Map<String, FCollection<?>> changestream(final PBegin begin, final SourceConfig config) {
+        final SpannerSourceParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
+        parameters.validateChangeStreamParameters();
+        parameters.setChangeStreamDefaultParameters();
+
+        final Map<String, Type> tableTypes = SpannerUtil
+                .getTypesFromDatabase(parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
+        switch (parameters.getChangeStreamMode()) {
+            case struct: {
+                if(parameters.getTables().size() == 0) {
+                    parameters.setTables(new ArrayList<>(tableTypes.keySet()));
+                }
+                final Map<String, Type> filteredTableTypes = tableTypes
+                        .entrySet()
+                        .stream()
+                        .filter(e -> parameters.getTables().contains(e.getKey()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+                switch (parameters.getOutputType()) {
+                    case row: {
+                        return createRowStream(begin, config.getName(), parameters, filteredTableTypes);
+                    }
+                    case avro: {
+                        return createAvroStream(begin, config.getName(), parameters, filteredTableTypes);
+                    }
+                    default: {
+                        throw new IllegalStateException("spanner source module does not support outputType: " + parameters.getOutputType());
+                    }
+                }
+            }
+            case mutation: {
+                final Schema dummySchema = StructSchemaUtil.createDataChangeRecordRowSchema();
+                final PCollection<Mutation> output = begin
+                        .apply(new SpannerChangeStreamMutationRead(parameters, tableTypes))
+                        .setCoder(SerializableCoder.of(Mutation.class));
+                return Collections.singletonMap(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, dummySchema));
+            }
+            default: {
+                throw new IllegalStateException("Spanner source module does not support changeStreamMode: " + parameters.getChangeStreamMode());
+            }
+        }
     }
 
     public static FCollection<Struct> microbatch(final PCollection<Long> beats, final SourceConfig config) {
@@ -275,10 +619,14 @@ public class SpannerSource implements SourceModule {
         private SpannerBatchSource(final SourceConfig config) {
             this.timestampAttribute = config.getTimestampAttribute();
             this.timestampDefault = config.getTimestampDefault();
-            this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
             this.templateArgs = config.getArgs();
-            validateParameters();
-            setDefaultParameters();
+
+            this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
+            if(this.parameters == null) {
+                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+            }
+            this.parameters.validateBatchParameters();
+            this.parameters.setBatchDefaultParameters();
         }
 
         public PCollection<Struct> expand(final PBegin begin) {
@@ -404,40 +752,6 @@ public class SpannerSource implements SourceModule {
 
         }
 
-        private void validateParameters() {
-            if(this.parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-            }
-
-            // check required parameters filled
-            final List<String> errorMessages = new ArrayList<>();
-            if(parameters.getProjectId() == null) {
-                errorMessages.add("Parameter must contain projectId");
-            }
-            if(parameters.getInstanceId() == null) {
-                errorMessages.add("Parameter must contain instanceId");
-            }
-            if(parameters.getDatabaseId() == null) {
-                errorMessages.add("Parameter must contain databaseId");
-            }
-            if(parameters.getQuery() == null && parameters.getTable() == null) {
-                errorMessages.add("Parameter must contain query or table");
-            }
-
-            if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-            }
-        }
-
-        private void setDefaultParameters() {
-            if (parameters.getPriority() == null) {
-                parameters.setPriority(Options.RpcPriority.MEDIUM);
-            }
-            if (parameters.getEmulator() == null) {
-                parameters.setEmulator(false);
-            }
-        }
-
         private static Key createRangeKey(final List<Type.StructField> keyFields, final JsonElement keyValues) {
             final Key.Builder key = Key.newBuilder();
             if(keyValues == null) {
@@ -514,7 +828,7 @@ public class SpannerSource implements SourceModule {
 
             @Setup
             public void setup() {
-                LOG.info("InitQueryPartitionSpannerDoFn");
+                LOG.info("QueryPartitionSpannerDoFn.setup");
             }
 
             @ProcessElement
@@ -563,7 +877,7 @@ public class SpannerSource implements SourceModule {
 
             @Teardown
             public void teardown() {
-                LOG.info("TeardownQueryPartitionSpannerDoFn");
+                LOG.info("QueryPartitionSpannerDoFn.teardown");
             }
 
         }
@@ -595,7 +909,7 @@ public class SpannerSource implements SourceModule {
 
             @Setup
             public void setup() {
-                LOG.info("setupReadStructSpannerDoFn");
+                LOG.info("ReadStructSpannerDoFn.setup");
                 this.spanner = SpannerUtil.connectSpanner(projectId, 1, 1, 1, true, this.emulator);
                 this.batchClient = spanner.getBatchClient(DatabaseId.of(projectId, instanceId, databaseId));
             }
@@ -624,7 +938,259 @@ public class SpannerSource implements SourceModule {
             @Teardown
             public void teardown() {
                 this.spanner.close();
-                LOG.info("TeardownReadStructSpannerDoFn");
+                LOG.info("ReadStructSpannerDoFn.teardown");
+            }
+
+        }
+
+    }
+
+    private static SpannerIO.ReadChangeStream createDataChangeRecordSource(final SpannerSourceParameters parameters) {
+        final SpannerConfig spannerConfig = SpannerConfig.create()
+                .withHost(ValueProvider.StaticValueProvider.of(SpannerUtil.SPANNER_HOST_BATCH))
+                .withProjectId(parameters.getProjectId())
+                .withInstanceId(parameters.getInstanceId())
+                .withDatabaseId(parameters.getDatabaseId());
+
+        SpannerIO.ReadChangeStream readChangeStream = SpannerIO.readChangeStream()
+                .withSpannerConfig(spannerConfig)
+                .withChangeStreamName(parameters.getChangeStreamName())
+                .withMetadataInstance(parameters.getMetadataInstance())
+                .withMetadataDatabase(parameters.getMetadataDatabase())
+                .withRpcPriority(parameters.getPriority());
+
+        if(parameters.getInclusiveStartAt() != null) {
+            final Timestamp inclusiveStartAt = Timestamp.parseTimestamp(parameters.getInclusiveStartAt());
+            readChangeStream = readChangeStream.withInclusiveStartAt(inclusiveStartAt);
+        }
+        if(parameters.getInclusiveEndAt() != null) {
+            final Timestamp inclusiveEndAt = Timestamp.parseTimestamp(parameters.getInclusiveEndAt());
+            readChangeStream = readChangeStream.withInclusiveEndAt(inclusiveEndAt);
+        }
+        if(parameters.getMetadataTable() != null) {
+            readChangeStream = readChangeStream.withMetadataTable(parameters.getMetadataTable());
+        }
+
+        return readChangeStream;
+    }
+
+    private static class SpannerChangeStreamStructRead<SchemaInputT, SchemaRuntimeT, T> extends PTransform<PBegin, PCollectionTuple> {
+
+        private final SpannerSourceParameters parameters;
+
+        private final SchemaUtil.SchemaConverter<SchemaInputT, SchemaRuntimeT> schemaConverter;
+        private final DataChangeRecordConverter<SchemaRuntimeT, T> changeRecordConverter;
+        private final DataChangeRecordConverter<SchemaRuntimeT, T> tableRecordConverter;
+        private final SchemaInputT changeRecordSchema;
+        private final Map<String, SchemaInputT> tableRecordSchemas;
+        private final TupleTag<T> changeRecordTag;
+        private final Map<String, TupleTag<T>> tableTags;
+
+        private SpannerChangeStreamStructRead(final SpannerSourceParameters parameters,
+                                        final SchemaUtil.SchemaConverter<SchemaInputT, SchemaRuntimeT> schemaConverter,
+                                        final DataChangeRecordConverter<SchemaRuntimeT, T> changeRecordConverter,
+                                        final DataChangeRecordConverter<SchemaRuntimeT, T> tableRecordConverter,
+                                        final SchemaInputT changeRecordSchema,
+                                        final Map<String, SchemaInputT> tableRecordSchemas,
+                                        final TupleTag<T> changeRecordTag,
+                                        final Map<String, TupleTag<T>> tableTags) {
+
+            this.parameters = parameters;
+            if(this.parameters == null) {
+                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+            }
+
+            this.schemaConverter = schemaConverter;
+            this.changeRecordConverter = changeRecordConverter;
+            this.tableRecordConverter = tableRecordConverter;
+            this.changeRecordSchema = changeRecordSchema;
+            this.tableRecordSchemas = tableRecordSchemas;
+            this.changeRecordTag = changeRecordTag;
+            this.tableTags = tableTags;
+        }
+
+        public PCollectionTuple expand(final PBegin begin) {
+            final SpannerIO.ReadChangeStream readChangeStream = createDataChangeRecordSource(parameters);
+            final PCollection<DataChangeRecord> dataChangeRecords = begin
+                    .apply("ReadChangeStream", readChangeStream);
+
+            return dataChangeRecords
+                    .apply("Reshuffle", Reshuffle.viaRandomKey())
+                    .apply("Convert", ParDo.of(new ConvertDoFn<>(
+                                    parameters,
+                                    schemaConverter, changeRecordConverter, tableRecordConverter,
+                                    changeRecordSchema, tableRecordSchemas, tableTags))
+                            .withOutputTags(changeRecordTag, TupleTagList.of(new ArrayList<>(tableTags.values()))));
+        }
+
+        private static class ConvertDoFn<SchemaInputT,SchemaRuntimeT,T> extends DoFn<DataChangeRecord, T> {
+
+            private static final Logger LOG = LoggerFactory.getLogger(ConvertDoFn.class);
+
+            private final SchemaUtil.SchemaConverter<SchemaInputT, SchemaRuntimeT> schemaConverter;
+            private final DataChangeRecordConverter<SchemaRuntimeT, T> changeRecordConverter;
+            private final DataChangeRecordConverter<SchemaRuntimeT, T> tableRecordConverter;
+            private final SchemaInputT changeRecordSchema;
+            private final Map<String, SchemaInputT> tableSchemas;
+            private final Map<String, TupleTag<T>> tableTags;
+
+            private final boolean outputChangeRecord;
+            private final boolean outputTableRecord;
+
+            private transient SchemaRuntimeT runtimeChangeRecordSchema;
+            private transient Map<String, SchemaRuntimeT> runtimeTableSchemas;
+
+            private ConvertDoFn(final SpannerSourceParameters parameters,
+                                final SchemaUtil.SchemaConverter<SchemaInputT, SchemaRuntimeT> schemaConverter,
+                                final DataChangeRecordConverter<SchemaRuntimeT, T> changeRecordConverter,
+                                final DataChangeRecordConverter<SchemaRuntimeT, T> tableRecordConverter,
+                                final SchemaInputT changeRecordSchema,
+                                final Map<String, SchemaInputT> tableSchemas,
+                                final Map<String, TupleTag<T>> outputTableTags) {
+
+                this.schemaConverter = schemaConverter;
+                this.changeRecordConverter = changeRecordConverter;
+                this.tableRecordConverter = tableRecordConverter;
+                this.changeRecordSchema = changeRecordSchema;
+                this.tableSchemas = tableSchemas;
+                this.tableTags = outputTableTags;
+
+                this.outputChangeRecord = parameters.getOutputChangeRecord();
+                this.outputTableRecord = parameters.getTables().size() > 0;
+            }
+
+            @Setup
+            public void setup() {
+                LOG.info("ConvertDoFn.setup");
+                this.runtimeChangeRecordSchema = schemaConverter.convert(changeRecordSchema);
+                this.runtimeTableSchemas = this.tableSchemas
+                        .entrySet()
+                        .stream()
+                        .collect(Collectors.toMap(
+                                Map.Entry::getKey,
+                                e -> schemaConverter.convert(e.getValue())));
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final DataChangeRecord record = c.element();
+                if(this.outputChangeRecord) {
+                    final T output = this.changeRecordConverter.convert(this.runtimeChangeRecordSchema, record);
+                    c.output(output);
+                }
+                switch (record.getModType()) {
+                    case UNKNOWN:
+                        //case UPDATE:
+                        //case INSERT:
+                    case DELETE: {
+                        return;
+                    }
+                }
+                if(this.outputTableRecord) {
+                    final String table = record.getTableName();
+                    final SchemaRuntimeT runtimeSchema = this.runtimeTableSchemas.get(table);
+                    if(runtimeSchema == null) {
+                        LOG.warn("table: " + table + " schema is null");
+                        return;
+                    }
+                    final T output = this.tableRecordConverter.convert(runtimeSchema, record);
+                    if(output == null) {
+                        LOG.warn("table: " + table + " output is null");
+                        return;
+                    }
+                    if(tableTags.get(table) == null) {
+                        LOG.warn("table: " + table + " tag is null");
+                        return;
+                    }
+                    c.output(tableTags.get(table), output);
+                }
+            }
+
+        }
+
+    }
+
+    private static class SpannerChangeStreamMutationRead extends PTransform<PBegin, PCollection<Mutation>> {
+
+        private final SpannerSourceParameters parameters;
+        private final Map<String, Type> tableTypes;
+
+        private SpannerChangeStreamMutationRead(final SpannerSourceParameters parameters, final Map<String, Type> tableTypes) {
+            this.parameters = parameters;
+            this.tableTypes = tableTypes;
+            if (this.parameters == null) {
+                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+            }
+        }
+
+        public PCollection<Mutation> expand(final PBegin begin) {
+
+            final SpannerIO.ReadChangeStream readChangeStream = createDataChangeRecordSource(parameters);
+            return begin
+                    .apply("ReadChangeStream", readChangeStream)
+                    .apply("Reshuffle", Reshuffle.viaRandomKey())
+                    .apply("ConvertToMutation",ParDo.of(new ConvertMutationDoFn(tableTypes)));
+        }
+
+        private static class ConvertMutationGroupDoFn extends DoFn<KV<String, Iterable<DataChangeRecord>>, MutationGroup> {
+            private static final Logger LOG = LoggerFactory.getLogger(ConvertMutationGroupDoFn.class);
+
+            private final Map<String, Type> tableTypes;
+
+            private ConvertMutationGroupDoFn(final Map<String, Type> tableTypes) {
+                this.tableTypes = tableTypes;
+            }
+
+            @Setup
+            public void setup() {
+                LOG.info("setup");
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final List<Mutation> mutations = StreamSupport
+                        .stream(c.element().getValue().spliterator(), false)
+                        .sorted(Comparator.comparing(DataChangeRecord::getRecordSequence))
+                        .flatMap(r -> StructSchemaUtil.convertToMutation(tableTypes.get(r.getTableName()), r).stream())
+                        .collect(Collectors.toList());
+
+                final MutationGroup mutationGroup;
+                if(mutations.size() > 1) {
+                    mutationGroup = MutationGroup.create(mutations.get(0), mutations.subList(1, mutations.size()));
+                } else {
+                    mutationGroup = MutationGroup.create(mutations.get(0));
+                }
+
+                c.output(mutationGroup);
+            }
+
+        }
+
+        private static class ConvertMutationDoFn extends DoFn<DataChangeRecord, Mutation> {
+            private static final Logger LOG = LoggerFactory.getLogger(ConvertMutationDoFn.class);
+
+            private final Map<String, Type> tableTypes;
+
+            private ConvertMutationDoFn(final Map<String, Type> tableTypes) {
+                this.tableTypes = tableTypes;
+            }
+
+            @Setup
+            public void setup() {
+                LOG.info("ConvertMutationDoFn.setup");
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final DataChangeRecord record = c.element();
+                final Type type = tableTypes.get(record.getTableName());
+                if(type == null) {
+                    return;
+                }
+                final List<Mutation> mutations = StructSchemaUtil.convertToMutation(type, record);
+                for(final Mutation mutation : mutations) {
+                    c.output(mutation);
+                }
             }
 
         }
@@ -641,54 +1207,12 @@ public class SpannerSource implements SourceModule {
         public SpannerMicrobatchRead(final SourceConfig config) {
             this.timestampAttribute = config.getTimestampAttribute();
             this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
-            validateParameters();
-            setDefaultParameters();
-        }
-
-        private void validateParameters() {
             if(this.parameters == null) {
                 throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
             }
 
-            // check required parameters filled
-            final List<String> errorMessages = new ArrayList<>();
-            if(parameters.getProjectId() == null) {
-                errorMessages.add("Parameter must contain projectId");
-            }
-            if(parameters.getInstanceId() == null) {
-                errorMessages.add("Parameter must contain instanceId");
-            }
-            if(parameters.getDatabaseId() == null) {
-                errorMessages.add("Parameter must contain databaseId");
-            }
-            if(parameters.getQuery() == null && parameters.getTable() == null) {
-                errorMessages.add("Parameter must contain query or table");
-            }
-
-            if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-            }
-        }
-
-        private void setDefaultParameters() {
-            if(parameters.getEmulator() == null) {
-                parameters.setEmulator(false);
-            }
-            if(parameters.getIntervalSecond() == null) {
-                parameters.setIntervalSecond(60);
-            }
-            if(parameters.getGapSecond() == null) {
-                parameters.setGapSecond(30);
-            }
-            if(parameters.getMaxDurationMinute() == null) {
-                parameters.setMaxDurationMinute(60);
-            }
-            if(parameters.getCatchupIntervalSecond() == null) {
-                parameters.setCatchupIntervalSecond(parameters.getIntervalSecond());
-            }
-            if(parameters.getUseCheckpointAsStartDatetime() == null) {
-                parameters.setUseCheckpointAsStartDatetime(false);
-            }
+            this.parameters.validateMicroBatchParameters();
+            this.parameters.setMicroBatchDefaultParameters();
         }
 
         public PCollection<Struct> expand(final PCollection<Long> beat) {
@@ -838,6 +1362,106 @@ public class SpannerSource implements SourceModule {
         }
     }
 
+    private static Map<String, FCollection<?>> createRowStream(
+            final PBegin begin,
+            final String moduleName,
+            final SpannerSourceParameters parameters,
+            final Map<String, Type> tableTypes) {
+
+        final TupleTag<Row> changeRecordTag = new TupleTag<>();
+        final Map<String, TupleTag<Row>> tableTags = tableTypes
+                .keySet()
+                .stream()
+                .collect(Collectors.toMap(e -> e, e -> new TupleTag<>()));
+        final Map<String, Schema> outputTableRecordSchemas = tableTypes
+                .entrySet()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> StructToRowConverter.convertSchema(e.getValue())));
+        final Map<String, Coder<Row>> coders = outputTableRecordSchemas
+                .entrySet()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> RowCoder.of(e.getValue())));
+
+        final Schema outputChangeRecordSchema = StructSchemaUtil.createDataChangeRecordRowSchema();
+        final SpannerChangeStreamStructRead<Schema, Schema, Row> source = new SpannerChangeStreamStructRead<>(
+                parameters, s -> s,
+                StructToRowConverter::convertToDataChangeRow, StructToRowConverter::convert,
+                outputChangeRecordSchema, outputTableRecordSchemas,
+                changeRecordTag, tableTags);
+        final PCollectionTuple outputs = begin.apply(moduleName, source);
+
+        final Map<String, FCollection<?>> results = new HashMap<>();
+
+        final PCollection<Row> changeRecord = outputs.get(changeRecordTag);
+        final Coder<Row> changeRecordCoder = RowCoder.of(outputChangeRecordSchema);
+        results.put(moduleName, FCollection.of(moduleName, changeRecord.setCoder(changeRecordCoder), DataType.ROW, outputChangeRecordSchema));
+        for(final Map.Entry<String, TupleTag<Row>> entry : tableTags.entrySet()) {
+            final String table = entry.getKey();
+            final String name = moduleName + "." + table;
+            final TupleTag<Row> tag = tableTags.get(table);
+            final PCollection<Row> output = outputs.get(tag);
+            final Coder<Row> coder = coders.get(table);
+            final Schema outputSchema = outputTableRecordSchemas.get(table);
+            if(coder == null || outputSchema == null) {
+                LOG.warn("Table not found: [" + table + "]");
+                continue;
+            }
+            results.put(name, FCollection.of(name, output.setCoder(coder), DataType.ROW, outputSchema));
+        }
+
+        return results;
+    }
+
+    private static Map<String, FCollection<?>> createAvroStream(
+            final PBegin begin,
+            final String moduleName,
+            final SpannerSourceParameters parameters,
+            final Map<String, Type> tableTypes) {
+
+        final TupleTag<GenericRecord> changeRecordTag = new TupleTag<>();
+        final Map<String, TupleTag<GenericRecord>> tableTags = tableTypes
+                .keySet()
+                .stream()
+                .collect(Collectors.toMap(e -> e, e -> new TupleTag<>()));
+        final Map<String, org.apache.avro.Schema> outputTableRecordSchemas = tableTypes
+                .entrySet()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> StructToRecordConverter.convertSchema(e.getValue())));
+        final Map<String, Coder<GenericRecord>> coders = outputTableRecordSchemas
+                .entrySet()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> AvroCoder.of(e.getValue())));
+
+        final org.apache.avro.Schema outputChangeRecordSchema = StructSchemaUtil.createDataChangeRecordAvroSchema();
+        final SpannerChangeStreamStructRead<String, org.apache.avro.Schema, GenericRecord> source = new SpannerChangeStreamStructRead<>(
+                parameters, AvroSchemaUtil::convertSchema,
+                StructToRecordConverter::convertToDataChangeRecord, StructToRecordConverter::convert,
+                outputChangeRecordSchema.toString(), outputTableRecordSchemas.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e->e.getValue().toString())),
+                changeRecordTag, tableTags);
+        final PCollectionTuple outputs = begin.apply(moduleName, source);
+
+        final Map<String, FCollection<?>> results = new HashMap<>();
+
+        final PCollection<GenericRecord> changeRecord = outputs.get(changeRecordTag);
+        final Coder<GenericRecord> changeRecordCoder = AvroCoder.of(outputChangeRecordSchema);
+        results.put(moduleName, FCollection.of(moduleName, changeRecord.setCoder(changeRecordCoder), DataType.AVRO, outputChangeRecordSchema));
+        for(final Map.Entry<String, TupleTag<GenericRecord>> entry : tableTags.entrySet()) {
+            final String table = entry.getKey();
+            final String name = moduleName + "." + table;
+            final TupleTag<GenericRecord> tag = tableTags.get(table);
+            final PCollection<GenericRecord> output = outputs.get(tag);
+            final Coder<GenericRecord> coder = coders.get(table);
+            final org.apache.avro.Schema outputSchema = outputTableRecordSchemas.get(table);
+            if(coder == null || outputSchema == null) {
+                LOG.warn("Table not found: [" + table + "]");
+                continue;
+            }
+            results.put(name, FCollection.of(name, output.setCoder(coder), DataType.AVRO, outputSchema));
+        }
+
+        return results;
+    }
+
     private static TimestampBound toTimestampBound(final String timestampBoundString) {
         if(timestampBoundString == null) {
             return TimestampBound.strong();
@@ -851,5 +1475,10 @@ public class SpannerSource implements SourceModule {
             }
         }
     }
+
+    private interface DataChangeRecordConverter<SchemaT, T> extends Serializable {
+        T convert(final SchemaT schema, final DataChangeRecord record);
+    }
+
 
 }

@@ -66,10 +66,13 @@ public class FlexPipeline {
         if(config.getName() != null) {
             flexOptions.setJobName(config.getName().trim().replaceAll(" ", ""));
         }
+
         if(flexOptions.isStreaming()) {
+            LOG.info("streaming");
             flexOptions.setEnableStreamingEngine(true);
         } else {
-            final List<String> experiments = new ArrayList<>();
+            LOG.info("batch");
+            final List<String> experiments = Optional.ofNullable(flexOptions.getExperiments()).orElse(new ArrayList<>());
             experiments.add("shuffle_mode=service");
             flexOptions.setExperiments(experiments);
         }

@@ -1,0 +1,31 @@
+{
+  "sources": [
+    {
+      "name": "spannerInput",
+      "module": "spanner",
+      "parameters": {
+        "mode": "changestream",
+        "changeStreamMode": "mutation",
+        "projectId": "myproject",
+        "instanceId": "myinstance",
+        "databaseId": "mydatabase",
+        "metadataDatabase": "mydatabase-cdc",
+        "metadataTable": "mytablecdc",
+        "priority": "LOW",
+        "changeStreamName": "TEST_STREAM"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "spannerMirror",
+      "module": "spanner",
+      "input": "spannerInput",
+      "parameters": {
+        "projectId": "mirrorproject",
+        "instanceId": "mirrorinstance",
+        "databaseId": "mirrordatabase"
+      }
+    }
+  ]
+}

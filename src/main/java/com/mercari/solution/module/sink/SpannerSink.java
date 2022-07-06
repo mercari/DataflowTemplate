@@ -5,6 +5,7 @@ import com.google.cloud.spanner.*;
 import com.google.gson.Gson;
 import com.google.spanner.admin.instance.v1.UpdateInstanceMetadata;
 import com.mercari.solution.config.SinkConfig;
+import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
@@ -15,6 +16,7 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.ListCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -58,6 +60,7 @@ public class SpannerSink implements SinkModule {
         private Long maxNumMutations;
         private Long batchSizeBytes;
         private Integer groupingFactor;
+        private Options.RpcPriority priority;
 
         private Integer nodeCount;
         private Integer revertNodeCount;
@@ -228,6 +231,14 @@ public class SpannerSink implements SinkModule {
             this.groupingFactor = groupingFactor;
         }
 
+        public Options.RpcPriority getPriority() {
+            return priority;
+        }
+
+        public void setPriority(Options.RpcPriority priority) {
+            this.priority = priority;
+        }
+
         public Integer getNodeCount() {
             return nodeCount;
         }
@@ -311,7 +322,7 @@ public class SpannerSink implements SinkModule {
         public PCollection<Void> expand(final PCollection<?> input) {
 
             setDefaultParameters();
-            validateParameters(input.getPipeline().getOptions());
+            validateParameters(input.getPipeline().getOptions(), collection.getDataType());
 
             final String projectId = this.parameters.getProjectId();
             final String instanceId = this.parameters.getInstanceId();
@@ -353,7 +364,6 @@ public class SpannerSink implements SinkModule {
 
             // SpannerWrite
             SpannerIO.Write write = SpannerIO.write()
-                    //.withHost(SpannerUtil.SPANNER_HOST_BATCH)
                     .withProjectId(projectId)
                     .withInstanceId(instanceId)
                     .withDatabaseId(databaseId)
@@ -368,7 +378,26 @@ public class SpannerSink implements SinkModule {
                 write = write.withFailureMode(SpannerIO.FailureMode.REPORT_FAILURES);
             }
 
-            // For Mutation
+            switch (parameters.getPriority()) {
+                case LOW: {
+                    write = write.withLowPriority();
+                    break;
+                }
+                case HIGH: {
+                    write = write.withHighPriority();
+                    break;
+                }
+            }
+
+            // For Mutation and MutationGroup
+            if(DataType.MUTATION.equals(collection.getDataType())) {
+                final SpannerWriteResult writeResult = ((PCollection<Mutation>)input).apply("WriteSpanner", write);
+                return writeResult.getOutput();
+            } else if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
+                final SpannerWriteResult writeResult = ((PCollection<MutationGroup>)input).apply("WriteSpanner", write.grouped());
+                return writeResult.getOutput();
+            }
+
             final PCollection<Mutation> mutations = input
                         .apply("ToMutation", DataTypeTransform
                                 .spannerMutation(collection, parameters.getTable(), mutationOp, parameters.getKeyFields(), excludeFields, maskFields));
@@ -452,7 +481,7 @@ public class SpannerSink implements SinkModule {
             return writeResult.getOutput();
         }
 
-        private void validateParameters(PipelineOptions options) {
+        private void validateParameters(PipelineOptions options, DataType dataType) {
             if(this.parameters == null) {
                 throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
             }
@@ -469,7 +498,9 @@ public class SpannerSink implements SinkModule {
                 errorMessages.add("Parameter must contain databaseId");
             }
             if(parameters.getTable() == null) {
-                errorMessages.add("Parameter must contain table");
+                if(!DataType.MUTATION.equals(dataType) && !DataType.MUTATIONGROUP.equals(dataType)) {
+                    errorMessages.add("Parameter must contain table");
+                }
             }
             if(parameters.getCreateTable() && parameters.getKeyFields() == null) {
                 errorMessages.add("Parameter must contain primaryKeyFields if createTable");
@@ -542,6 +573,9 @@ public class SpannerSink implements SinkModule {
             }
             if(parameters.getNodeCount() == null) {
                 parameters.setNodeCount(-1);
+            }
+            if(parameters.getPriority() == null) {
+                parameters.setPriority(Options.RpcPriority.MEDIUM);
             }
         }
 

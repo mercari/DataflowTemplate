@@ -6,6 +6,7 @@ import com.google.api.services.bigquery.model.TableSchema;
 import com.google.common.io.BaseEncoding;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
@@ -46,7 +47,7 @@ public class RowToTableRowConverter {
     public static TableSchema convertTableSchema(final Schema schema) {
         final List<TableFieldSchema> tableFieldSchemas = new ArrayList<>();
         for(final Schema.Field field : schema.getFields()) {
-            tableFieldSchemas.add(convertTableFieldSchema(field.getType(), field.getName()));
+            tableFieldSchemas.add(convertTableFieldSchema(field));
         }
         return new TableSchema().setFields(tableFieldSchemas);
     }
@@ -77,6 +78,9 @@ public class RowToTableRowConverter {
                     return ((LocalDate) value).format(FORMATTER_YYYY_MM_DD);
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return ((LocalTime) value).format(FORMATTER_HH_MM_SS);
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final EnumerationType.Value enumValue = (EnumerationType.Value) value;
+                    return RowSchemaUtil.toString(fieldType, enumValue);
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
@@ -103,11 +107,11 @@ public class RowToTableRowConverter {
         }
     }
 
-    private static TableFieldSchema convertTableFieldSchema(Schema.Field field) {
-        return convertTableFieldSchema(field.getType(), field.getName());
+    private static TableFieldSchema convertTableFieldSchema(final Schema.Field field) {
+        return convertTableFieldSchema(field.getType(), field.getOptions(), field.getName());
     }
 
-    private static TableFieldSchema convertTableFieldSchema(Schema.FieldType fieldType, final String fieldName) {
+    private static TableFieldSchema convertTableFieldSchema(final Schema.FieldType fieldType, final Schema.Options fieldOptions, final String fieldName) {
         final String mode = fieldType.getNullable() ? "NULLABLE" : "REQUIRED";
         final TableFieldSchema tableFieldSchema = new TableFieldSchema()
                 .setMode(mode);
@@ -115,8 +119,12 @@ public class RowToTableRowConverter {
         switch (fieldType.getTypeName()) {
             case BOOLEAN:
                 return tableFieldSchema.setName(fieldName).setType("BOOLEAN");
-            case STRING:
+            case STRING: {
+                if(RowSchemaUtil.isSqlTypeJson(fieldOptions)) {
+                    //return tableFieldSchema.setName(fieldName).setType("JSON");
+                }
                 return tableFieldSchema.setName(fieldName).setType("STRING");
+            }
             case BYTES:
                 return tableFieldSchema.setName(fieldName).setType("BYTES");
             case DECIMAL:
@@ -134,7 +142,10 @@ public class RowToTableRowConverter {
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return tableFieldSchema.setName(fieldName).setType("DATE");
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return tableFieldSchema.setName(fieldName).setType("STRING");
+                    return tableFieldSchema.setName(fieldName).setType("TIME");
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final String values = fieldType.getLogicalType(EnumerationType.class).getValues().stream().collect(Collectors.joining(","));
+                    return tableFieldSchema.setName(fieldName).setType("STRING").setDescription(values);
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
@@ -163,7 +174,7 @@ public class RowToTableRowConverter {
                 } else {
                     return tableFieldSchema
                             .setName(fieldName)
-                            .setType(convertTableFieldSchema(fieldType.getCollectionElementType(), "").getType())
+                            .setType(convertTableFieldSchema(fieldType.getCollectionElementType(), fieldOptions, "").getType())
                             .setMode("REPEATED");
                 }
             }
@@ -173,7 +184,7 @@ public class RowToTableRowConverter {
                         .setName("key")
                         .setMode("REQUIRED")
                         .setType("STRING"));
-                fields.add(convertTableFieldSchema(fieldType.getMapValueType(), "value"));
+                fields.add(convertTableFieldSchema(fieldType.getMapValueType(), fieldOptions, "value"));
                 return tableFieldSchema
                         .setName(fieldName)
                         .setType("RECORD")

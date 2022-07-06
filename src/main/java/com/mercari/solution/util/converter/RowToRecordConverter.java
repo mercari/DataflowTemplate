@@ -10,6 +10,7 @@ import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 
 import java.time.LocalDate;
@@ -39,16 +40,28 @@ public class RowToRecordConverter {
                 schemaFields
                         .name(field.getName())
                         .prop(SourceConfig.OPTION_ORIGINAL_FIELD_NAME, field.getOptions().getValue(SourceConfig.OPTION_ORIGINAL_FIELD_NAME))
-                        .type(convertSchema(field.getType(), field.getName(), null))
+                        .type(convertFieldSchema(field.getType(), field.getOptions(), field.getName(), null))
                         .noDefault();
             } else {
-                schemaFields.name(field.getName()).type(convertSchema(field.getType(), field.getName(), null)).noDefault();
+                schemaFields
+                        .name(field.getName())
+                        .type(convertFieldSchema(field.getType(), field.getOptions(), field.getName(), null))
+                        .noDefault();
             }
         }
         return schemaFields.endRecord();
     }
 
-    private static Schema convertSchema(org.apache.beam.sdk.schemas.Schema.FieldType fieldType, final String fieldName, final String parentNamespace) {
+    public static Schema convertFieldSchema(final org.apache.beam.sdk.schemas.Schema.FieldType fieldType) {
+        return convertFieldSchema(fieldType, null, "", null);
+    }
+
+    private static Schema convertFieldSchema(
+            final org.apache.beam.sdk.schemas.Schema.FieldType fieldType,
+            final org.apache.beam.sdk.schemas.Schema.Options fieldOptions,
+            final String fieldName,
+            final String parentNamespace) {
+
         switch (fieldType.getTypeName()) {
             case BOOLEAN:
                 return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_BOOLEAN : AvroSchemaUtil.REQUIRED_BOOLEAN;
@@ -82,6 +95,12 @@ public class RowToRecordConverter {
                     return fieldType.getNullable() ?
                             AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE :
                             AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final String doc = fieldType.getLogicalType(EnumerationType.class).getValues().stream().collect(Collectors.joining(","));
+                    final Schema enumSchema = Schema.createEnum(fieldName, doc, parentNamespace, fieldType.getLogicalType(EnumerationType.class).getValues());
+                    return fieldType.getNullable() ?
+                            Schema.createUnion(enumSchema, Schema.create(Schema.Type.NULL)) :
+                            enumSchema;
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
@@ -89,14 +108,15 @@ public class RowToRecordConverter {
             case ROW:
                 final String namespace = (parentNamespace == null ? fieldName : parentNamespace + "." + fieldName).toLowerCase();
                 final List<Schema.Field> fields = fieldType.getRowSchema().getFields().stream()
-                        .map(f -> new Schema.Field(f.getName(), convertSchema(f.getType(), f.getName(), namespace), f.getDescription(), (Object)null, Schema.Field.Order.IGNORE))
+                        .map(f -> new Schema.Field(f.getName(), convertFieldSchema(f.getType(), f.getOptions(), f.getName(), namespace), f.getDescription(), (Object)null, Schema.Field.Order.IGNORE))
                         .collect(Collectors.toList());
                 final Schema rowSchema = Schema.createRecord(fieldName, fieldType.getTypeName().name(), namespace, false, fields);
                 return fieldType.getNullable() ? Schema.createUnion(Schema.create(Schema.Type.NULL), rowSchema) : rowSchema;
             case ITERABLE:
-            case ARRAY:
-                final Schema arraySchema = Schema.createArray(convertSchema(fieldType.getCollectionElementType(), fieldName, parentNamespace));
+            case ARRAY: {
+                final Schema arraySchema = Schema.createArray(convertFieldSchema(fieldType.getCollectionElementType(), fieldOptions, fieldName, parentNamespace));
                 return fieldType.getNullable() ? Schema.createUnion(Schema.create(Schema.Type.NULL), arraySchema) : arraySchema;
+            }
             case MAP:
             case BYTE:
             default:
@@ -109,7 +129,6 @@ public class RowToRecordConverter {
             return null;
         }
         switch (schema.getType()) {
-            case ENUM:
             case STRING:
             case FIXED:
             case BYTES:
@@ -117,6 +136,13 @@ public class RowToRecordConverter {
             case FLOAT:
             case DOUBLE:
                 return value;
+            case ENUM: {
+                final EnumerationType.Value enumValue = (EnumerationType.Value) value;
+                if(enumValue.getValue() >= schema.getEnumSymbols().size()) {
+                    return schema.getEnumSymbols().get(0);
+                }
+                return schema.getEnumSymbols().get(enumValue.getValue());
+            }
             case INT:
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     if(value instanceof String) {

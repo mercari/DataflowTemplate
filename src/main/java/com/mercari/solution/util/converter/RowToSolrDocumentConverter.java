@@ -2,6 +2,7 @@ package com.mercari.solution.util.converter;
 
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.apache.solr.common.SolrInputDocument;
 
@@ -88,6 +89,10 @@ public class RowToSolrDocumentConverter {
                     // TODO
                     doc.addField(fieldName, isNullField ? "" : "");
                     return;
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final EnumerationType.Value enumValue = row.getLogicalTypeValue(fieldName, EnumerationType.Value.class);
+                    doc.addField(fieldName, isNullField ? "" : RowSchemaUtil.toString(fieldType, enumValue));
+                    return;
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
@@ -163,6 +168,12 @@ public class RowToSolrDocumentConverter {
                     ((List<Long>) value).stream()
                             .filter(Objects::nonNull)
                             .map(l -> new Date(l/1000L))
+                            .forEach(s -> doc.addField(fieldName, s));
+                    return;
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    ((List<EnumerationType.Value>) value).stream()
+                            .filter(Objects::nonNull)
+                            .map(v -> RowSchemaUtil.toString(fieldType, v))
                             .forEach(s -> doc.addField(fieldName, s));
                     return;
                 } else {

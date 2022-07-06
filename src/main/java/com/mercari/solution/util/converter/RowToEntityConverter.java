@@ -10,6 +10,7 @@ import com.google.protobuf.NullValue;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.gcp.DatastoreUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.ReadableDateTime;
 import org.joda.time.format.ISODateTimeFormat;
@@ -126,6 +127,9 @@ public class RowToEntityConverter {
                     builder = Value.newBuilder().setStringValue(value.toString());
                 } else if (RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
                     builder = Value.newBuilder().setStringValue(value.toString());
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final EnumerationType.Value enumValue = (EnumerationType.Value) value;
+                    builder = Value.newBuilder().setStringValue(RowSchemaUtil.toString(fieldType, enumValue));
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType());
