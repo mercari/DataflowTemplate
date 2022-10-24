@@ -186,17 +186,23 @@ public class RowSchemaUtil {
         for(Schema.Field field : schema.getFields()) {
             if(values.containsKey(field.getName())) {
                 builder.withFieldValue(field.getName(), values.get(field.getName()));
-            } else {
+            } else if(row.getSchema().hasField(field.getName())) {
                 builder.withFieldValue(field.getName(), row.getValue(field.getName()));
+            } else {
+                builder.withFieldValue(field.getName(), null);
             }
         }
         return builder.build();
     }
 
     public static Row create(final Schema schema, Map<String, Object> values) {
+        final Map<String, Object> v = new HashMap<>();
+        for(final Schema.Field field : schema.getFields()) {
+            v.put(field.getName(), values.getOrDefault(field.getName(), null));
+        }
         return Row
                 .withSchema(schema)
-                .withFieldValues(values)
+                .withFieldValues(v)
                 .build();
     }
 
@@ -459,6 +465,12 @@ public class RowSchemaUtil {
     }
 
     public static String getAsString(final Row row, final String field) {
+        if(row == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(field)) {
+            return null;
+        }
         if(row.getValue(field) == null) {
             return null;
         }
@@ -704,6 +716,9 @@ public class RowSchemaUtil {
         if(field == null) {
             return defaultTimestamp;
         }
+        if(!row.getSchema().hasField(fieldName)) {
+            return defaultTimestamp;
+        }
         final Object value = row.getValue(fieldName);
         if(value == null) {
             return defaultTimestamp;
@@ -728,6 +743,9 @@ public class RowSchemaUtil {
                     return defaultTimestamp;
                 }
             }
+            case INT16: {
+                return Instant.ofEpochMilli((short) value);
+            }
             case INT32: {
                 final LocalDate localDate = LocalDate.ofEpochDay((int) value);
                 return new DateTime(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
@@ -736,12 +754,15 @@ public class RowSchemaUtil {
             case INT64: {
                 return Instant.ofEpochMilli((long) value);
             }
+            case FLOAT: {
+                return Instant.ofEpochMilli(((Float) value).longValue());
+            }
+            case DOUBLE: {
+                return Instant.ofEpochMilli(((Double) value).longValue());
+            }
             case BYTES:
             case BOOLEAN:
-            case FLOAT:
-            case DOUBLE:
             case MAP:
-            case INT16:
             case DECIMAL:
             case BYTE:
             case ARRAY:
