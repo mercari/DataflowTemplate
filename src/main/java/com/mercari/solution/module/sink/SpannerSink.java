@@ -287,7 +287,7 @@ public class SpannerSink implements SinkModule {
             this.primaryKeyFields = primaryKeyFields;
         }
 
-        public void validate(PInput input, DataType dataType) {
+        public void validate(final PInput input, final DataType dataType, final Boolean isTuple) {
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
             if(this.getProjectId() == null) {
@@ -303,14 +303,13 @@ public class SpannerSink implements SinkModule {
                 switch (dataType) {
                     case MUTATION:
                     case MUTATIONGROUP:
-                    case TUPLE:
                         break;
                     default:
                         errorMessages.add("Parameter must contain table");
                         break;
                 }
             }
-            if(this.getCreateTable() && this.getKeyFields() == null && !DataType.TUPLE.equals(dataType)) {
+            if(this.getCreateTable() && this.getKeyFields() == null && !isTuple) {
                 errorMessages.add("Parameter must contain primaryKeyFields if createTable is true");
             }
 
@@ -415,13 +414,11 @@ public class SpannerSink implements SinkModule {
             throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
         }
         parameters.setDefaults(collection.getCollection());
-        parameters.validate(collection.getCollection(), collection.getDataType());
+        parameters.validate(collection.getCollection(), collection.getDataType(), collection.getIsTuple());
 
         if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
             return writeMutationGroup((FCollection<MutationGroup>) collection, config, parameters);
-        }
-
-        if(collection.getIsTuple()) {
+        } else if(collection.getIsTuple()) {
             return writeMulti(collection, config, parameters, waits, sideInputs);
         } else {
             return writeSingle(collection, config, parameters, waits, sideInputs);
