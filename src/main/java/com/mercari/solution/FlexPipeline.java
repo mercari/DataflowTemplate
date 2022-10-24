@@ -114,6 +114,7 @@ public class FlexPipeline {
     private static <O extends FlexPipelineOptions> void setSettingsOptions(final O options, final Config config) {
 
         options.setPlannerName("org.apache.beam.sdk.extensions.sql.zetasql.ZetaSQLQueryPlanner");
+        //options.setPlannerName("org.apache.beam.sdk.extensions.sql.impl.CalciteQueryPlanner");
 
         if(config.getSettings() != null) {
             final Settings settings = config.getSettings();
@@ -122,20 +123,61 @@ public class FlexPipeline {
                 options.setStreaming(settings.getStreaming());
             }
 
+            if(settings.getDataflow() != null) {
+                final Settings.DataflowSettings dataflow = settings.getDataflow();
+                if(dataflow.getAutoscalingAlgorithm() != null) {
+                    options.as(DataflowPipelineOptions.class).setAutoscalingAlgorithm(dataflow.getAutoscalingAlgorithm());
+                }
+                if(dataflow.getLabels() != null && dataflow.getLabels().size() > 0) {
+                    options.as(DataflowPipelineOptions.class).setLabels(dataflow.getLabels());
+                }
+                if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
+                    options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
+                }
+                if(dataflow.getNumberOfWorkerHarnessThreads() != null && dataflow.getNumberOfWorkerHarnessThreads() > 0) {
+                    options.as(DataflowPipelineOptions.class).setNumberOfWorkerHarnessThreads(dataflow.getNumberOfWorkerHarnessThreads());
+                }
+                if(dataflow.getFlexRSGoal() != null) {
+                    options.as(DataflowPipelineOptions.class).setFlexRSGoal(dataflow.getFlexRSGoal());
+                }
+                if(dataflow.getCreateFromSnapshot() != null) {
+                    options.as(DataflowPipelineOptions.class).setCreateFromSnapshot(dataflow.getCreateFromSnapshot());
+                }
+                if(dataflow.getSdkContainerImage() != null) {
+                    options.as(DataflowPipelineOptions.class).setSdkContainerImage(dataflow.getSdkContainerImage());
+                }
+                if(dataflow.getExperiments() != null && dataflow.getExperiments().size() > 0) {
+                    options.as(DataflowPipelineOptions.class).setExperiments(dataflow.getExperiments());
+                }
+            }
+
             if(settings.getBeamsql() != null) {
                 final Settings.BeamSQLSettings beamsql = settings.getBeamsql();
-                options.setPlannerName(beamsql.getPlannerName());
-                //options.setPlannerName("org.apache.beam.sdk.extensions.sql.impl.CalciteQueryPlanner");
+                if(beamsql.getPlannerName() != null) {
+                    options.setPlannerName(beamsql.getPlannerName());
+                }
+                if(beamsql.getZetaSqlDefaultTimezone() != null) {
+                    options.setZetaSqlDefaultTimezone(beamsql.getZetaSqlDefaultTimezone());
+                }
+                if(beamsql.getVerifyRowValues() != null) {
+                    options.setVerifyRowValues(beamsql.getVerifyRowValues());
+                }
             }
 
             if(settings.getAws() != null) {
                 final Settings.AWSSettings aws = settings.getAws();
-                final BasicAWSCredentials credentials = new BasicAWSCredentials(
-                        aws.getAccessKey(),
-                        aws.getSecretKey()
-                );
-                options.setAwsCredentialsProvider(new AWSStaticCredentialsProvider(credentials));
-                options.setAwsRegion(aws.getRegion());
+                if(aws.getAccessKey() != null && aws.getSecretKey() != null) {
+                    final BasicAWSCredentials credentials = new BasicAWSCredentials(
+                            aws.getAccessKey(),
+                            aws.getSecretKey()
+                    );
+                    options.as(AwsOptions.class).setAwsCredentialsProvider(new AWSStaticCredentialsProvider(credentials));
+                } else {
+                    LOG.warn("settings.aws not contains accessKey and secretKey");
+                }
+                if(aws.getRegion() != null) {
+                    options.as(AwsOptions.class).setAwsRegion(aws.getRegion());
+                }
             }
         }
     }
