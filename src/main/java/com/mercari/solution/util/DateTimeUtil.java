@@ -1,7 +1,6 @@
 package com.mercari.solution.util;
 
 import com.google.cloud.Timestamp;
-import com.mercari.solution.module.transform.FinanceTransform;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.*;
 import org.joda.time.Duration;
