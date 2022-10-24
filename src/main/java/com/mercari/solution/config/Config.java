@@ -1,8 +1,10 @@
 package com.mercari.solution.config;
 
+import com.google.api.services.storage.Storage;
 import com.google.gson.*;
 import com.mercari.solution.module.transform.BeamSQLTransform;
 import com.mercari.solution.util.TemplateUtil;
+import com.mercari.solution.util.gcp.StorageUtil;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import org.joda.time.DateTimeZone;
@@ -17,6 +19,7 @@ import java.io.Serializable;
 import java.io.StringWriter;
 import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class Config implements Serializable {
 
@@ -34,6 +37,7 @@ public class Config implements Serializable {
 
     private String name;
     private String description;
+    private List<Import> imports;
     private Settings settings;
     private List<SourceConfig> sources;
     private List<TransformConfig> transforms;
@@ -49,6 +53,14 @@ public class Config implements Serializable {
 
     public String getDescription() {
         return description;
+    }
+
+    public List<Import> getImports() {
+        return imports;
+    }
+
+    public void setImports(List<Import> imports) {
+        this.imports = imports;
     }
 
     public void setDescription(String description) {
@@ -87,6 +99,124 @@ public class Config implements Serializable {
         this.sinks = sinks;
     }
 
+    public void validate() {
+        final List<String> messages = new ArrayList<>();
+        if(this.imports != null) {
+            for(final Import i : this.imports) {
+                messages.addAll(i.validate());
+            }
+        }
+    }
+    public void setDefaults() {
+        if(this.imports == null) {
+            this.imports = new ArrayList<>();
+        } else {
+            for(final Import i : this.imports) {
+                i.setDefaults();
+            }
+        }
+    }
+
+    public class Import implements Serializable {
+
+        private String name;
+        private String base;
+        private List<String> files;
+
+        private Map<String, List<String>> inputs;
+        private Map<String, JsonObject> parameters;
+
+        private List<String> includes;
+        private List<String> excludes;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getBase() {
+            return base;
+        }
+
+        public void setBase(String base) {
+            this.base = base;
+        }
+
+        public List<String> getFiles() {
+            return files;
+        }
+
+        public void setFiles(List<String> files) {
+            this.files = files;
+        }
+
+        public Map<String, List<String>> getInputs() {
+            return inputs;
+        }
+
+        public void setInputs(Map<String, List<String>> inputs) {
+            this.inputs = inputs;
+        }
+
+        public Map<String, JsonObject> getParameters() {
+            return parameters;
+        }
+
+        public void setParameters(Map<String, JsonObject> parameters) {
+            this.parameters = parameters;
+        }
+
+        public List<String> getIncludes() {
+            return includes;
+        }
+
+        public void setIncludes(List<String> includes) {
+            this.includes = includes;
+        }
+
+        public List<String> getExcludes() {
+            return excludes;
+        }
+
+        public void setExcludes(List<String> excludes) {
+            this.excludes = excludes;
+        }
+
+        public boolean filter(final String name) {
+            if(this.includes.size() > 0) {
+                return this.includes.contains(name);
+            }
+            if(this.excludes.size() > 0) {
+                return !this.excludes.contains(name);
+            }
+            return true;
+        }
+
+        public List<String> validate() {
+            return new ArrayList<>();
+        }
+
+        public void setDefaults() {
+            if(this.files == null) {
+                this.files = new ArrayList<>();
+            }
+            if(this.inputs == null) {
+                this.inputs = new HashMap<>();
+            }
+            if(parameters == null) {
+                this.parameters = new HashMap<>();
+            }
+            if(includes == null) {
+                this.includes = new ArrayList<>();
+            }
+            if(excludes == null) {
+                this.excludes = new ArrayList<>();
+            }
+        }
+    }
 
     public boolean isCalcitePlanner() {
         if(this.transforms == null) {
@@ -127,31 +257,30 @@ public class Config implements Serializable {
         }
 
         // Config sources parameters
-        if(!jsonObject.has("sources")) {
-            throw new IllegalArgumentException("Config must has sources!");
+        if(jsonObject.has("sources")) {
+            final JsonElement jsonSources = jsonObject.get("sources");
+            if(!jsonSources.isJsonArray()) {
+                throw new IllegalArgumentException("Config sources must be array! : " + jsonSources);
+            }
+            replaceParameters(jsonSources.getAsJsonArray(), argsParameters);
         }
-        final JsonElement sources = jsonObject.get("sources");
-        if(!sources.isJsonArray()) {
-            throw new IllegalArgumentException("Config sources must be array! : " + sources.toString());
-        }
-        replaceParameters(sources.getAsJsonArray(), argsParameters);
 
         // Config transforms parameters
         if(jsonObject.has("transforms")) {
-            final JsonElement transforms = jsonObject.get("transforms");
-            if(!transforms.isJsonArray()) {
-                throw new IllegalArgumentException("Config transforms must be array! : " + transforms.toString());
+            final JsonElement jsonTransforms = jsonObject.get("transforms");
+            if(!jsonTransforms.isJsonArray()) {
+                throw new IllegalArgumentException("Config transforms must be array! : " + jsonTransforms);
             }
-            replaceParameters(transforms.getAsJsonArray(), argsParameters);
+            replaceParameters(jsonTransforms.getAsJsonArray(), argsParameters);
         }
 
         // Config sinks parameters
         if(jsonObject.has("sinks")) {
-            final JsonElement sinks = jsonObject.get("sinks");
-            if(!sinks.isJsonArray()) {
-                throw new IllegalArgumentException("Config sinks must be array! : " + sinks.toString());
+            final JsonElement jsonSinks = jsonObject.get("sinks");
+            if(!jsonSinks.isJsonArray()) {
+                throw new IllegalArgumentException("Config sinks must be array! : " + jsonSinks);
             }
-            replaceParameters(sinks.getAsJsonArray(), argsParameters);
+            replaceParameters(jsonSinks.getAsJsonArray(), argsParameters);
         }
 
         LOG.info("Pipeline config: \n" + new GsonBuilder().setPrettyPrinting().create().toJson(jsonObject));
@@ -161,29 +290,95 @@ public class Config implements Serializable {
             if(config == null) {
                 throw new IllegalArgumentException("Json Config must not be null !");
             }
-            if(config.getSources() == null || config.getSources().size() == 0) {
-                throw new IllegalArgumentException("Inputs must not be null or size zero !");
-            }
+            config.setDefaults();
 
             final Map<String, Object> templateArgs = getTemplateArgs(args);
+            final List<SourceConfig> sources = Optional.ofNullable(config.getSources()).orElseGet(ArrayList::new)
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .peek(c -> c.setArgs(templateArgs))
+                    .collect(Collectors.toList());
+            final List<TransformConfig> transforms = Optional.ofNullable(config.getTransforms()).orElseGet(ArrayList::new)
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .peek(c -> c.setArgs(templateArgs))
+                    .collect(Collectors.toList());
+            final List<SinkConfig> sinks = Optional.ofNullable(config.getSinks()).orElseGet(ArrayList::new)
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
-            config.setSources(config.getSources().stream()
-                    .filter(Objects::nonNull)
-                    .peek(c -> c.setArgs(templateArgs))
-                    .collect(Collectors.toList()));
-            if(config.getTransforms() == null) {
-                config.setTransforms(new ArrayList<>());
+            if(config.getImports() != null && config.getImports().size() > 0) {
+                final Storage storage = StorageUtil.storage();
+                for(final Import i : config.getImports()) {
+                    final Map<String, List<String>> inputs = Optional.ofNullable(i.getInputs()).orElseGet(HashMap::new);
+                    final Map<String, JsonObject> iparams = Optional.ofNullable(i.getParameters()).orElseGet(HashMap::new);
+                    for(final String path : i.getFiles()) {
+                        final String gcsPath = (i.getBase() == null ? "" : i.getBase()) + path;
+                        final String json = StorageUtil.readString(storage, gcsPath);
+                        final Config importConfig = Config.parse(json, args);
+                        if(importConfig.getSources() != null) {
+                            sources.addAll(importConfig.getSources()
+                                    .stream()
+                                    .filter(c -> i.filter(c.getName()))
+                                    .peek(c -> {
+                                        if(iparams.containsKey(c.getName())) {
+                                            final JsonObject iparam = iparams.get(c.getName());
+                                            for(final Map.Entry<String, JsonElement> entry : iparam.entrySet()) {
+                                                c.getParameters().add(entry.getKey(), entry.getValue());
+                                            }
+                                        }
+                                    })
+                                    .collect(Collectors.toList()));
+                        }
+                        if(importConfig.getTransforms() != null) {
+                            transforms.addAll(importConfig.getTransforms()
+                                    .stream()
+                                    .filter(c -> i.filter(c.getName()))
+                                    .peek(c -> {
+                                        if(iparams.containsKey(c.getName())) {
+                                            final JsonObject iparam = iparams.get(c.getName());
+                                            for(final Map.Entry<String, JsonElement> entry : iparam.entrySet()) {
+                                                c.getParameters().add(entry.getKey(), entry.getValue());
+                                            }
+                                        }
+                                        if(inputs.containsKey(c.getName())) {
+                                            c.setInputs(inputs.get(c.getName()));
+                                        }
+                                    })
+                                    .collect(Collectors.toList()));
+                        }
+                        if(importConfig.getSinks() != null) {
+                            sinks.addAll(importConfig.getSinks()
+                                    .stream()
+                                    .filter(c -> i.filter(c.getName()))
+                                    .peek(c -> {
+                                        if(iparams.containsKey(c.getName())) {
+                                            final JsonObject iparam = iparams.get(c.getName());
+                                            for(final Map.Entry<String, JsonElement> entry : iparam.entrySet()) {
+                                                c.getParameters().add(entry.getKey(), entry.getValue());
+                                            }
+                                        }
+                                        if(inputs.containsKey(c.getName())) {
+                                            final List<String> input = inputs.get(c.getName());
+                                            if(input.size() > 0) {
+                                                c.setInput(input.get(0));
+                                            }
+                                        }
+                                    })
+                                    .collect(Collectors.toList()));
+                        }
+                    }
+                }
             }
-            config.setTransforms(config.getTransforms().stream()
-                    .filter(Objects::nonNull)
-                    .peek(c -> c.setArgs(templateArgs))
-                    .collect(Collectors.toList()));
-            if(config.getSinks() == null) {
-                config.setSinks(new ArrayList<>());
+
+            if(sources.size() == 0 && transforms.size() == 0 && sinks.size() == 0) {
+                throw new IllegalArgumentException("no module definition!");
             }
-            config.setSinks(config.getSinks().stream()
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList()));
+
+            config.setSources(sources);
+            config.setTransforms(transforms);
+            config.setSinks(sinks);
 
             return config;
         } catch (Throwable e) {
