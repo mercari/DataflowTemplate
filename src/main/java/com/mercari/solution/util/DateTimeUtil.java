@@ -1,10 +1,13 @@
 package com.mercari.solution.util;
 
 import com.google.cloud.Timestamp;
+import com.mercari.solution.module.transform.FinanceTransform;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.*;
+import org.joda.time.Duration;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.*;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -182,12 +185,16 @@ public class DateTimeUtil {
         if(instant == null) {
             return null;
         }
-        return org.joda.time.Instant.ofEpochMilli(instant.getEpochSecond() * 1000 + instant.getNano() / 1000_000);
+        final long epochMicros = toEpochMicroSecond(instant.getEpochSecond(), instant.getNano());
+        return org.joda.time.Instant.ofEpochMilli(epochMicros / 1000L);
     }
 
     public static org.joda.time.Instant toJodaInstant(final String text) {
         if(text == null) {
             return null;
+        }
+        if(StringUtils.isNumeric(text)) {
+            return toJodaInstant(Long.valueOf(text));
         }
         final Instant instant = toInstant(text);
         return toJodaInstant(instant);
@@ -201,12 +208,49 @@ public class DateTimeUtil {
         return org.joda.time.Instant.ofEpochMilli(epoch);
     }
 
+    public static org.joda.time.Instant toJodaInstant(Double epoch) {
+        if(epoch == null) {
+            return null;
+        }
+        final BigDecimal decimal = BigDecimal.valueOf(epoch);
+        final long second = decimal.longValue();
+        final int nanos = decimal.subtract(BigDecimal.valueOf(decimal.intValue())).intValue();
+        final Long epochMicros = toEpochMicroSecond(second, nanos);
+        return toJodaInstant(epochMicros);
+    }
+
     public static org.joda.time.Instant toJodaInstant(final Timestamp timestamp) {
         if(timestamp == null) {
             return null;
         }
         final Long epochMicroSecond = toEpochMicroSecond(timestamp);
         return org.joda.time.Instant.ofEpochMilli(epochMicroSecond / 1000L);
+    }
+
+    public static org.joda.time.Instant toJodaInstant(final com.google.protobuf.Timestamp timestamp) {
+        if(timestamp == null) {
+            return null;
+        }
+        final Long epochMicroSecond = toEpochMicroSecond(timestamp);
+        return org.joda.time.Instant.ofEpochMilli(epochMicroSecond / 1000L);
+    }
+
+    public static com.google.protobuf.Timestamp toProtoTimestamp(final org.joda.time.Instant instant) {
+        if(instant == null) {
+            return null;
+        }
+        long second = instant.getMillis() / 1000L;
+        long nano   = instant.getMillis() % 1000L * 1000_000L;
+        return com.google.protobuf.Timestamp.newBuilder().setSeconds(second).setNanos(Math.toIntExact(nano)).build();
+    }
+
+    public static com.google.protobuf.Timestamp toProtoTimestamp(final Long epocMicros) {
+        if(epocMicros == null) {
+            return null;
+        }
+        long second = epocMicros / 1000_000L;
+        long nano   = epocMicros % 1000_000L * 1000L;
+        return com.google.protobuf.Timestamp.newBuilder().setSeconds(second).setNanos(Math.toIntExact(nano)).build();
     }
 
     public static Integer toEpochDay(final Date date) {
@@ -247,13 +291,6 @@ public class DateTimeUtil {
         return localTime.toNanoOfDay() / 1000;
     }
 
-    public static Long toEpochMicroSecond(final Instant instant) {
-        if(instant == null) {
-            return null;
-        }
-        return instant.getEpochSecond() * 1000_1000 + instant.getNano() / 1000;
-    }
-
     public static Long toEpochMicroSecond(final ReadableDateTime datetime) {
         if(datetime == null) {
             return null;
@@ -265,7 +302,33 @@ public class DateTimeUtil {
         if(timestamp == null) {
             return null;
         }
-        return timestamp.getSeconds() * 1000_000 + timestamp.getNanos() / 1000;
+        return toEpochMicroSecond(timestamp.getSeconds(), timestamp.getNanos());
+    }
+
+    public static Long toEpochMicroSecond(final com.google.protobuf.Timestamp timestamp) {
+        if(timestamp == null) {
+            return null;
+        }
+        return toEpochMicroSecond(timestamp.getSeconds(), timestamp.getNanos());
+    }
+
+    public static Long toEpochMicroSecond(final Instant instant) {
+        if(instant == null) {
+            return null;
+        }
+        return toEpochMicroSecond(instant.getEpochSecond(), instant.getNano());
+    }
+
+    public static long toEpochMicroSecond(final long seconds, final int nanos) {
+        return seconds * 1000_000 + nanos / 1000;
+    }
+
+    public static Long toEpochMicroSecond(final String text) {
+        if(text == null) {
+            return null;
+        }
+        final Instant instant = toInstant(text);
+        return toEpochMicroSecond(instant);
     }
 
     public static Long assumeEpochMicroSecond(final Long epoch) {
@@ -343,6 +406,36 @@ public class DateTimeUtil {
         } else {
             return EpochType.SECOND;
         }
+    }
+
+    public static Duration getDuration(final TimeUnit unit, final Long size) {
+        switch (unit) {
+            case second: {
+                return Duration.standardSeconds(size);
+            }
+            case minute: {
+                return Duration.standardMinutes(size);
+            }
+            case hour: {
+                return Duration.standardHours(size);
+            }
+            case day: {
+                return Duration.standardDays(size);
+            }
+            default: {
+                throw new IllegalArgumentException("Illegal window unit: " + unit);
+            }
+        }
+    }
+
+    public enum TimeUnit implements Serializable {
+        second,
+        minute,
+        hour,
+        day,
+        week,
+        month,
+        year
     }
 
     private enum EpochType {

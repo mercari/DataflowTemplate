@@ -1,5 +1,7 @@
 package com.mercari.solution.util;
 
+import com.google.cloud.Timestamp;
+import org.joda.time.Duration;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -152,9 +154,23 @@ public class DateTimeUtilTest {
     }
 
     @Test
+    public void testToJodaInstantFromCloudTimestamp() {
+        Timestamp timestamp = Timestamp.parseTimestamp("1970-01-01T00:00:00.123456Z");
+        Assert.assertEquals(123, DateTimeUtil.toJodaInstant(timestamp).getMillis());
+    }
+
+    @Test
     public void testToEpochMicroSecond() {
         Instant instant = Instant.parse("1970-01-01T00:00:00.123456Z");
         Assert.assertEquals(Long.valueOf(123456L), DateTimeUtil.toEpochMicroSecond(instant));
+    }
+
+    @Test
+    public void testToEpochMicroSecondFromCloudTimestamp() {
+        Timestamp timestamp1 = Timestamp.parseTimestamp("1970-01-01T00:00:00.123456Z");
+        Assert.assertEquals(Long.valueOf(123456L), DateTimeUtil.toEpochMicroSecond(timestamp1));
+        final Timestamp timestamp2 = Timestamp.parseTimestamp("2022-06-09T03:16:01.369262000Z");
+        Assert.assertEquals(Instant.ofEpochSecond(timestamp2.getSeconds(), timestamp2.getNanos()).toEpochMilli(), DateTimeUtil.toEpochMicroSecond(timestamp2)/ 1000);
     }
 
     @Test
@@ -166,6 +182,18 @@ public class DateTimeUtilTest {
         Instant instant2 = Instant.parse("2022-12-25T22:21:32.999Z");
         final LocalDateTime localDateTime2 = DateTimeUtil.toLocalDateTime(instant2.toEpochMilli() * 1000L);
         Assert.assertEquals("2022-12-25T22:21:32.999", localDateTime2.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")));
+    }
+
+    @Test
+    public void testGetDuration() {
+        final Duration durationSecond12 = DateTimeUtil.getDuration(DateTimeUtil.TimeUnit.second, 12L);
+        Assert.assertEquals(12L, durationSecond12.getStandardSeconds());
+        final Duration durationMinute7 = DateTimeUtil.getDuration(DateTimeUtil.TimeUnit.minute, 7L);
+        Assert.assertEquals(7L, durationMinute7.getStandardMinutes());
+        final Duration durationHour19 = DateTimeUtil.getDuration(DateTimeUtil.TimeUnit.hour, 19L);
+        Assert.assertEquals(19L, durationHour19.getStandardHours());
+        final Duration durationDay45 = DateTimeUtil.getDuration(DateTimeUtil.TimeUnit.day, 45L);
+        Assert.assertEquals(45L, durationDay45.getStandardDays());
     }
 
 }
