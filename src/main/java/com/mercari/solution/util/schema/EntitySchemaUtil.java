@@ -495,6 +495,12 @@ public class EntitySchemaUtil {
                     case BYTES:
                         value = Value.newBuilder().setBlobValue(ByteString.copyFrom((byte[]) object)).build();
                         break;
+                    case BYTE:
+                        value = Value.newBuilder().setIntegerValue((Byte) object).build();
+                        break;
+                    case INT16:
+                        value = Value.newBuilder().setIntegerValue((Short) object).build();
+                        break;
                     case INT32:
                         value = Value.newBuilder().setIntegerValue((Integer) object).build();
                         break;
@@ -507,9 +513,17 @@ public class EntitySchemaUtil {
                     case DOUBLE:
                         value = Value.newBuilder().setDoubleValue((Double) object).build();
                         break;
+                    case DATETIME:
+                        value = Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp((Long) object)).build();
+                        break;
                     case DECIMAL:
                         value = Value.newBuilder().setStringValue(object.toString()).build();
                         break;
+                    case ROW:
+                        value = Value.newBuilder().setEntityValue((Entity) object).build();
+                        break;
+                    case ITERABLE:
+                    case ARRAY:
                     default: {
                         throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
                     }
