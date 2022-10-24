@@ -3,7 +3,6 @@ package com.mercari.solution.config;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.protobuf.Descriptors;
-import com.mercari.solution.util.Filter;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.RecordToRowConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
@@ -14,7 +13,7 @@ import org.apache.beam.sdk.schemas.Schema;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.stream.Collectors;
+
 
 public class SourceConfig implements Serializable {
 
@@ -164,15 +163,31 @@ public class SourceConfig implements Serializable {
             return null;
         }
         final Schema.Builder builder = Schema.builder();
-        for(final InputSchemaField field : fields) {
-            if(field.getAlterName() == null) {
-                builder.addField(field.getName(), convertFieldType(field));
+        for(final InputSchemaField inputSchemaField : fields) {
+            final List<Schema.Options> optionsList = new ArrayList<>();
+            final String fieldName;
+            if(inputSchemaField.getAlterName() == null) {
+                fieldName = inputSchemaField.getName();
             } else {
-                builder.addField(Schema.Field.of(field.getAlterName(), convertFieldType(field))
-                        .withOptions(Schema.Options.builder()
-                                .setOption(OPTION_ORIGINAL_FIELD_NAME, Schema.FieldType.STRING, field.getName())
-                                .build()));
+                fieldName = inputSchemaField.getAlterName();
+                optionsList.add(Schema.Options.builder()
+                        .setOption(OPTION_ORIGINAL_FIELD_NAME, Schema.FieldType.STRING, inputSchemaField.getName())
+                        .build());
             }
+            if(inputSchemaField.getOptions() != null) {
+                for(final Map.Entry<String, String> entry : inputSchemaField.getOptions().entrySet()) {
+                    optionsList.add(Schema.Options.builder()
+                            .setOption(entry.getKey(), Schema.FieldType.STRING, entry.getValue())
+                            .build());
+                }
+            }
+
+            final Schema.FieldType fieldType = convertFieldType(inputSchemaField);
+            Schema.Field field = Schema.Field.of(fieldName, fieldType);
+            for(final Schema.Options fieldOptions : optionsList) {
+                field = field.withOptions(fieldOptions);
+            }
+            builder.addField(field);
         }
         return builder.build();
     }
@@ -226,9 +241,16 @@ public class SourceConfig implements Serializable {
             case "float64":
             case "double":
                 return Schema.FieldType.DOUBLE.withNullable(nullable);
+            case "numeric":
+            case "decimal":
+                return Schema.FieldType.DECIMAL.withNullable(nullable);
             case "bool":
             case "boolean":
                 return Schema.FieldType.BOOLEAN.withNullable(nullable);
+            case "time":
+                return nullable ? CalciteUtils.NULLABLE_TIME : CalciteUtils.TIME;
+            case "date":
+                return nullable ? CalciteUtils.NULLABLE_DATE : CalciteUtils.DATE;
             case "datetime":
             case "timestamp":
                 return Schema.FieldType.DATETIME.withNullable(nullable);
@@ -259,12 +281,6 @@ public class SourceConfig implements Serializable {
                 final Schema.FieldType mapField = Schema.FieldType.row(mapSchema).withNullable(nullable);
                 return Schema.FieldType.array(mapField);
             }
-            case "decimal":
-                return Schema.FieldType.DECIMAL.withNullable(nullable);
-            case "date":
-                return nullable ? CalciteUtils.NULLABLE_DATE : CalciteUtils.DATE;
-            case "time":
-                return nullable ? CalciteUtils.NULLABLE_TIME : CalciteUtils.TIME;
             default:
                 throw new IllegalArgumentException("Field[" + field.getName() + "] type " + field.getType() + " is not supported !");
         }
@@ -308,6 +324,7 @@ public class SourceConfig implements Serializable {
         private String type;
         private String mode;
         private List<InputSchemaField> fields;
+        private Map<String, String> options;
         private String alterName;
 
         InputSchemaField() {
@@ -318,6 +335,7 @@ public class SourceConfig implements Serializable {
             this.name = name;
             this.type = type;
             this.mode = mode;
+            this.options = new HashMap<>();
         }
 
         public String getName() {
@@ -350,6 +368,14 @@ public class SourceConfig implements Serializable {
 
         public void setFields(List<InputSchemaField> fields) {
             this.fields = fields;
+        }
+
+        public Map<String, String> getOptions() {
+            return options;
+        }
+
+        public void setOptions(Map<String, String> options) {
+            this.options = options;
         }
 
         public String getAlterName() {
