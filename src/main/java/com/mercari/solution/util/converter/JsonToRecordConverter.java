@@ -1,13 +1,11 @@
 package com.mercari.solution.util.converter;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
+import com.google.gson.*;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecordBuilder;
@@ -21,10 +19,7 @@ import java.math.MathContext;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 public class JsonToRecordConverter {
 
@@ -36,6 +31,28 @@ public class JsonToRecordConverter {
         }
         final JsonObject jsonObject = new Gson().fromJson(text, JsonObject.class);
         return convert(schema, jsonObject);
+    }
+
+    public static GenericRecord convert(final Schema schema, final JsonElement jsonElement) {
+        if(jsonElement.isJsonObject()) {
+            return convert(schema, jsonElement.getAsJsonObject());
+        } else if(jsonElement.isJsonArray()) {
+            final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
+            final JsonArray array = jsonElement.getAsJsonArray();
+            for(int i=0; i<schema.getFields().size(); i++) {
+                final Schema.Field field = schema.getFields().get(i);
+                final String fieldName = Optional.ofNullable(field.getProp(SourceConfig.OPTION_ORIGINAL_FIELD_NAME)).orElse(field.name());
+                if(i < array.size()) {
+                    final JsonElement element = array.get(i);
+                    builder.set(field.name(), convertValue(field.schema(), element));
+                } else {
+                    builder.set(field.name(), null);
+                }
+            }
+            return builder.build();
+        } else {
+            return null;
+        }
     }
 
     public static GenericRecord convert(final Schema schema, final JsonObject jsonObject) {
@@ -110,7 +127,10 @@ public class JsonToRecordConverter {
         }
         try {
             switch (schema.getType()) {
-                case ENUM:
+                case ENUM: {
+                    final String str = jsonElement.isJsonPrimitive() ? jsonElement.getAsString() : jsonElement.toString();
+                    return new GenericData.EnumSymbol(schema, str);
+                }
                 case STRING:
                     return jsonElement.isJsonPrimitive() ? jsonElement.getAsString() : jsonElement.toString();
                 case FIXED:
@@ -174,7 +194,7 @@ public class JsonToRecordConverter {
                                 if (pattern != null) {
                                     instant = Instant.parse(jsonPrimitive.getAsString(), DateTimeFormat.forPattern(pattern));
                                 } else {
-                                    instant = Instant.parse(jsonPrimitive.getAsString());
+                                    instant = DateTimeUtil.toJodaInstant(jsonPrimitive.getAsString());
                                 }
                                 if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
                                     return instant.getMillis();
