@@ -12,25 +12,24 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.40.0</beam.version>
+    <beam.version>2.42.0</beam.version>
 
-    <joda.version>2.10.3</joda.version>
+    <joda.version>2.12.0</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
-    <hadoop.version>3.3.3</hadoop.version>
+    <hadoop.version>3.3.4</hadoop.version>
     <hbase.version>2.4.13</hbase.version>
     <onnx.version>1.10.2-1.5.7</onnx.version>
-    <onnxruntime.version>1.11.0</onnxruntime.version>
+    <onnxruntime.version>1.13.1</onnxruntime.version>
     <tensorflow.version>1.15.0</tensorflow.version>
-    <lightgbm.version>3.2.110</lightgbm.version>
     <solr.version>9.0.0</solr.version>
-    <pdfbox.version>2.0.26</pdfbox.version>
-    <jst.version>1.18.2</jst.version>
-    <mysql-connector.version>8.0.29</mysql-connector.version>
-    <postgresql-connector.version>42.4.0</postgresql-connector.version>
+    <pdfbox.version>2.0.27</pdfbox.version>
+    <jst.version>1.19.0</jst.version>
+    <mysql-connector.version>8.0.30</mysql-connector.version>
+    <postgresql-connector.version>42.5.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.6.1</jdbc-socket-factory.version>
-    <secretmanager.version>2.3.0</secretmanager.version>
-    <iamcredentials.version>2.0.11</iamcredentials.version>
+    <jdbc-socket-factory.version>1.7.1</jdbc-socket-factory.version>
+    <secretmanager.version>2.3.1</secretmanager.version>
+    <iamcredentials.version>2.3.2</iamcredentials.version>
     <drive.version>v3-rev20220110-1.32.1</drive.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -39,7 +38,7 @@
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
     <slf4j.version>1.7.36</slf4j.version>
-    <log4j.version>2.17.2</log4j.version>
+    <log4j.version>2.19.0</log4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
 
@@ -325,13 +324,6 @@
       <version>${tensorflow.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/com.microsoft.ml.lightgbm/lightgbmlib -->
-    <dependency>
-      <groupId>com.microsoft.ml.lightgbm</groupId>
-      <artifactId>lightgbmlib</artifactId>
-      <version>${lightgbm.version}</version>
-    </dependency>
-
     <!-- Search Engine -->
     <!-- https://mvnrepository.com/artifact/org.apache.solr/solr-core -->
     <dependency>
@@ -452,6 +444,13 @@
       <groupId>org.freemarker</groupId>
       <artifactId>freemarker</artifactId>
       <version>${freemarker.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/net.objecthunter/exp4j -->
+    <dependency>
+      <groupId>net.objecthunter</groupId>
+      <artifactId>exp4j</artifactId>
+      <version>0.4.8</version>
     </dependency>
 
     <!-- Log -->
