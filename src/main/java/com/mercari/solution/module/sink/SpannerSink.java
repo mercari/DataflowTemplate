@@ -384,11 +384,7 @@ public class SpannerSink implements SinkModule {
                 this.setPriority(Options.RpcPriority.MEDIUM);
             }
             if(this.writeMode == null) {
-                if(OptionUtil.isStreaming(input)) {
-                    this.writeMode = WriteMode.simple;
-                } else {
-                    this.writeMode = WriteMode.normal;
-                }
+                this.writeMode = WriteMode.normal;
             }
         }
     }

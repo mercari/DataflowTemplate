@@ -1289,6 +1289,12 @@ public class StructSchemaUtil {
     public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
         final String table = record.getTableName();
         final ModType modType = record.getModType();
+        final Map<String, TypeCode> columnTypeCodes = Optional.ofNullable(record.getRowType())
+                .orElseGet(ArrayList::new)
+                .stream()
+                .collect(Collectors
+                        .toMap(ColumnType::getName, ColumnType::getType));
+
         if(type == null) {
             throw new IllegalStateException("Not found table: " + table + "'s type.");
         }
@@ -1299,40 +1305,83 @@ public class StructSchemaUtil {
                 final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
                 Key.Builder keyBuilder = Key.newBuilder();
                 for(final Map.Entry<String, JsonElement> keyField : keys.entrySet()) {
-                    final Type fieldType = type.getStructFields().get(type.getFieldIndex(keyField.getKey())).getType();
-                    switch (fieldType.getCode()) {
-                        case BOOL:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
-                            break;
-                        case JSON:
-                        case STRING:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                            break;
-                        case INT64:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
-                            break;
-                        case FLOAT64:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
-                            break;
-                        case NUMERIC:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
-                            break;
-                        case PG_NUMERIC:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                            break;
-                        case DATE:
-                            keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
-                            break;
-                        case TIMESTAMP:
-                            keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
-                            break;
-                        case BYTES:
-                            keyBuilder = keyBuilder.append(ByteArray.copyFrom(keyField.getValue().getAsString()));
-                            break;
-                        case STRUCT:
-                        case ARRAY:
-                        default:
-                            throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
+                    final String code = Optional.ofNullable(columnTypeCodes.get(keyField.getKey()))
+                            .map(TypeCode::getCode)
+                            .orElse(null);
+                    if(code != null && !"TYPE_CODE_UNSPECIFIED".equals(code) && false) { // TODO
+                        switch (code) {
+                            case "BOOL":
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
+                                break;
+                            case "STRING":
+                            case "JSON":
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                                break;
+                            case "INT64":
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
+                                break;
+                            case "FLOAT64":
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
+                                break;
+                            case "NUMERIC":
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
+                                break;
+                            case "PG_NUMERIC":
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            case "DATE":
+                                keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
+                                break;
+                            case "TIMESTAMP":
+                                keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
+                                break;
+                            case "BYTES":
+                                keyBuilder = keyBuilder.append(ByteArray.copyFrom(keyField.getValue().getAsString()));
+                                break;
+                            case "ARRAY":
+                            case "STRUCT":
+                            case "PG_JSONB":
+                            default:
+                                throw new IllegalStateException("Not supported columnTypeCode: " + code + " for key column: " + keyField.getKey());
+                        }
+                    } else {
+                        final Type fieldType = type.getStructFields().get(type.getFieldIndex(keyField.getKey())).getType();
+                        switch (fieldType.getCode()) {
+                            case BOOL:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
+                                break;
+                            case JSON:
+                            case STRING:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                                break;
+                            case INT64:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
+                                break;
+                            case FLOAT64:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
+                                break;
+                            case NUMERIC:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
+                                break;
+                            case PG_NUMERIC:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                                break;
+                            case PG_JSONB:
+                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                                break;
+                            case DATE:
+                                keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
+                                break;
+                            case TIMESTAMP:
+                                keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
+                                break;
+                            case BYTES:
+                                keyBuilder = keyBuilder.append(ByteArray.copyFrom(Base64.getDecoder().decode(keyField.getValue().getAsString())));
+                                break;
+                            case STRUCT:
+                            case ARRAY:
+                            default:
+                                throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
+                        }
                     }
                 }
                 deletes.add(Mutation.delete(table, keyBuilder.build()));
@@ -1342,17 +1391,38 @@ public class StructSchemaUtil {
 
         final List<Mutation> mutations = new ArrayList<>();
         for(final Mod mod : record.getMods()) {
-            final Mutation.WriteBuilder builder = Mutation.newInsertOrUpdateBuilder(table);
+            final Mutation.WriteBuilder builder;
+            switch (modType) {
+                case INSERT:
+                    builder = Mutation.newInsertOrUpdateBuilder(table);
+                    break;
+                case UPDATE:
+                    builder = Mutation.newUpdateBuilder(table);
+                    break;
+                default:
+                    throw new IllegalStateException();
+            }
+
             final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
             for(final Map.Entry<String, JsonElement> value : keys.entrySet()) {
-                final Type fieldType = type.getStructFields().get(type.getFieldIndex(value.getKey())).getType();
-                builder.set(value.getKey()).to(getStructValue(fieldType, value.getValue()));
+                if(columnTypeCodes.containsKey(value.getKey()) && false) { // TODO
+                    final TypeCode typeCode = columnTypeCodes.get(value.getKey());
+                    builder.set(value.getKey()).to(getStructValue(typeCode.getCode(), value.getValue()));
+                } else {
+                    final Type fieldType = type.getStructFields().get(type.getFieldIndex(value.getKey())).getType();
+                    builder.set(value.getKey()).to(getStructValue(fieldType, value.getValue()));
+                }
             }
 
             final JsonObject values = new Gson().fromJson(mod.getNewValuesJson(), JsonObject.class);
             for(final Map.Entry<String, JsonElement> value : values.entrySet()) {
-                final Type fieldType = type.getStructFields().get(type.getFieldIndex(value.getKey())).getType();
-                builder.set(value.getKey()).to(getStructValue(fieldType, value.getValue()));
+                if(columnTypeCodes.containsKey(value.getKey()) && false) { // TODO
+                    final TypeCode typeCode = columnTypeCodes.get(value.getKey());
+                    builder.set(value.getKey()).to(getStructValue(typeCode.getCode(), value.getValue()));
+                } else {
+                    final Type fieldType = type.getStructFields().get(type.getFieldIndex(value.getKey())).getType();
+                    builder.set(value.getKey()).to(getStructValue(fieldType, value.getValue()));
+                }
             }
             mutations.add(builder.build());
         }
@@ -1365,6 +1435,91 @@ public class StructSchemaUtil {
             builder.set(field.getName()).to(getStructValue(field.getType(), object.get(field.getName())));
         }
         return builder.build();
+    }
+
+    private static Value getStructValue(String columnTypeCode, final JsonElement element) {
+        final boolean isNull = element == null || element.isJsonNull();
+        final JsonElement typeCodeElement = new Gson().fromJson(columnTypeCode, JsonElement.class);
+        if(typeCodeElement.isJsonObject()) {
+            columnTypeCode = typeCodeElement.getAsJsonObject().get("code").getAsString();
+        } else if(typeCodeElement.isJsonPrimitive()) {
+            columnTypeCode = typeCodeElement.getAsString();
+        } else {
+            throw new IllegalStateException();
+        }
+        switch (columnTypeCode) {
+            case "BOOL":
+                return Value.bool(isNull ? null : element.getAsBoolean());
+            case "JSON":
+                return Value.json(isNull ? null : element.getAsString());
+            case "STRING":
+                return Value.string(isNull ? null : element.getAsString());
+            case "INT64":
+                return Value.int64(isNull ? null : element.getAsLong());
+            case "FLOAT64":
+                return Value.float64(isNull ? null : element.getAsDouble());
+            case "NUMERIC":
+                return Value.numeric(isNull ? null : element.getAsBigDecimal());
+            case "PG_NUMERIC":
+                return Value.pgNumeric(isNull ? null : element.getAsString());
+            case "PG_JSONB":
+                return Value.pgJsonb(isNull ? null : element.getAsString());
+            case "DATE":
+                return Value.date(Date.parseDate(isNull ? null : element.getAsString()));
+            case "TIMESTAMP":
+                return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(element.getAsString()));
+            case "BYTES":
+                return Value.bytes(isNull ? null : ByteArray.copyFrom(Base64.getDecoder().decode(element.getAsString())));
+            case "STRUCT":
+                throw new IllegalStateException("");
+            default: {
+                if(columnTypeCode.startsWith("ARRAY")) {
+                    final List<JsonElement> elements = new ArrayList<>();
+                    if(!isNull) {
+                        for(final JsonElement child : element.getAsJsonArray()) {
+                            elements.add(child);
+                        }
+                    }
+                    final Matcher m = PATTERN_ARRAY_ELEMENT.matcher(columnTypeCode);
+                    if(m.find()) {
+                        final String elementColumnTypeCode = m.group();
+                        switch (elementColumnTypeCode) {
+                            case "BOOL":
+                                return Value.boolArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsBoolean).collect(Collectors.toList()));
+                            case "JSON":
+                                return Value.jsonArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "STRING":
+                                return Value.stringArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "INT64":
+                                return Value.int64Array(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsLong).collect(Collectors.toList()));
+                            case "FLOAT64":
+                                return Value.float64Array(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsDouble).collect(Collectors.toList()));
+                            case "NUMERIC":
+                                return Value.numericArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsBigDecimal).collect(Collectors.toList()));
+                            case "PG_NUMERIC":
+                                return Value.pgNumericArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "PG_JSONB":
+                                return Value.pgJsonbArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "DATE":
+                                return Value.dateArray(isNull ? new ArrayList<>() : elements.stream().map(e -> Date.parseDate(e.getAsString())).collect(Collectors.toList()));
+                            case "TIMESTAMP":
+                                return Value.timestampArray(isNull ? new ArrayList<>() : elements.stream().map(e -> Timestamp.parseTimestamp(e.getAsString())).collect(Collectors.toList()));
+                            case "BYTES":
+                                return Value.bytesArray(isNull ? new ArrayList<>() : elements.stream().map(e -> ByteArray.copyFrom(Base64.getDecoder().decode(e.getAsString()))).collect(Collectors.toList()));
+                            case "STRUCT":
+                            case "ARRAY":
+                            default: {
+                                throw new IllegalStateException("Not supported spanner array element type: " + elementColumnTypeCode);
+                            }
+                        }
+                    } else {
+                        throw new IllegalStateException("Not found array element type: " + columnTypeCode);
+                    }
+                } else {
+                    throw new IllegalStateException("Not supported spanner type: " + columnTypeCode);
+                }
+            }
+        }
     }
 
     private static Value getStructValue(final Type fieldType, final JsonElement element) {
