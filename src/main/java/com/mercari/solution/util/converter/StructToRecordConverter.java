@@ -20,6 +20,7 @@ import com.mercari.solution.util.JsonUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
@@ -123,11 +124,13 @@ public class StructToRecordConverter {
         final List<GenericRecord> rowTypes = new ArrayList<>();
         for(final ColumnType columnType : record.getRowType()) {
             final GenericRecordBuilder rowTypeValues = new GenericRecordBuilder(rowTypeSchema);
-            rowTypeValues.set("name", columnType.getName());
-            rowTypeValues.set("Type", columnType.getType().getCode()
+            final String type = columnType.getType().getCode()
                     .replaceAll("\\{\"code\":","")
                     .replaceAll("}", "")
-                    .replaceAll("\"", ""));
+                    .replaceAll("\"", "");
+            final GenericData.EnumSymbol symbol = new GenericData.EnumSymbol(rowTypeSchema.getField("Type").schema(), type);
+            rowTypeValues.set("name", columnType.getName());
+            rowTypeValues.set("Type", symbol);
             rowTypeValues.set("isPrimaryKey", columnType.isPrimaryKey());
             rowTypeValues.set("ordinalPosition", columnType.getOrdinalPosition());
             rowTypes.add(rowTypeValues.build());
@@ -145,8 +148,13 @@ public class StructToRecordConverter {
         }
         builder.set("mods", mods);
 
-        builder.set("modType", record.getModType().name());
-        builder.set("valueCaptureType", record.getValueCaptureType().name());
+        final String modType = record.getModType().name();
+        final String valueCaptureType = record.getValueCaptureType().name();
+        final GenericData.EnumSymbol modTypeSymbol = new GenericData.EnumSymbol(schema.getField("modType").schema(), modType);
+        final GenericData.EnumSymbol valueCaptureTypeSymbol = new GenericData.EnumSymbol(schema.getField("valueCaptureType").schema(), valueCaptureType);
+
+        builder.set("modType", modTypeSymbol);
+        builder.set("valueCaptureType", valueCaptureTypeSymbol);
         builder.set("numberOfRecordsInTransaction", record.getNumberOfRecordsInTransaction());
         builder.set("numberOfPartitionsInTransaction", record.getNumberOfPartitionsInTransaction());
 

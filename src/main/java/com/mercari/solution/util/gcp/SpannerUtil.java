@@ -9,6 +9,7 @@ import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.StructToRowConverter;
 import org.apache.avro.LogicalTypes;
+import org.apache.avro.SchemaBuilder;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.util.ReleaseInfo;
@@ -43,6 +44,18 @@ public class SpannerUtil {
             "OF","ON","OR","ORDER","OUTER","OVER","PARTITION","PRECEDING","PROTO","RANGE");
 
     private static final Pattern PATTERN_ARRAY_ELEMENT = Pattern.compile("(?<=\\<).*?(?=\\>)");
+
+    private static final String EXTRACT_ALL_TABLE_SCHEMA_QUERY = "" +
+            "SELECT " +
+            "  TABLE_NAME, " +
+            "  ARRAY_AGG(STRUCT(COLUMN_NAME, ORDINAL_POSITION, SPANNER_TYPE, IS_NULLABLE)) AS FIELDS " +
+            "FROM " +
+            "  INFORMATION_SCHEMA.COLUMNS " +
+            "WHERE " +
+            "  TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','SPANNER_SYS','PG_CATALOG') " +
+            "  AND NOT STARTS_WITH(TABLE_NAME, 'CDC_Partitions_Metadata_') " +
+            "GROUP BY " +
+            "  TABLE_NAME";
 
 
     public static Spanner connectSpanner(final String projectId,
@@ -244,11 +257,10 @@ public class SpannerUtil {
                                                          final boolean emulator) {
 
         final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
-        final String query = String.format("SELECT TABLE_NAME, ARRAY_AGG(STRUCT(COLUMN_NAME, ORDINAL_POSITION, SPANNER_TYPE, IS_NULLABLE)) AS FIELDS FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA != 'SPANNER_SYS' AND NOT STARTS_WITH(TABLE_NAME, 'CDC_Partitions_Metadata_') GROUP BY TABLE_NAME");
         try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
             final DatabaseClient client = spanner.getDatabaseClient(database);
             try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
-                final ResultSet resultSet = transaction.executeQuery(Statement.of(query))) {
+                final ResultSet resultSet = transaction.executeQuery(Statement.of(EXTRACT_ALL_TABLE_SCHEMA_QUERY))) {
 
                 final Map<String, Type> types = new HashMap<>();
                 while(resultSet.next()) {
@@ -260,6 +272,52 @@ public class SpannerUtil {
                 }
                 return types;
             }
+        }
+    }
+
+    public static Map<String, org.apache.avro.Schema> getAvroSchemasFromDatabase(
+            final String projectId,
+            final String instanceId,
+            final String databaseId,
+            final boolean emulator) {
+
+        final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
+        try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
+            final DatabaseClient client = spanner.getDatabaseClient(database);
+            try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
+                final ResultSet resultSet = transaction.executeQuery(Statement.of(EXTRACT_ALL_TABLE_SCHEMA_QUERY))) {
+
+                final Map<String, org.apache.avro.Schema> schemas = new HashMap<>();
+                while(resultSet.next()) {
+                    final Struct struct = resultSet.getCurrentRowAsStruct();
+                    final String name = struct.getString("TABLE_NAME");
+                    final List<Struct> fields = struct.getStructList("FIELDS");
+                    final org.apache.avro.Schema schema = convertAvroSchemaFromInformationSchema(name, fields, null);
+                    schemas.put(name, schema);
+                }
+                return schemas;
+            }
+        }
+    }
+
+    public static Map<String, List<String>> getDDLsFromDatabase(final String projectId,
+                                                                final String instanceId,
+                                                                final String databaseId,
+                                                                final boolean emulator) {
+
+        final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
+        try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
+            System.out.println(spanner);
+            final DatabaseAdminClient client = spanner.getDatabaseAdminClient();
+            System.out.println(client.getDatabase(instanceId, databaseId));
+
+            final List<String> ddls = client.getDatabaseDdl(instanceId, databaseId);
+            System.out.println(ddls);
+
+            for(final String ddl : ddls) {
+                System.out.println(ddl);
+            }
+            return new HashMap<>();
         }
     }
 
@@ -311,14 +369,12 @@ public class SpannerUtil {
         }
     }
 
-    public static Schema convertSchemaFromInformationSchema(final List<Struct> structs, final Collection<String> columnNames) {
+    private static Schema convertSchemaFromInformationSchema(final List<Struct> structs, final Collection<String> columnNames) {
         final Schema.Builder builder = Schema.builder();
         for(final Struct struct : structs) {
             if(columnNames != null && !columnNames.contains(struct.getString("COLUMN_NAME"))) {
                 LOG.info("skipField: " + struct.getString("COLUMN_NAME"));
                 continue;
-            } else {
-                LOG.info("includeField: " + struct.getString("COLUMN_NAME"));
             }
             builder.addField(Schema.Field.of(
                     struct.getString("COLUMN_NAME"),
@@ -328,14 +384,29 @@ public class SpannerUtil {
         return builder.build();
     }
 
+    private static org.apache.avro.Schema convertAvroSchemaFromInformationSchema(final String name, final List<Struct> structs, final Collection<String> columnNames) {
+        final SchemaBuilder.FieldAssembler<org.apache.avro.Schema> schemaFields = SchemaBuilder.record(name).fields();
+        for(final Struct struct : structs) {
+            if(columnNames != null && !columnNames.contains(struct.getString("COLUMN_NAME"))) {
+                LOG.info("skipField: " + struct.getString("COLUMN_NAME"));
+                continue;
+            }
+            schemaFields
+                    .name(struct.getString("COLUMN_NAME"))
+                    .type(convertAvroFieldSchema(
+                            struct.getString("SPANNER_TYPE"),
+                            "YES".equals(struct.getString("IS_NULLABLE"))))
+                    .noDefault();
+        }
+        return schemaFields.endRecord();
+    }
+
     private static Type convertTypeFromInformationSchema(final List<Struct> structs, final Collection<String> columnNames) {
         final List<Type.StructField> fields = new ArrayList<>();
         for(final Struct struct : structs) {
             if(columnNames != null && !columnNames.contains(struct.getString("COLUMN_NAME"))) {
                 LOG.info("skipField: " + struct.getString("COLUMN_NAME"));
                 continue;
-            } else {
-                LOG.info("includeField: " + struct.getString("COLUMN_NAME"));
             }
             fields.add(Type.StructField.of(
                     struct.getString("COLUMN_NAME"),
@@ -354,7 +425,7 @@ public class SpannerUtil {
         final OperationFuture<Void, UpdateDatabaseDdlMetadata> meta = spanner.getDatabaseAdminClient()
                 .updateDatabaseDdl(instanceId, databaseId, Arrays.asList(ddl), null);
         try {
-            meta.get(60, TimeUnit.SECONDS);
+            meta.get(3600, TimeUnit.SECONDS);
             int waitingSeconds = 0;
             while (!meta.isDone()) {
                 Thread.sleep(5 * 1000L);
@@ -374,6 +445,41 @@ public class SpannerUtil {
 
             }
             executeDdl(spanner, instanceId, databaseId, ddl, num - 1);
+        }
+    }
+
+    public static void executeDDLs(final Spanner spanner,
+                                   final String instanceId,
+                                   final String databaseId,
+                                   final List<String> ddls,
+                                   final Integer timeoutSecond,
+                                   final int retry) {
+
+        final OperationFuture<Void, UpdateDatabaseDdlMetadata> meta = spanner
+                .getDatabaseAdminClient()
+                .updateDatabaseDdl(instanceId, databaseId, ddls, null);
+        try {
+            meta.get(timeoutSecond, TimeUnit.SECONDS);
+            int waitingSeconds = 0;
+            while (!meta.isDone()) {
+                Thread.sleep(5 * 1000L);
+                waitingSeconds += 5;
+                if (waitingSeconds > timeoutSecond) {
+                    throw new IllegalArgumentException("Timeout to execute DDLs: " + ddls);
+                }
+            }
+        } catch (Exception e) {
+            final String message = "Failed to execute DDLs: " + ddls + ", cause: " + e.getMessage() + ", retry: " + retry;
+            if(retry < 0) {
+                throw new RuntimeException(message, e);
+            }
+            LOG.warn(message);
+            try {
+                Thread.sleep(5 * 1000L);
+            } catch (InterruptedException ee) {
+                throw new RuntimeException("Failed to sleep for executing DDLs: " + ddls, ee);
+            }
+            executeDDLs(spanner, instanceId, databaseId, ddls, timeoutSecond,retry - 1);
         }
     }
 
@@ -598,15 +704,50 @@ public class SpannerUtil {
                 return CalciteUtils.DATE;
             case "TIMESTAMP":
                 return Schema.FieldType.DATETIME;
-            case "BYTES":
-                return Schema.FieldType.BYTES;
             default:
                 if(type.startsWith("STRING")) {
                     return Schema.FieldType.STRING;
+                } else if(type.startsWith("BYTES")) {
+                    return Schema.FieldType.BYTES;
                 } else if(type.startsWith("ARRAY")) {
                     final Matcher m = PATTERN_ARRAY_ELEMENT.matcher(type);
                     if(m.find()) {
                         return Schema.FieldType.array(convertFieldType(m.group()).withNullable(true));
+                    }
+                }
+                throw new IllegalStateException("DataType: " + type + " is not supported!");
+        }
+    }
+
+    private static org.apache.avro.Schema convertAvroFieldSchema(final String t, boolean nullable) {
+        final String type = t.trim().toUpperCase();
+        switch (type) {
+            case "INT64":
+                return nullable ? AvroSchemaUtil.NULLABLE_LONG : AvroSchemaUtil.REQUIRED_LONG;
+            case "FLOAT64":
+                return nullable ? AvroSchemaUtil.NULLABLE_DOUBLE : AvroSchemaUtil.REQUIRED_DOUBLE;
+            case "NUMERIC":
+            case "PG_NUMERIC":
+                return nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_DECIMAL_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_DECIMAL_TYPE;
+            case "BOOL":
+                return nullable ? AvroSchemaUtil.NULLABLE_BOOLEAN : AvroSchemaUtil.REQUIRED_BOOLEAN;
+            case "JSON":
+                return nullable ? AvroSchemaUtil.NULLABLE_JSON : AvroSchemaUtil.REQUIRED_JSON;
+            case "DATE":
+                return nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_DATE_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_DATE_TYPE;
+            case "TIMESTAMP":
+                return nullable ? AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
+            default:
+                if(type.startsWith("STRING")) {
+                    return nullable ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                } else if(type.startsWith("BYTES")) {
+                    return nullable ? AvroSchemaUtil.NULLABLE_BYTES : AvroSchemaUtil.REQUIRED_BYTES;
+                } else if(type.startsWith("ARRAY")) {
+                    final Matcher m = PATTERN_ARRAY_ELEMENT.matcher(type);
+                    if(m.find()) {
+                        return org.apache.avro.Schema.createUnion(
+                                org.apache.avro.Schema.createArray(convertAvroFieldSchema(m.group(), false)),
+                                org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL));
                     }
                 }
                 throw new IllegalStateException("DataType: " + type + " is not supported!");

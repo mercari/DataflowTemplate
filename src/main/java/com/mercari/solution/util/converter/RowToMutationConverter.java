@@ -5,6 +5,7 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Type;
+import com.google.cloud.spanner.Value;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
@@ -20,6 +21,7 @@ import org.joda.time.format.ISODateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -81,7 +83,6 @@ public class RowToMutationConverter {
                     }
                     builder.set(fieldName).to(stringValue);
                     break;
-                case DECIMAL:
                 case BYTES:
                     final ByteArray bytesValue = hide ? (nullableField ? null : ByteArray.copyFrom("")) : (isNullField ? null : ByteArray.copyFrom(row.getBytes(fieldName)));
                     builder.set(fieldName).to(bytesValue);
@@ -106,11 +107,18 @@ public class RowToMutationConverter {
                     final Double doubleValue = hide ? (nullableField ? null : 0D) : (isNullField ? null : row.getDouble(fieldName));
                     builder.set(fieldName).to(doubleValue);
                     break;
+                case DECIMAL:
+                    final BigDecimal decimalValue = hide ? (nullableField ? null : BigDecimal.ZERO) : (isNullField ? null : row.getDecimal(fieldName));
+                    builder.set(fieldName).to(decimalValue);
+                    break;
                 case DATETIME:
                     final ReadableDateTime datetimeValue = hide ?
                             (nullableField ? null : DateTime.now()) :
                             (isNullField ? null : row.getDateTime(fieldName));
-                    builder.set(fieldName).to(datetimeValue == null ? null : Timestamp
+                    final String allow_commit_timestamp = field.getOptions().hasOption("allow_commit_timestamp") ?
+                            field.getOptions().getValue("allow_commit_timestamp") : null;
+                    final Timestamp defaultTimestamp = "true".equalsIgnoreCase(allow_commit_timestamp) ? Value.COMMIT_TIMESTAMP : null;
+                    builder.set(fieldName).to(datetimeValue == null ? defaultTimestamp : Timestamp
                             .parseTimestamp(datetimeValue
                                     .toDateTime()
                                     .toString(ISODateTimeFormat.dateTime())));
@@ -178,7 +186,6 @@ public class RowToMutationConverter {
                                 builder.set(fieldName).toStringArray(isNullField ? null : row.getArray(fieldName));
                             }
                             break;
-                        case DECIMAL:
                         case BYTES:
                             if(hide) {
                                 builder.set(fieldName).toBytesArray(new ArrayList<>());
@@ -206,6 +213,14 @@ public class RowToMutationConverter {
                                 builder.set(fieldName).toFloat64Array(isNullField ? null : row.getArray(fieldName));
                             }
                             break;
+                        case DECIMAL: {
+                            if(hide) {
+                                builder.set(fieldName).toNumericArray(new ArrayList<>());
+                            } else {
+                                builder.set(fieldName).toNumericArray(isNullField ? null : row.getArray(fieldName));
+                            }
+                            break;
+                        }
                         case DATETIME:
                             if(hide) {
                                 builder.set(fieldName).toTimestampArray(new ArrayList<>());
