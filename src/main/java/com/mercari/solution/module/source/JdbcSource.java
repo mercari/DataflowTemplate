@@ -795,7 +795,19 @@ public class JdbcSource implements SourceModule {
 
                     try (final ResultSet resultSet = statement.executeQuery()) {
                         if(!resultSet.next()) {
-                            throw new IllegalStateException();
+                            final Schema schema = ResultSetToRecordConverter.convertSchema(resultSet.getMetaData());
+                            final Schema.Field field = Optional.ofNullable(schema.getField(firstFieldName))
+                                    .orElseGet(() -> schema.getField(firstFieldName.toLowerCase()));
+                            if(field == null) {
+                                throw new IllegalArgumentException("Not found keyField: " + firstFieldName + " in table: " + table);
+                            }
+                            final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
+                            final String logicalType = Optional.ofNullable(fieldSchema.getLogicalType()).map(ss -> ss.getName().toLowerCase()).orElse(null);
+                            indexStartOffsets.add(JdbcUtil.IndexOffset.of(
+                                    field.name(), AvroSchemaUtil.unnestUnion(field.schema()).getType(), true, null, logicalType, true));
+                            return JdbcUtil.IndexRange.of(
+                                    JdbcUtil.IndexPosition.of(indexStartOffsets, true),
+                                    JdbcUtil.IndexPosition.of(indexStartOffsets, false));
                         }
                         final GenericRecord record = ResultSetToRecordConverter.convert(resultSet);
                         Schema.Field field = record.getSchema().getField(firstFieldName);
