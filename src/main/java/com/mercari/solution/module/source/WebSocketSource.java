@@ -15,6 +15,7 @@ import com.mercari.solution.util.converter.JsonToRowConverter;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.schema.SchemaUtil;
+import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.GenerateSequence;
@@ -56,10 +57,13 @@ public class WebSocketSource implements SourceModule {
         private Long intervalSeconds;
         private Long heartbeatIntervalSeconds;
         private String receivedTimestampField;
+        private String eventtimeField;
 
         private Format format;
         private OutputType outputType;
         private Boolean ignoreError;
+        private Boolean isArrayContent;
+        private Long requestIntervalSeconds;
 
         public String getEndpoint() {
             return endpoint;
@@ -109,6 +113,14 @@ public class WebSocketSource implements SourceModule {
             this.receivedTimestampField = receivedTimestampField;
         }
 
+        public String getEventtimeField() {
+            return eventtimeField;
+        }
+
+        public void setEventtimeField(String eventtimeField) {
+            this.eventtimeField = eventtimeField;
+        }
+
         public Format getFormat() {
             return format;
         }
@@ -131,6 +143,22 @@ public class WebSocketSource implements SourceModule {
 
         public void setIgnoreError(Boolean ignoreError) {
             this.ignoreError = ignoreError;
+        }
+
+        public Boolean getIsArrayContent() {
+            return isArrayContent;
+        }
+
+        public void setIsArrayContent(Boolean isArrayContent) {
+            isArrayContent = isArrayContent;
+        }
+
+        public Long getRequestIntervalSeconds() {
+            return requestIntervalSeconds;
+        }
+
+        public void setRequestIntervalSeconds(Long requestIntervalSeconds) {
+            this.requestIntervalSeconds = requestIntervalSeconds;
         }
 
         private void validateParameters(final PBegin begin) {
@@ -184,6 +212,12 @@ public class WebSocketSource implements SourceModule {
             if(this.ignoreError == null) {
                 this.ignoreError = false;
             }
+            if(this.isArrayContent == null) {
+                this.isArrayContent = false;
+            }
+            if(this.requestIntervalSeconds == null) {
+                this.requestIntervalSeconds = 0L;
+            }
         }
     }
 
@@ -226,10 +260,22 @@ public class WebSocketSource implements SourceModule {
                     case avro: {
                         final TupleTag<GenericRecord> outputTag = new TupleTag<>() {};
                         org.apache.avro.Schema outputSchema = SourceConfig.convertAvroSchema(config.getSchema());
-                        if(parameters.getReceivedTimestampField() != null) {
-                            outputSchema = AvroSchemaUtil.toBuilder(outputSchema, outputSchema.getNamespace(), null)
-                                    .name(parameters.getReceivedTimestampField()).type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
-                                    .endRecord();
+                        if(parameters.getReceivedTimestampField() != null || parameters.getEventtimeField() != null) {
+                            SchemaBuilder.FieldAssembler<org.apache.avro.Schema> builder = AvroSchemaUtil
+                                    .toBuilder(outputSchema, outputSchema.getNamespace(), null);
+                            if(parameters.getReceivedTimestampField() != null) {
+                                builder = builder
+                                        .name(parameters.getReceivedTimestampField())
+                                        .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
+                                        .noDefault();
+                            }
+                            if(parameters.getEventtimeField() != null) {
+                                builder = builder
+                                        .name(parameters.getEventtimeField())
+                                        .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
+                                        .noDefault();
+                            }
+                            outputSchema = builder.endRecord();
                         }
 
                         final List<KV<TupleTag<GenericRecord>, SourceConfig.Output>> additionalOutputs = additions
@@ -242,13 +288,24 @@ public class WebSocketSource implements SourceModule {
                                         SourceConfig.AdditionalOutput::getName,
                                         o -> {
                                             final org.apache.avro.Schema s = SourceConfig.convertAvroSchema(o.getSchema());
-                                            if(parameters.getReceivedTimestampField() != null) {
-                                                return AvroSchemaUtil.toBuilder(s, s.getNamespace(), null)
-                                                        .name(parameters.getReceivedTimestampField()).type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
-                                                        .endRecord()
-                                                        .toString();
+                                            if(parameters.getReceivedTimestampField() == null && parameters.getEventtimeField() == null) {
+                                                return s.toString();
                                             }
-                                            return s.toString();
+                                            SchemaBuilder.FieldAssembler<org.apache.avro.Schema> builder = AvroSchemaUtil
+                                                    .toBuilder(s, s.getNamespace(), null);
+                                            if(parameters.getReceivedTimestampField() != null) {
+                                                builder = builder
+                                                        .name(parameters.getReceivedTimestampField())
+                                                        .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
+                                                        .noDefault();
+                                            }
+                                            if(parameters.getEventtimeField() != null) {
+                                                builder = builder
+                                                        .name(parameters.getEventtimeField())
+                                                        .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
+                                                        .noDefault();
+                                            }
+                                            return builder.endRecord().toString();
                                         }));
 
                         final WebSocketStream<String, org.apache.avro.Schema, GenericRecord> stream = new WebSocketStream<>(
@@ -275,10 +332,19 @@ public class WebSocketSource implements SourceModule {
                     case row: {
                         final TupleTag<Row> outputTag = new TupleTag<>() {};
                         Schema outputSchema = SourceConfig.convertSchema(config.getSchema());
-                        if(parameters.getReceivedTimestampField() != null) {
-                            outputSchema = RowSchemaUtil.toBuilder(outputSchema)
-                                    .addNullableField(parameters.getReceivedTimestampField(), org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
-                                    .build();
+                        if(parameters.getReceivedTimestampField() != null || parameters.getEventtimeField() != null) {
+                            Schema.Builder builder = RowSchemaUtil.toBuilder(outputSchema);
+                            if(parameters.getReceivedTimestampField() != null) {
+                                builder = builder.addField(
+                                        parameters.getReceivedTimestampField(),
+                                        org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                            }
+                            if(parameters.getEventtimeField() != null) {
+                                builder = builder.addField(
+                                        parameters.getEventtimeField(),
+                                        org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                            }
+                            outputSchema = builder.build();
                         }
 
                         final List<KV<TupleTag<Row>, SourceConfig.Output>> additionalOutputs = additions
@@ -291,12 +357,21 @@ public class WebSocketSource implements SourceModule {
                                         SourceConfig.AdditionalOutput::getName,
                                         o -> {
                                             final Schema s = SourceConfig.convertSchema(o.getSchema());
-                                            if(parameters.getReceivedTimestampField() != null) {
-                                                return RowSchemaUtil.toBuilder(s)
-                                                        .addNullableField(parameters.getReceivedTimestampField(), org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
-                                                        .build();
+                                            if(parameters.getReceivedTimestampField() == null && parameters.getEventtimeField() == null) {
+                                                return s;
                                             }
-                                            return s;
+                                            Schema.Builder builder = RowSchemaUtil.toBuilder(s);
+                                            if(parameters.getReceivedTimestampField() != null) {
+                                                builder = builder.addField(
+                                                        parameters.getReceivedTimestampField(),
+                                                                org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                                            }
+                                            if(parameters.getEventtimeField() != null) {
+                                                builder = builder.addField(
+                                                        parameters.getEventtimeField(),
+                                                        org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                                            }
+                                            return builder.build();
                                         }));
 
                         final WebSocketStream<Schema, Schema, Row> stream = new WebSocketStream<>(
@@ -340,7 +415,10 @@ public class WebSocketSource implements SourceModule {
         private final Long intervalMillis;
         private final Long heartbeatIntervalMillis;
         private final String receivedTimestampField;
+        private final String eventtimeField;
         private final Boolean ignoreError;
+        private final Boolean isArrayContent;
+        private final Long requestIntervalMillis;
         private final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs;
 
         private final TupleTag<T> outputTag;
@@ -348,7 +426,7 @@ public class WebSocketSource implements SourceModule {
         private final InputSchemaT inputSchema;
         private final Map<String, InputSchemaT> additionalOutputInputSchemas;
         private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
-        private final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter;
+        private final SchemaUtil.JsonElementConverter<RuntimeSchemaT, T> jsonConverter;
         private final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter;
         private final TimestampConverter timestampConverter;
 
@@ -357,7 +435,7 @@ public class WebSocketSource implements SourceModule {
                                 final TupleTag<T> outputTag, final TupleTag<KV<Instant, String>> failuresTag,
                                 final InputSchemaT inputSchema, Map<String, InputSchemaT> additionalOutputInputSchemas,
                                 final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                                final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter,
+                                final SchemaUtil.JsonElementConverter<RuntimeSchemaT, T> jsonConverter,
                                 final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter,
                                 final TimestampConverter timestampConverter,
                                 final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs) {
@@ -368,7 +446,10 @@ public class WebSocketSource implements SourceModule {
             this.intervalMillis = parameters.getIntervalSeconds() * 1000L;
             this.heartbeatIntervalMillis = parameters.getHeartbeatIntervalSeconds() * 1000L;
             this.receivedTimestampField = parameters.getReceivedTimestampField();
+            this.eventtimeField = parameters.getEventtimeField();
             this.ignoreError = parameters.getIgnoreError();
+            this.isArrayContent = parameters.getIsArrayContent();
+            this.requestIntervalMillis = parameters.getRequestIntervalSeconds() * 1000L;
 
             this.outputTag = outputTag;
             this.failuresTag = failuresTag;
@@ -438,15 +519,18 @@ public class WebSocketSource implements SourceModule {
                         tagList = tagList.and(kv.getKey());
                     }
                     return beats
-                            .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(name, endpoint, requests, heartbeatRequests, heartbeatIntervalMillis)))
+                            .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(
+                                    name, endpoint, requests,
+                                    heartbeatRequests, heartbeatIntervalMillis, requestIntervalMillis)))
                             .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()))
                             .apply("JsonToRecord", ParDo
                                     .of(new JsonConvertDoFn<>(
+                                            name,
                                             failuresTag,
                                             inputSchema, additionalOutputInputSchemas,
                                             schemaConverter, jsonConverter,
                                             valuesSetter, timestampConverter,
-                                            receivedTimestampField, ignoreError, additionalOutputs))
+                                            receivedTimestampField, eventtimeField, ignoreError, isArrayContent, additionalOutputs))
                                     .withOutputTags(outputTag, tagList));
                 }
                 default:
@@ -466,6 +550,7 @@ public class WebSocketSource implements SourceModule {
             private final List<String> requests;
             private final List<String> heartbeatRequests;
             private final Long heartbeatIntervalMillis;
+            private final Long requestIntervalMillis;
 
             private transient java.net.http.WebSocket socket;
             private transient Listener listener;
@@ -474,13 +559,15 @@ public class WebSocketSource implements SourceModule {
                           final String endpoint,
                           final List<String> requests,
                           final List<String> heartbeatRequests,
-                          final Long heartbeatIntervalMillis) {
+                          final Long heartbeatIntervalMillis,
+                          final Long requestIntervalMillis) {
 
                 this.name = name;
                 this.endpoint = endpoint;
                 this.requests = requests;
                 this.heartbeatRequests = heartbeatRequests;
                 this.heartbeatIntervalMillis = heartbeatIntervalMillis;
+                this.requestIntervalMillis = requestIntervalMillis;
             }
 
             private void connect() throws InterruptedException, ExecutionException {
@@ -535,7 +622,7 @@ public class WebSocketSource implements SourceModule {
 
             private class Listener implements java.net.http.WebSocket.Listener {
 
-                private String name;
+                private final String name;
                 private StringBuilder stringBuffer;
                 private ByteBuffer byteBuffer;
                 private boolean isClosed = true;
@@ -561,6 +648,14 @@ public class WebSocketSource implements SourceModule {
                         for(final String request : requests) {
                             final String body = TemplateUtil.executeStrictTemplate(request, data);
                             webSocket.sendText(body, true);
+                            LOG.info("WebSocket[" + name + "] send message: " + body);
+                            if(requestIntervalMillis > 0) {
+                                try {
+                                    Thread.sleep(requestIntervalMillis);
+                                } catch (InterruptedException e) {
+                                    LOG.warn("WebSocket[" + name + "] throws exception: " + e);
+                                }
+                            }
                         }
                     }
                 }
@@ -589,19 +684,19 @@ public class WebSocketSource implements SourceModule {
 
                 @Override
                 public CompletionStage<?> onPing(java.net.http.WebSocket webSocket, ByteBuffer message) {
-                    LOG.info("WebSocket[" + name + "] onPing: " + message);
+                    LOG.debug("WebSocket[" + name + "] onPing: " + message);
                     return java.net.http.WebSocket.Listener.super.onPing(webSocket, message);
                 }
 
                 @Override
                 public CompletionStage<?> onPong(java.net.http.WebSocket webSocket, ByteBuffer message) {
-                    LOG.info("WebSocket[" + name + "] onPong: " + message);
+                    LOG.debug("WebSocket[" + name + "] onPong: " + message);
                     return java.net.http.WebSocket.Listener.super.onPong(webSocket, message);
                 }
 
                 @Override
                 public CompletionStage<?> onClose(java.net.http.WebSocket webSocket, int statusCode, String reason) {
-                    LOG.warn("WebSocket[" + name + "] onClosed. statusCode: " + statusCode + ", reason: " + reason);
+                    LOG.info("WebSocket[" + name + "] onClosed. statusCode: " + statusCode + ", reason: " + reason);
                     this.isClosed = true;
                     return java.net.http.WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
                 }
@@ -610,8 +705,8 @@ public class WebSocketSource implements SourceModule {
                 public void onError(java.net.http.WebSocket webSocket, Throwable error) {
                     final String message = "WebSocket[" + name + "] onError. cause: " + error.getMessage();
                     LOG.error(message);
+                    this.isClosed = true;
                     java.net.http.WebSocket.Listener.super.onError(webSocket, error);
-                    //throw new IllegalStateException(message);
                 }
                 public List<KV<Instant, String>> getMessages() {
                     return new ArrayList<>(this.messages);
@@ -630,16 +725,19 @@ public class WebSocketSource implements SourceModule {
 
         private static class JsonConvertDoFn<InputSchemaT, RuntimeSchemaT, T> extends DoFn<KV<Instant, String>, T> {
 
+            private final String name;
             private final TupleTag<KV<Instant, String>> failuresTag;
             private final InputSchemaT inputSchema;
             private final Map<String, InputSchemaT> additionalOutputInputSchemas;
             private final String receivedTimestampField;
+            private final String eventtimeField;
             private final Boolean ignoreError;
             private final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs;
             private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
-            private final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter;
+            private final SchemaUtil.JsonElementConverter<RuntimeSchemaT, T> jsonConverter;
             private final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter;
             private final TimestampConverter timestampConverter;
+            private final Boolean isArrayContent;
 
 
             private transient Gson gson;
@@ -647,17 +745,21 @@ public class WebSocketSource implements SourceModule {
             private transient Map<String, RuntimeSchemaT> additionalOutputSchemas;
             private transient Map<String, Filter.ConditionNode> additionalOutputConditions;
 
-            JsonConvertDoFn(final TupleTag<KV<Instant, String>> failuresTag,
+            JsonConvertDoFn(final String name,
+                            final TupleTag<KV<Instant, String>> failuresTag,
                             final InputSchemaT inputSchema,
                             final Map<String, InputSchemaT> additionalOutputInputSchemas,
                             final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                            final SchemaUtil.JsonConverter<RuntimeSchemaT, T> jsonConverter,
+                            final SchemaUtil.JsonElementConverter<RuntimeSchemaT, T> jsonConverter,
                             final SchemaUtil.ValuesSetter<RuntimeSchemaT, T> valuesSetter,
                             final TimestampConverter timestampConverter,
                             final String receivedTimestampField,
+                            final String eventtimeField,
                             final Boolean ignoreError,
+                            final Boolean isArrayContent,
                             final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs) {
 
+                this.name = name;
                 this.failuresTag = failuresTag;
                 this.inputSchema = inputSchema;
                 this.additionalOutputInputSchemas = additionalOutputInputSchemas;
@@ -666,7 +768,9 @@ public class WebSocketSource implements SourceModule {
                 this.valuesSetter = valuesSetter;
                 this.timestampConverter = timestampConverter;
                 this.receivedTimestampField = receivedTimestampField;
+                this.eventtimeField = eventtimeField;
                 this.ignoreError = ignoreError;
+                this.isArrayContent = isArrayContent;
                 this.additionalOutputs = additionalOutputs;
             }
 
@@ -691,8 +795,11 @@ public class WebSocketSource implements SourceModule {
             public void processElement(ProcessContext c) {
                 final Instant receivedAt = c.element().getKey();
                 final String json = c.element().getValue();
+                if("pong".equals(json)) {
+                    return;
+                }
                 try {
-                    final List<T> results = convert(runtimeSchema, json, receivedAt);
+                    final List<T> results = convert(runtimeSchema, json, receivedAt, c.timestamp());
                     for(final T record : results) {
                         c.output(record);
                     }
@@ -700,58 +807,77 @@ public class WebSocketSource implements SourceModule {
                     for(final KV<TupleTag<T>, SourceConfig.Output> kv : additionalOutputs) {
                         final Filter.ConditionNode condition = additionalOutputConditions.get(kv.getValue().getName());
                         if(!Filter.filter(json, JsonUtil::getJsonPathValue, condition)) {
-                            LOG.debug("Not matched condition: " + condition);
+                            LOG.debug("Websocket input: " + name + " not matched condition: " + condition);
                             continue;
                         }
                         final RuntimeSchemaT additionalOutputSchema = this.additionalOutputSchemas.get(kv.getValue().getName());
                         if(additionalOutputSchema == null) {
-                            throw new IllegalStateException("Not found additionalOutputSchema for: " + kv.getValue().getName() + " in: " + this.additionalOutputSchemas);
+                            throw new IllegalStateException("Websocket input: " + name + " not found additionalOutputSchema for: " + kv.getValue().getName() + " in: " + this.additionalOutputSchemas);
                         }
                         try {
-                            final List<T> results = convert(additionalOutputSchema, json, receivedAt);
+                            final List<T> results = convert(additionalOutputSchema, json, receivedAt, c.timestamp());
                             for(final T record : results) {
                                 c.output(kv.getKey(), record);
                             }
                             return;
                         } catch (final RuntimeException ee) {
-                            LOG.info("Not match condition: " + kv.getValue().toString() + " with json: " + json + ", cause: " + ee.getMessage());
+                            LOG.error("Websocket input: " + name + " not match condition: " + kv.getValue().toString() + " with json: " + json + ", cause: " + ee.getMessage());
                         }
                     }
 
                     c.output(failuresTag, c.element());
-                    LOG.error("Failed to parse json: " + json);
+                    final String message = "Websocket input: " + name + " failed to parse json: " + json + " cause: " + e.getMessage() + ", with schema: " + runtimeSchema;
+                    LOG.error(message);
                     if(this.ignoreError) {
                         return;
                     }
-                    throw new IllegalStateException("Failed to parse json: " + json);
+                    throw new IllegalStateException(message, e);
                 }
             }
 
-            private List<T> convert(final RuntimeSchemaT schema, final String json, final Instant receivedAt) {
+            private List<T> convert(final RuntimeSchemaT schema,
+                                    final String json,
+                                    final Instant receivedAt,
+                                    final Instant eventtime) {
+
                 final List<T> results = new ArrayList<>();
                 final JsonElement element = gson.fromJson(json, JsonElement.class);
 
-                if(element.isJsonObject()) {
-                    final T record = jsonConverter.convert(schema, element.getAsJsonObject());
-                    if(receivedTimestampField == null) {
-                        results.add(record);
-                    } else {
-                        final Map<String, Object> values = new HashMap<>();
-                        values.put(receivedTimestampField, timestampConverter.convertTimestamp(receivedAt));
-                        final T recordWithReceivedAt = valuesSetter.setValues(schema, record, values);
-                        results.add(recordWithReceivedAt);
-                    }
-                } else if(element.isJsonArray()) {
-                    for(final JsonElement elementArray : element.getAsJsonArray()) {
-                        final T record = jsonConverter.convert(schema, elementArray.getAsJsonObject());
-                        if(receivedTimestampField == null) {
+                if(element.isJsonNull()) {
+                    return results;
+                }
+
+                if(isArrayContent && element.isJsonArray()) {
+                    for (final JsonElement elementArray : element.getAsJsonArray()) {
+                        final T record = jsonConverter.convert(schema, elementArray);
+                        if (receivedTimestampField == null && eventtimeField == null) {
                             results.add(record);
                         } else {
                             final Map<String, Object> values = new HashMap<>();
-                            values.put(receivedTimestampField, timestampConverter.convertTimestamp(receivedAt));
+                            if(receivedTimestampField != null) {
+                                values.put(receivedTimestampField, timestampConverter.convertTimestamp(receivedAt));
+                            }
+                            if(eventtimeField != null) {
+                                values.put(eventtimeField, timestampConverter.convertTimestamp(eventtime));
+                            }
                             final T recordWithReceivedAt = valuesSetter.setValues(schema, record, values);
                             results.add(recordWithReceivedAt);
                         }
+                    }
+                } else if(element.isJsonObject() || element.isJsonArray()) {
+                    final T record = jsonConverter.convert(schema, element);
+                    if(receivedTimestampField == null && eventtimeField == null) {
+                        results.add(record);
+                    } else {
+                        final Map<String, Object> values = new HashMap<>();
+                        if(receivedTimestampField != null) {
+                            values.put(receivedTimestampField, timestampConverter.convertTimestamp(receivedAt));
+                        }
+                        if(eventtimeField != null) {
+                            values.put(eventtimeField, timestampConverter.convertTimestamp(eventtime));
+                        }
+                        final T recordWithReceivedAt = valuesSetter.setValues(schema, record, values);
+                        results.add(recordWithReceivedAt);
                     }
                 } else {
                     throw new IllegalStateException("Illegal input json: " + element);
