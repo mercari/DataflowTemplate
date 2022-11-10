@@ -13,6 +13,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class FirestoreDocumentToRecordConverter {
@@ -221,6 +222,14 @@ public class FirestoreDocumentToRecordConverter {
                         throw new IllegalArgumentException("Schema type is " + schema.getType() + ", but value type is " + value.getValueTypeCase().name());
                 }
             }
+            case MAP:
+                return value.getMapValue()
+                        .getFieldsMap()
+                        .entrySet()
+                        .stream()
+                        .collect(Collectors.toMap(
+                                Map.Entry::getKey,
+                                e -> getValue(schema.getValueType(), e.getValue())));
             case RECORD:
                 return convert(schema, value.getMapValue());
             case ARRAY:
@@ -231,7 +240,6 @@ public class FirestoreDocumentToRecordConverter {
                 final Schema unnestedSchema = AvroSchemaUtil.unnestUnion(schema);
                 return getValue(unnestedSchema, value);
             }
-            case MAP:
             case NULL:
             default:
                 return null;
