@@ -13,10 +13,11 @@ Partition transform module splits a data collection into separate data collectio
 
 ## Partition transform module parameters
 
-| parameter | optional | type | description |
-| --- | --- | --- | --- |
-| partitions | required | Array<PartitionField\> | Specify the conditions to be assigned to each partition. |
-| exclusive | optional | Boolean | Specifies whether the partitions should be allocated exclusively. Default is true. |
+| parameter  | optional | type                   | description                                                                          |
+|------------| --- |------------------------|--------------------------------------------------------------------------------------|
+| partitions | required | Array<PartitionField\> | Specify the conditions to be assigned to each partition.                             |
+| exclusive  | optional | Boolean                | Specify whether the partitions should be allocated exclusively. The default is true. |
+| separator  | optional | String                 | Specify the separator that joins the module name and input names. The default is `.` |
 
 ## PartitionField parameters
 

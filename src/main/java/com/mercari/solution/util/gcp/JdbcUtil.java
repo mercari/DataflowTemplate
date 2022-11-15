@@ -148,7 +148,7 @@ public class JdbcUtil {
                 .filter(f -> isValidColumnType(f.schema()))
                 .forEach(f -> sb.append(String.format("%s %s%s,",
                         replaceReservedKeyword(f.name()),
-                        getColumnType(f.schema(), db),
+                        getColumnType(f.schema(), db, keyFields.contains(f.name())),
                         AvroSchemaUtil.isNullable(f.schema()) ? "" : " NOT NULL")));
 
         if(keyFields == null || keyFields.size() == 0) {
@@ -336,6 +336,18 @@ public class JdbcUtil {
                 final String primaryKeyName = resultSet.getString("COLUMN_NAME");
                 primaryKeyNames.put(primaryKeySeq, primaryKeyName);
             }
+            if(primaryKeyNames.size() == 0) {
+                LOG.warn("No primary key");
+                try(final ResultSet resultSetRowKey = metaData.getBestRowIdentifier(database, namespace, table, DatabaseMetaData.bestRowUnknown, true)) {
+                    int i = 0;
+                    while(resultSetRowKey.next()) {
+                        final Integer primaryKeySeq = i++;
+                        final String uniqueKeyName = resultSetRowKey.getString("COLUMN_NAME");
+                        primaryKeyNames.put(primaryKeySeq, uniqueKeyName);
+                    }
+                }
+                LOG.info("Unique key size: " + primaryKeyNames.size());
+            }
             return primaryKeyNames.entrySet().stream()
                     .sorted(Comparator.comparing(Map.Entry::getKey))
                     .map(Map.Entry::getValue)
@@ -375,7 +387,7 @@ public class JdbcUtil {
         }
     }
 
-    private static String getColumnType(final Schema schema, final DB db) {
+    private static String getColumnType(final Schema schema, final DB db, final boolean isPrimaryKey) {
         final Schema avroSchema = AvroSchemaUtil.unnestUnion(schema);
         switch (avroSchema.getType()) {
             case BOOLEAN: {
@@ -388,15 +400,33 @@ public class JdbcUtil {
                         return "BOOLEAN";
                 }
             }
-            case ENUM:
+            case ENUM: {
+                switch (db) {
+                    case MYSQL: {
+                        return "VARCHAR(32) CHARACTER SET utf8mb4";
+                    }
+                    case POSTGRESQL:
+                    default:
+                        return "VARCHAR(32)";
+                }
+            }
             case STRING: {
                 switch (db) {
-                    case MYSQL:
-                        return "TEXT CHARACTER SET utf8mb4";
+                    case MYSQL: {
+                        if (isPrimaryKey) {
+                            return "VARCHAR(64) CHARACTER SET utf8mb4";
+                        } else {
+                            return "TEXT CHARACTER SET utf8mb4";
+                        }
+                    }
                     case POSTGRESQL:
-                        return "TEXT";
-                    default:
-                        return "TEXT";
+                    default: {
+                        if (isPrimaryKey) {
+                            return "VARCHAR(64)";
+                        } else {
+                            return "TEXT";
+                        }
+                    }
                 }
             }
             case FIXED:

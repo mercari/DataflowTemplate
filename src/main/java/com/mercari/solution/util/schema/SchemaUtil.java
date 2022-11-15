@@ -1,5 +1,6 @@
 package com.mercari.solution.util.schema;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.joda.time.Instant;
@@ -30,6 +31,10 @@ public class SchemaUtil {
         Instant getAsInstant(ElementT element, String field);
     }
 
+    public interface ValueGetter<ElementT> extends Serializable {
+        Object getValue(ElementT element, String field);
+    }
+
     public interface MapConverter<ElementT> extends Serializable {
         Map<String, Object> convert(ElementT element);
     }
@@ -40,6 +45,10 @@ public class SchemaUtil {
 
     public interface JsonConverter<SchemaT, ElementT> extends Serializable {
         ElementT convert(SchemaT schema, JsonObject element);
+    }
+
+    public interface JsonElementConverter<SchemaT, ElementT> extends Serializable {
+        ElementT convert(SchemaT schema, JsonElement json);
     }
 
     public interface ValueCreator<SchemaT, ElementT> extends Serializable {

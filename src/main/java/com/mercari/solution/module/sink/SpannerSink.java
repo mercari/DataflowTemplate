@@ -9,26 +9,25 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
 import org.apache.beam.sdk.Pipeline;
-import org.apache.beam.sdk.coders.ListCoder;
-import org.apache.beam.sdk.coders.SerializableCoder;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
-import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class SpannerSink implements SinkModule {
 
@@ -43,6 +42,7 @@ public class SpannerSink implements SinkModule {
         private String mutationOp;
         private List<String> keyFields;
         private Boolean failFast;
+        private WriteMode writeMode;
 
         private Boolean emulator;
 
@@ -117,6 +117,14 @@ public class SpannerSink implements SinkModule {
 
         public void setFailFast(Boolean failFast) {
             this.failFast = failFast;
+        }
+
+        public WriteMode getWriteMode() {
+            return writeMode;
+        }
+
+        public void setWriteMode(WriteMode writeMode) {
+            this.writeMode = writeMode;
         }
 
         public Boolean getEmulator() {
@@ -278,12 +286,118 @@ public class SpannerSink implements SinkModule {
         public void setPrimaryKeyFields(String primaryKeyFields) {
             this.primaryKeyFields = primaryKeyFields;
         }
+
+        public void validate(final PInput input, final DataType dataType, final Boolean isTuple) {
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.getProjectId() == null) {
+                errorMessages.add("Parameter must contain projectId");
+            }
+            if(this.getInstanceId() == null) {
+                errorMessages.add("Parameter must contain instanceId");
+            }
+            if(this.getDatabaseId() == null) {
+                errorMessages.add("Parameter must contain databaseId");
+            }
+            if(this.getTable() == null) {
+                switch (dataType) {
+                    case MUTATION:
+                    case MUTATIONGROUP:
+                        break;
+                    default:
+                        errorMessages.add("Parameter must contain table");
+                        break;
+                }
+            }
+            if(this.getCreateTable() && this.getKeyFields() == null && !isTuple) {
+                errorMessages.add("Parameter must contain primaryKeyFields if createTable is true");
+            }
+
+            if(this.getEmulator()) {
+                if(!OptionUtil.isDirectRunner(input)) {
+                    errorMessages.add("If use spanner emulator, Use DirectRunner");
+                }
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+        public void setDefaults(final PInput input) {
+            //
+            if(this.keyFields == null && this.primaryKeyFields != null) {
+                this.setKeyFields(Arrays
+                        .stream(this.getPrimaryKeyFields().split(","))
+                        .map(String::trim)
+                        .collect(Collectors.toList()));
+            }
+
+            //
+            if(this.getMutationOp() == null) {
+                this.setMutationOp(Mutation.Op.INSERT_OR_UPDATE.name());
+            }
+            if(this.getFailFast() == null) {
+                this.setFailFast(true);
+            }
+            if(this.getRebalancingMinite() == null) {
+                this.setRebalancingMinite(0);
+            }
+            if(this.getEmulator() == null) {
+                this.setEmulator(false);
+            }
+            if(this.getCreateTable() == null) {
+                this.setCreateTable(false);
+            }
+            if(this.getEmptyTable() == null) {
+                this.setEmptyTable(false);
+            }
+            if(this.getCascade() == null) {
+                this.setCascade(true);
+            }
+            if(this.getRecreate() == null) {
+                this.setRecreate(false);
+            }
+            if(this.getExclude() == null) {
+                this.setExclude(false);
+            }
+
+            if(this.getMaxNumRows() == null) {
+                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L381
+                this.setMaxNumRows(500L);
+            }
+            if(this.getMaxNumMutations() == null) {
+                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L379
+                this.setMaxNumMutations(5000L);
+            }
+            if(this.getBatchSizeBytes() == null) {
+                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L377
+                this.setBatchSizeBytes(1024L * 1024L);
+            }
+            if(this.getGroupingFactor() == null) {
+                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L383
+                this.setGroupingFactor(1000);
+            }
+            if(this.getNodeCount() == null) {
+                this.setNodeCount(-1);
+            }
+            if(this.getPriority() == null) {
+                this.setPriority(Options.RpcPriority.MEDIUM);
+            }
+            if(this.writeMode == null) {
+                this.writeMode = WriteMode.normal;
+            }
+        }
+    }
+
+    private enum WriteMode {
+        normal,
+        simple
     }
 
     public String getName() { return "spanner"; }
 
     public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), SpannerSink.write(input, config, waits, sideInputs));
+        return Collections.singletonMap(config.getName(), write(input, config, waits, sideInputs));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
@@ -292,7 +406,28 @@ public class SpannerSink implements SinkModule {
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
         final SpannerSinkParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSinkParameters.class);
-        final SpannerWrite write = new SpannerWrite(collection, parameters, waits);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+        }
+        parameters.setDefaults(collection.getCollection());
+        parameters.validate(collection.getCollection(), collection.getDataType(), collection.getIsTuple());
+
+        if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
+            return writeMutationGroup((FCollection<MutationGroup>) collection, config, parameters);
+        } else if(collection.getIsTuple()) {
+            return writeMulti(collection, config, parameters, waits, sideInputs);
+        } else {
+            return writeSingle(collection, config, parameters, waits, sideInputs);
+        }
+    }
+
+    public static FCollection<?> writeSingle(final FCollection<?> collection,
+                                             final SinkConfig config,
+                                             final SpannerSinkParameters parameters,
+                                             final List<FCollection<?>> waits,
+                                             final List<FCollection<?>> sideInputs) {
+
+        final SpannerWriteSingle write = new SpannerWriteSingle(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);
         try {
             config.outputAvroSchema(collection.getAvroSchema());
@@ -302,17 +437,43 @@ public class SpannerSink implements SinkModule {
         return FCollection.update(write.collection, output);
     }
 
-    public static class SpannerWrite extends PTransform<PCollection<?>, PCollection<Void>> {
+    public static FCollection<?> writeMulti(final FCollection<?> collection,
+                                            final SinkConfig config,
+                                            final SpannerSinkParameters parameters,
+                                            final List<FCollection<?>> waits,
+                                            final List<FCollection<?>> sideInputs) {
 
-        private static final Logger LOG = LoggerFactory.getLogger(SpannerWrite.class);
+        final SpannerWriteMulti write = new SpannerWriteMulti(collection, parameters, waits);
+        final PCollection<?> output = collection.getTuple().apply(config.getName(), write);
+        final org.apache.avro.Schema schema = null;
+        return FCollection.of(config.getName(), output, DataType.MUTATION, schema);
+    }
+
+    public static FCollection<?> writeMutationGroup(final FCollection<MutationGroup> collection,
+                                                    final SinkConfig config,
+                                                    final SpannerSinkParameters parameters) {
+
+        final SpannerWriteMutationGroup write = new SpannerWriteMutationGroup(config.getName(), parameters);
+        final PCollection output = collection.getCollection().apply(config.getName(), write);
+        try {
+            config.outputAvroSchema(collection.getAvroSchema());
+        } catch (Exception e) {
+            LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
+        }
+        return FCollection.update(collection, output);
+    }
+
+    public static class SpannerWriteSingle extends PTransform<PCollection<?>, PCollection<Void>> {
+
+        private static final Logger LOG = LoggerFactory.getLogger(SpannerWriteSingle.class);
 
         private FCollection<?> collection;
         private final SpannerSinkParameters parameters;
         private final List<FCollection<?>> waits;
 
-        private SpannerWrite(final FCollection<?> collection,
-                             final SpannerSinkParameters parameters,
-                             final List<FCollection<?>> waits) {
+        private SpannerWriteSingle(final FCollection<?> collection,
+                                   final SpannerSinkParameters parameters,
+                                   final List<FCollection<?>> waits) {
 
             this.collection = collection;
             this.parameters = parameters;
@@ -320,10 +481,6 @@ public class SpannerSink implements SinkModule {
         }
 
         public PCollection<Void> expand(final PCollection<?> input) {
-
-            setDefaultParameters();
-            validateParameters(input.getPipeline().getOptions(), collection.getDataType());
-
             final String projectId = this.parameters.getProjectId();
             final String instanceId = this.parameters.getInstanceId();
             final String databaseId = this.parameters.getDatabaseId();
@@ -331,14 +488,13 @@ public class SpannerSink implements SinkModule {
             final Set<String> fields = OptionUtil.toSet(this.parameters.getFields());
             final Set<String> maskFields = OptionUtil.toSet(this.parameters.getMaskFields());
 
-            final Schema schema = collection.getSchema();
-
             // create excludeFields
             final Set<String> excludeFields;
             if(fields.size() > 0) {
                 if(parameters.getExclude()) {
                     excludeFields = fields;
                 } else {
+                    final Schema schema = collection.getSchema();
                     excludeFields = schema.getFields().stream()
                             .map(Schema.Field::getName)
                             .collect(Collectors.toSet());
@@ -351,6 +507,7 @@ public class SpannerSink implements SinkModule {
             // CreateTable DDLs
             final List<List<String>> ddls;
             if (this.parameters.getCreateTable()) {
+                final Schema schema = collection.getSchema();
                 final List<String> ddl = buildDdls(projectId, instanceId, databaseId, parameters.getTable(), schema, parameters.getKeyFields(), excludeFields);
                 if(ddl == null || ddl.size() == 0) {
                     ddls = new ArrayList<>();
@@ -363,31 +520,7 @@ public class SpannerSink implements SinkModule {
 
 
             // SpannerWrite
-            SpannerIO.Write write = SpannerIO.write()
-                    .withProjectId(projectId)
-                    .withInstanceId(instanceId)
-                    .withDatabaseId(databaseId)
-                    .withMaxNumRows(parameters.getMaxNumRows())
-                    .withMaxNumMutations(parameters.getMaxNumMutations())
-                    .withBatchSizeBytes(parameters.getBatchSizeBytes())
-                    .withGroupingFactor(parameters.getGroupingFactor());
-
-            if(parameters.getFailFast()) {
-                write = write.withFailureMode(SpannerIO.FailureMode.FAIL_FAST);
-            } else {
-                write = write.withFailureMode(SpannerIO.FailureMode.REPORT_FAILURES);
-            }
-
-            switch (parameters.getPriority()) {
-                case LOW: {
-                    write = write.withLowPriority();
-                    break;
-                }
-                case HIGH: {
-                    write = write.withHighPriority();
-                    break;
-                }
-            }
+            final SpannerIO.Write write = createWrite(parameters);
 
             // For Mutation and MutationGroup
             if(DataType.MUTATION.equals(collection.getDataType())) {
@@ -422,17 +555,17 @@ public class SpannerSink implements SinkModule {
             }
 
             // Custom SpannerWrite for DirectRunner
-            if(isDirectRunner(input.getPipeline().getOptions())) {
+            if(OptionUtil.isDirectRunner(input)) {
                 if(waits == null) {
                     return mutationTableReady.apply("WriteSpanner", ParDo
-                            .of(new SpannerWriteDoFn(projectId, instanceId, databaseId, 500, parameters.getEmulator())));
+                            .of(new WriteMutationDoFn(projectId, instanceId, databaseId, 500, parameters.getEmulator())));
                 } else {
                     final List<PCollection<?>> wait = waits.stream().map(FCollection::getCollection).collect(Collectors.toList());
                     return mutationTableReady
                             .apply("Wait", Wait.on(wait))
                             .setCoder(mutationTableReady.getCoder())
                             .apply("WriteSpanner", ParDo
-                                    .of(new SpannerWriteDoFn(projectId, instanceId, databaseId, 500, parameters.getEmulator())));
+                                    .of(new WriteMutationDoFn(projectId, instanceId, databaseId, 500, parameters.getEmulator())));
                 }
             }
 
@@ -479,104 +612,6 @@ public class SpannerSink implements SinkModule {
             }
 
             return writeResult.getOutput();
-        }
-
-        private void validateParameters(PipelineOptions options, DataType dataType) {
-            if(this.parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-            }
-
-            // check required parameters filled
-            final List<String> errorMessages = new ArrayList<>();
-            if(parameters.getProjectId() == null) {
-                errorMessages.add("Parameter must contain projectId");
-            }
-            if(parameters.getInstanceId() == null) {
-                errorMessages.add("Parameter must contain instanceId");
-            }
-            if(parameters.getDatabaseId() == null) {
-                errorMessages.add("Parameter must contain databaseId");
-            }
-            if(parameters.getTable() == null) {
-                if(!DataType.MUTATION.equals(dataType) && !DataType.MUTATIONGROUP.equals(dataType)) {
-                    errorMessages.add("Parameter must contain table");
-                }
-            }
-            if(parameters.getCreateTable() && parameters.getKeyFields() == null) {
-                errorMessages.add("Parameter must contain primaryKeyFields if createTable");
-            }
-
-            if(parameters.getEmulator()) {
-                if(!isDirectRunner(options)) {
-                    errorMessages.add("If use spanner emulator, Use DirectRunner");
-                }
-            }
-
-            if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-            }
-        }
-
-        private void setDefaultParameters() {
-            //
-            if(parameters.getKeyFields() == null && parameters.getPrimaryKeyFields() != null) {
-                parameters.setKeyFields(Arrays
-                        .stream(parameters.getPrimaryKeyFields().split(","))
-                        .map(String::trim)
-                        .collect(Collectors.toList()));
-            }
-
-            //
-            if(parameters.getMutationOp() == null) {
-                parameters.setMutationOp(Mutation.Op.INSERT_OR_UPDATE.name());
-            }
-            if(parameters.getFailFast() == null) {
-                parameters.setFailFast(true);
-            }
-            if(parameters.getRebalancingMinite() == null) {
-                parameters.setRebalancingMinite(0);
-            }
-            if(parameters.getEmulator() == null) {
-                parameters.setEmulator(false);
-            }
-            if(parameters.getCreateTable() == null) {
-                parameters.setCreateTable(false);
-            }
-            if(parameters.getEmptyTable() == null) {
-                parameters.setEmptyTable(false);
-            }
-            if(parameters.getCascade() == null) {
-                parameters.setCascade(true);
-            }
-            if(parameters.getRecreate() == null) {
-                parameters.setRecreate(false);
-            }
-            if(parameters.getExclude() == null) {
-                parameters.setExclude(false);
-            }
-
-            if(parameters.getMaxNumRows() == null) {
-                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L335
-                parameters.setMaxNumRows(500L);
-            }
-            if(parameters.getMaxNumMutations() == null) {
-                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L333
-                parameters.setMaxNumMutations(5000L);
-            }
-            if(parameters.getBatchSizeBytes() == null) {
-                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L331
-                parameters.setBatchSizeBytes(1024L * 1024L);
-            }
-            if(parameters.getGroupingFactor() == null) {
-                // https://github.com/apache/beam/blob/v2.28.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L337
-                parameters.setGroupingFactor(1000);
-            }
-            if(parameters.getNodeCount() == null) {
-                parameters.setNodeCount(-1);
-            }
-            if(parameters.getPriority() == null) {
-                parameters.setPriority(Options.RpcPriority.MEDIUM);
-            }
         }
 
         private List<String> buildDdls(final String projectId, final String instanceId, final String databaseId, final String table,
@@ -644,10 +679,405 @@ public class SpannerSink implements SinkModule {
                     .setCoder(StringUtf8Coder.of());
         }
 
-        private Boolean isDirectRunner(final PipelineOptions options) {
-            return PipelineOptions.DirectRunner.class.getSimpleName().equals(options.getRunner().getSimpleName());
+    }
+
+    public static class SpannerWriteMulti extends PTransform<PCollectionTuple, PCollection<Void>> {
+
+        private static final Logger LOG = LoggerFactory.getLogger(SpannerWriteMulti.class);
+
+        private final Map<TupleTag<?>, String> tagNames;
+        private final Map<TupleTag<?>, DataType> dataTypes;
+        private final Map<TupleTag<?>, String> avroSchemaStrings;
+        private final SpannerSinkParameters parameters;
+        private final List<PCollection<?>> waits;
+
+        private SpannerWriteMulti(final FCollection<?> collection,
+                             final SpannerSinkParameters parameters,
+                             final List<FCollection<?>> waits) {
+
+            this.tagNames = collection.getAvroSchemas()
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            e -> e.getValue().getName()));
+            this.dataTypes = collection.getDataTypes();
+            this.avroSchemaStrings = collection.getAvroSchemas()
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            e -> e.getValue().toString()));
+            this.parameters = parameters;
+            this.waits = waits == null ? new ArrayList<>() : waits
+                    .stream()
+                    .map(f -> f.getCollection())
+                    .collect(Collectors.toList());
         }
 
+        public PCollection<Void> expand(final PCollectionTuple input) {
+
+            final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas = avroSchemaStrings
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(
+                            e -> e.getKey(),
+                            e -> AvroSchemaUtil.convertSchema(e.getValue())));
+            final Map<String, TupleTag<?>> tags = tagNames
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getValue,
+                            Map.Entry::getKey));
+            final Map<TupleTag<?>, List<TupleTag<?>>> pedigree = calcPedigree(tags, avroSchemas);
+
+            final List<PCollection<?>> waitList = new ArrayList<>();
+            if(parameters.getCreateTable()) {
+                final PCollection<String> ddls = executeDDLs(input.getPipeline(), waits, parameters, pedigree, avroSchemas);
+                waitList.add(ddls);
+            } else {
+                waitList.addAll(waits);
+            }
+
+            final List<PCollection<Void>> outputs = new ArrayList<>();
+            final List<TupleTag<?>> parents = new ArrayList<>();
+            parents.add(null);
+            int level = 1;
+            while(parents.size() > 0) {
+                PCollectionList<Mutation> mutationsList = PCollectionList.empty(input.getPipeline());
+                final List<TupleTag<?>> childrenTags = new ArrayList<>();
+                for(final TupleTag<?> parent : parents) {
+                    final List<TupleTag<?>> children = pedigree.getOrDefault(parent, Collections.emptyList());
+                    for(final TupleTag<?> child : children) {
+                        final String name = tagNames.get(child);
+                        final DataType dataType = dataTypes.get(child);
+                        final org.apache.avro.Schema avroSchema = avroSchemas.get(child);
+                        final PCollection<?> collection = input.get(child);
+                        final FCollection<?> fCollection = FCollection.of(name, collection, dataType, avroSchema);
+                        final PCollection<Mutation> mutations = collection
+                                .apply("ToMutation." + name, DataTypeTransform.spannerMutation(
+                                        fCollection, parameters.getTable(), "",
+                                        parameters.getKeyFields(), null, null));
+
+                        mutationsList = mutationsList.and(mutations);
+                        childrenTags.add(child);
+                    }
+                }
+
+                if(childrenTags.size() == 0) {
+                    break;
+                }
+
+                final SpannerIO.Write write = createWrite(parameters);
+                final PCollection<Mutation> mutations = mutationsList
+                        .apply("Flatten." + level, Flatten.pCollections());
+                final SpannerWriteResult writeResult;
+                final PCollection<Void> v;
+                if(waitList.size() > 0) {
+                    writeResult = mutations
+                            .apply("Wait." + level, Wait.on(waitList))
+                            .apply("Write." + level, write);
+                } else {
+                    writeResult = mutations
+                            .apply("Write." + level, write);
+                }
+
+                parents.clear();
+                waitList.clear();
+                parents.addAll(childrenTags);
+                waitList.add(writeResult.getOutput());
+
+                outputs.add(writeResult.getOutput());
+                level += 1;
+            }
+
+            PCollectionList<Void> outputsList = PCollectionList.empty(input.getPipeline());
+            for(final PCollection<Void> output : outputs) {
+                outputsList = outputsList.and(output);
+            }
+
+            return outputsList
+                    .apply("FlattenOutput", Flatten.pCollections())
+                    .setCoder(VoidCoder.of());
+        }
+
+        private Map<TupleTag<?>, List<TupleTag<?>>> calcPedigree(
+                final Map<String, TupleTag<?>> tagNames,
+                final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas) {
+
+            final Map<TupleTag<?>, List<TupleTag<?>>> pedigree = new HashMap<>();
+            for(final Map.Entry<TupleTag<?>, org.apache.avro.Schema> entry : avroSchemas.entrySet()) {
+                final org.apache.avro.Schema schema = entry.getValue();
+                final String childName = schema.getName();
+                final String parentName = schema.getProp("spannerParent");
+                final TupleTag<?> childTag = tagNames.get(childName);
+                final TupleTag<?> parentTag = tagNames.get(parentName);
+                if(!pedigree.containsKey(parentTag)) {
+                    pedigree.put(parentTag, new ArrayList<>());
+                }
+                if(childTag != null) {
+                    pedigree.get(parentTag).add(childTag);
+                }
+            }
+            return pedigree;
+        }
+
+        private PCollection<String> executeDDLs(
+                final Pipeline pipeline,
+                final List<PCollection<?>> waits,
+                final SpannerSinkParameters parameters,
+                final Map<TupleTag<?>, List<TupleTag<?>>> pedigree,
+                final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas) {
+
+            final List<PCollection<String>> outputs = new ArrayList<>();
+
+            final List<PCollection<?>> waitList = new ArrayList<>(waits);
+            final List<TupleTag<?>> parents = new ArrayList<>();
+            parents.add(null);
+            int level = 1;
+            while(parents.size() > 0) {
+                final List<String> ddls = new ArrayList<>();
+                final List<TupleTag<?>> childrenTags = new ArrayList<>();
+                for(final TupleTag<?> parent : parents) {
+                    final List<TupleTag<?>> children = pedigree.getOrDefault(parent, Collections.emptyList());
+                    for(final TupleTag<?> child : children) {
+                        final org.apache.avro.Schema avroSchema = avroSchemas.get(child);
+                        ddls.add(avroSchema.toString());
+                        childrenTags.add(child);
+                    }
+                }
+
+                if(ddls.size() == 0) {
+                    break;
+                }
+
+                final PCollection<String> ddlResult;
+                if(waitList.size() > 0) {
+                    ddlResult = pipeline
+                            .apply("SupplyDDL." + level, Create.of(KV.of("", ddls)).withCoder(KvCoder.of(StringUtf8Coder.of(), ListCoder.of(StringUtf8Coder.of()))))
+                            .apply("WaitDDL." + level, Wait.on(waitList))
+                            .apply("ExecuteDDL." + level, ParDo.of(new DDLDoFn(
+                                    parameters.getProjectId(),
+                                    parameters.getInstanceId(),
+                                    parameters.getDatabaseId(),
+                                    parameters.getEmulator())));
+                } else {
+                    ddlResult = pipeline
+                            .apply("SupplyDDL." + level, Create.of(KV.of("", ddls)).withCoder(KvCoder.of(StringUtf8Coder.of(), ListCoder.of(StringUtf8Coder.of()))))
+                            .apply("ExecuteDDL." + level, ParDo.of(new DDLDoFn(
+                                    parameters.getProjectId(),
+                                    parameters.getInstanceId(),
+                                    parameters.getDatabaseId(),
+                                    parameters.getEmulator())));
+
+                }
+
+                parents.clear();
+                waitList.clear();
+                parents.addAll(childrenTags);
+                waitList.add(ddlResult);
+
+                outputs.add(ddlResult);
+                level += 1;
+            }
+
+            return PCollectionList
+                    .of(outputs)
+                    .apply("Flatten", Flatten.pCollections());
+        }
+
+        private static class DDLDoFn extends DoFn<KV<String,List<String>>, String> {
+
+            private final String projectId;
+            private final String instanceId;
+            private final String databaseId;
+            private final Boolean emulator;
+
+            private transient Spanner spanner;
+
+            DDLDoFn(final String projectId, final String instanceId, final String databaseId, final Boolean emulator) {
+                this.projectId = projectId;
+                this.instanceId = instanceId;
+                this.databaseId = databaseId;
+                this.emulator = emulator;
+            }
+
+
+            @Setup
+            public void setup() {
+                this.spanner = SpannerUtil.connectSpanner(
+                        projectId, 1, 1, 1, false, emulator);
+            }
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final List<String> schemaStrings = c.element().getValue();
+                final List<String> ddls = new ArrayList<>();
+                for(final String schemaString : schemaStrings) {
+                    LOG.info("Table avro schema: " + schemaString);
+                    final org.apache.avro.Schema schema = AvroSchemaUtil.convertSchema(schemaString);
+                    ddls.addAll(createDDLs(schema));
+                }
+                LOG.info("Execute DDLs: " + ddls);
+                SpannerUtil.executeDDLs(spanner, instanceId, databaseId, ddls, 3600, 5);
+
+                c.output("ok");
+            }
+
+            @Teardown
+            public void teardown() {
+                this.spanner.close();
+            }
+
+            private List<String> createDDLs(org.apache.avro.Schema schema) {
+                if(schema == null) {
+                    throw new IllegalArgumentException("avro schema must not be null for creating spanner tables");
+                }
+                final String table = schema.getName();
+                final String parent = schema.getProp("spannerParent");
+                final String onDeleteAction = schema.getProp("spannerOnDeleteAction");
+                final String primaryKey = schema.getProp("spannerPrimaryKey");
+
+                final Map<Integer, String> primaryKeys = new TreeMap<>();
+                final Map<Integer, String> indexes = new TreeMap<>();
+                final Map<Integer, String> foreignKeys = new TreeMap<>();
+                final Map<Integer, String> checkConstraints = new TreeMap<>();
+                for(final Map.Entry<String, Object> entry : schema.getObjectProps().entrySet()) {
+                    if(entry.getKey().startsWith("spannerPrimaryKey_")) {
+                        final Integer n = Integer.valueOf(entry.getKey().replaceFirst("spannerPrimaryKey_", ""));
+                        primaryKeys.put(n, entry.getValue().toString());
+                    } else if(entry.getKey().startsWith("spannerIndex_")) {
+                        final Integer n = Integer.valueOf(entry.getKey().replaceFirst("spannerIndex_", ""));
+                        indexes.put(n, entry.getValue().toString());
+                    } else if(entry.getKey().startsWith("spannerForeignKey_")) {
+                        final Integer n = Integer.valueOf(entry.getKey().replaceFirst("spannerForeignKey_", ""));
+                        foreignKeys.put(n, entry.getValue().toString());
+                    } else if(entry.getKey().startsWith("spannerCheckConstraint_")) {
+                        final Integer n = Integer.valueOf(entry.getKey().replaceFirst("spannerCheckConstraint_", ""));
+                        checkConstraints.put(n, entry.getValue().toString());
+                    }
+                }
+
+                final StringBuilder sb = new StringBuilder(String.format("CREATE TABLE %s ( %n", table));
+                for(final org.apache.avro.Schema.Field field : schema.getFields()) {
+                    final String sqlType = field.getProp("sqlType");
+                    final String generationExpression = field.getProp("generationExpression");
+
+                    final String defaultExpression = field.getProp("defaultExpression");
+                    final String stored;
+                    if(generationExpression != null) {
+                        stored = field.getProp("stored");
+                    } else {
+                        stored = null;
+                    }
+
+                    final Map<Integer, String> fieldOptions = new TreeMap<>();
+                    for(final Map.Entry<String, Object> entry : field.getObjectProps().entrySet()) {
+                        if(entry.getKey().startsWith("spannerOption_")) {
+                            final Integer n = Integer.valueOf(entry.getKey().replaceFirst("spannerOption_", ""));
+                            fieldOptions.put(n, entry.getValue().toString());
+                        }
+                    }
+
+                    final String columnExpression = String.format("`%s` %s%s%s%s,%n",
+                            field.name(),
+                            sqlType,
+                            AvroSchemaUtil.isNullable(field.schema()) ? "" : " NOT NULL",
+                            defaultExpression == null ? (stored == null ? "" : " AS ("+ stored +") STORED") : " DEFAULT (" + defaultExpression +")",
+                            fieldOptions.size() == 0 ? "" : " OPTIONS (" + String.join(",", fieldOptions.values()) + ")");
+
+                    sb.append(columnExpression);
+                }
+
+                for(String foreignKey : foreignKeys.values()) {
+                    final String foreignKeyExpression = String.format("%s,%n", foreignKey);
+                    sb.append(foreignKeyExpression);
+                }
+                for(String checkConstraint : checkConstraints.values()) {
+                    final String checkConstraintExpression = String.format("%s,%n", checkConstraint);
+                    sb.append(checkConstraintExpression);
+                }
+
+                //sb.deleteCharAt(sb.length() - 1);
+                sb.append(")");
+                if(primaryKey != null) {
+                    sb.append(String.format(" PRIMARY KEY ( %s )", primaryKey));
+                }
+                if(parent != null) {
+                    sb.append(",");
+                    sb.append("INTERLEAVE IN PARENT ");
+                    sb.append(parent);
+                    sb.append(String.format(" ON DELETE %s", "cascade".equalsIgnoreCase(onDeleteAction) ? "CASCADE" : "NO ACTION"));
+                }
+
+                final List<String> ddls = new ArrayList<>();
+                ddls.add(sb.toString());
+                ddls.addAll(indexes.values());
+                return ddls;
+            }
+
+        }
+
+    }
+
+    public static class SpannerWriteMutationGroup extends PTransform<PCollection<MutationGroup>, PCollection<Void>> {
+
+        private final String name;
+        private final SpannerSinkParameters parameters;
+
+        SpannerWriteMutationGroup(final String name, final SpannerSinkParameters parameters) {
+            this.name = name;
+            this.parameters = parameters;
+        }
+
+        @Override
+        public PCollection<Void> expand(PCollection<MutationGroup> input) {
+            final SpannerIO.Write write = createWrite(parameters);
+            switch (parameters.getWriteMode()) {
+                case simple: {
+                    return input
+                            .apply("WriteSimpleMutationGroup", ParDo
+                                    .of(new WriteMutationGroupDoFn(
+                                            name, parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), false)));
+                }
+                case normal:
+                default: {
+                    final SpannerWriteResult writeResult = input
+                            .apply("WriteMutationGroup", write.grouped());
+                    return writeResult.getOutput();
+                }
+            }
+        }
+
+    }
+
+    private static SpannerIO.Write createWrite(final SpannerSinkParameters parameters) {
+        SpannerIO.Write write = SpannerIO.write()
+                .withProjectId(parameters.getProjectId())
+                .withInstanceId(parameters.getInstanceId())
+                .withDatabaseId(parameters.getDatabaseId())
+                .withMaxNumRows(parameters.getMaxNumRows())
+                .withMaxNumMutations(parameters.getMaxNumMutations())
+                .withBatchSizeBytes(parameters.getBatchSizeBytes())
+                .withGroupingFactor(parameters.getGroupingFactor());
+
+        if(parameters.getFailFast()) {
+            write = write.withFailureMode(SpannerIO.FailureMode.FAIL_FAST);
+        } else {
+            write = write.withFailureMode(SpannerIO.FailureMode.REPORT_FAILURES);
+        }
+
+        switch (parameters.getPriority()) {
+            case LOW: {
+                write = write.withLowPriority();
+                break;
+            }
+            case HIGH: {
+                write = write.withHighPriority();
+                break;
+            }
+        }
+
+        return write;
     }
 
     private static class TablePrepareDoFn extends DoFn<List<String>, String> {
@@ -786,9 +1216,9 @@ public class SpannerSink implements SinkModule {
         }
     }
 
-    private static class SpannerWriteDoFn extends DoFn<Mutation, Void> {
+    private static class WriteMutationDoFn extends DoFn<Mutation, Void> {
 
-        private static final Logger LOG = LoggerFactory.getLogger(SpannerWriteDoFn.class);
+        private static final Logger LOG = LoggerFactory.getLogger(WriteMutationDoFn.class);
 
         private final String projectId;
         private final String instanceId;
@@ -801,8 +1231,8 @@ public class SpannerSink implements SinkModule {
         private transient List<Mutation> buffer;
         private transient Integer count;
 
-        public SpannerWriteDoFn(final String projectId, final String instanceId, final String databaseId,
-                                final Integer bufferSize, final Boolean emulator) {
+        public WriteMutationDoFn(final String projectId, final String instanceId, final String databaseId,
+                                 final Integer bufferSize, final Boolean emulator) {
             this.projectId = projectId;
             this.instanceId = instanceId;
             this.databaseId = databaseId;
@@ -847,6 +1277,62 @@ public class SpannerSink implements SinkModule {
         public void teardown() {
             this.spanner.close();
         }
+    }
+
+    private static class WriteMutationGroupDoFn extends DoFn<MutationGroup, Void> {
+
+        private final String name;
+        private final String projectId;
+        private final String instanceId;
+        private final String databaseId;
+        private final Boolean emulator;
+
+        private transient Spanner spanner;
+        private transient DatabaseClient client;
+
+        WriteMutationGroupDoFn(final String name,
+                               final String projectId,
+                               final String instanceId,
+                               final String databaseId,
+                               final Boolean emulator) {
+
+            this.name = name;
+            this.projectId = projectId;
+            this.instanceId = instanceId;
+            this.databaseId = databaseId;
+            this.emulator = emulator;
+        }
+
+
+        @Setup
+        public void setup() {
+            LOG.info("SpannerSink: " + name + " setup");
+            this.spanner = SpannerUtil
+                    .connectSpanner(projectId, 1, 1, 1, !emulator, emulator);
+            this.client = this.spanner
+                    .getDatabaseClient(DatabaseId.of(projectId, instanceId, databaseId));
+        }
+
+        @ProcessElement
+        public void processElement(final ProcessContext c){
+            final MutationGroup mutationGroup = c.element();
+            final List<Mutation> mutations = new ArrayList<>();
+            if(mutationGroup == null) {
+                return;
+            }
+            mutations.add(mutationGroup.primary());
+            if(mutationGroup.attached() != null && mutationGroup.attached().size() > 0) {
+                mutations.addAll(mutationGroup.attached());
+            }
+            this.client.writeAtLeastOnce(mutations);
+        }
+
+        @Teardown
+        public void teardown() {
+            LOG.info("SpannerSink: " + name + " teardown");
+            this.spanner.close();
+        }
+
     }
 
 }

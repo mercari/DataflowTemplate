@@ -3,8 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
-import com.google.cloud.spanner.Mutation;
-import com.google.cloud.spanner.Type;
+import com.google.cloud.spanner.*;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.LogicalTypes;
@@ -20,10 +19,7 @@ import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class RecordToMutationConverter {
@@ -38,7 +34,7 @@ public class RecordToMutationConverter {
                                    final String table, final String mutationOp, final Iterable<String> keyFields,
                                    final Set<String> excludeFields, final Set<String> hideFields) {
 
-        if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
+        if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
             return StructSchemaUtil.createDeleteMutation(record, table, keyFields, GenericRecord::get);
         }
 
@@ -110,6 +106,105 @@ public class RecordToMutationConverter {
         }
         LOG.error(primary.toString() + " : " + mutations.size());
         return MutationGroup.create(primary, mutations);
+    }
+
+    public static Key createKey(final List<String> keyFields, final GenericRecord record) {
+        Key.Builder keyBuilder = Key.newBuilder();
+        for(final String keyField : keyFields) {
+            final Schema.Field field = record.getSchema().getField(keyField);
+            final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
+            final Object fieldValue = record.get(keyField);
+            switch (fieldSchema.getType()) {
+                case BOOLEAN:
+                    keyBuilder = keyBuilder.append((Boolean)fieldValue);
+                    break;
+                case FIXED:
+                case BYTES: {
+                    if(AvroSchemaUtil.isLogicalTypeDecimal(fieldSchema)) {
+                        if(fieldValue == null) {
+                            keyBuilder = keyBuilder.append((BigDecimal) null);
+                        } else {
+                            final BigDecimal decimal = AvroSchemaUtil.getAsBigDecimal(fieldSchema, (ByteBuffer) fieldValue);
+                            keyBuilder = keyBuilder.append(decimal);
+                        }
+                    } else {
+                        if(fieldValue == null) {
+                            keyBuilder = keyBuilder.append((ByteArray) null);
+
+                        } else {
+                            final ByteArray bytes = ByteArray.copyFrom(((ByteBuffer) fieldValue).array());
+                            keyBuilder = keyBuilder.append(bytes);
+                        }
+                    }
+                    break;
+                }
+                case ENUM:
+                case STRING:
+                    keyBuilder = keyBuilder.append(fieldValue == null ? null : fieldValue.toString());
+                    break;
+                case INT: {
+                    final Integer intValue = (Integer)fieldValue;
+                    if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
+                        final LocalDate ld = LocalDate.ofEpochDay(intValue);
+                        final Date date = Date.fromYearMonthDay(ld.getYear(), ld.getMonth().getValue(), ld.getDayOfMonth());
+                        keyBuilder = keyBuilder.append(date);
+                    } else if(LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                        final String timeText = LocalTime
+                                .ofNanoOfDay((long) intValue * 1000 * 1000)
+                                .format(DateTimeFormatter.ISO_LOCAL_TIME);
+                        keyBuilder = keyBuilder.append(timeText);
+                    } else {
+                        keyBuilder = keyBuilder.append(intValue);
+                    }
+                    break;
+                }
+                case LONG: {
+                    final Long longValue = (Long)fieldValue;
+                    if(LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                        final Timestamp timestampValue = Timestamp.ofTimeMicroseconds(longValue * 1000);
+                        keyBuilder = keyBuilder.append(timestampValue);
+                    } else if(LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                        final Timestamp timestampValue = Timestamp.ofTimeMicroseconds(longValue);
+                        keyBuilder = keyBuilder.append(timestampValue);
+                    } else if(LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                        final String timeText = LocalTime
+                                .ofNanoOfDay(longValue * 1000)
+                                .format(DateTimeFormatter.ISO_LOCAL_TIME);
+                        keyBuilder = keyBuilder.append(timeText);
+                    } else {
+                        keyBuilder = keyBuilder.append(longValue);
+                    }
+                    break;
+                }
+                case FLOAT:
+                    keyBuilder = keyBuilder.append((Float)fieldValue);
+                    break;
+                case DOUBLE:
+                    keyBuilder = keyBuilder.append((Double)fieldValue);
+                    break;
+                case RECORD:
+                case ARRAY:
+                case MAP:
+                case NULL:
+                case UNION:
+                default: {
+                    throw new IllegalStateException();
+                }
+            }
+        }
+        return keyBuilder.build();
+    }
+
+    public static Map<String, Value> convertValues(final Schema schema, final GenericRecord record) {
+        final Map<String, Value> values = new HashMap<>();
+        for(final Schema.Field field : schema.getFields()) {
+            if(record == null) {
+                values.put(field.name(), convertValue(field.schema(), null));
+            } else {
+                values.put(field.name(), convertValue(field.schema(), record.get(field.name())));
+            }
+        }
+        return values;
     }
 
     private static void setValue(final Mutation.WriteBuilder builder,
@@ -427,6 +522,198 @@ public class RecordToMutationConverter {
                 return Type.string();
         }
 
+    }
+
+    private static Value convertValue(final Schema fieldSchema, final Object object) {
+        final boolean isNull = object == null;
+        switch (fieldSchema.getType()) {
+            case BOOLEAN:
+                return Value.bool((Boolean)object);
+            case ENUM:
+            case STRING: {
+                final String stringValue = isNull ? null : object.toString();
+                final String sqlType = fieldSchema.getProp("sqlType");
+                if("DATETIME".equals(sqlType)) {
+                    return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(stringValue));
+                } else if("JSON".equals(sqlType)) {
+                    return Value.json(stringValue);
+                } else if("GEOGRAPHY".equals(sqlType)) {
+                    return Value.string(stringValue);
+                } else {
+                    return Value.string(stringValue);
+                }
+            }
+            case FIXED:
+            case BYTES: {
+                if(AvroSchemaUtil.isLogicalTypeDecimal(fieldSchema)) {
+                    if(isNull) {
+                        return Value.numeric(null);
+                    } else {
+                        final ByteArray bytesValue = ByteArray.copyFrom(((ByteBuffer) object).array());
+                        final BigDecimal decimal = AvroSchemaUtil.getAsBigDecimal(fieldSchema, bytesValue.toByteArray());
+                        return Value.numeric(decimal);
+                    }
+                } else {
+                    if(isNull) {
+                        return Value.bytes(null);
+                    } else {
+                        final ByteArray bytesValue = ByteArray.copyFrom(((ByteBuffer) object).array());
+                        return Value.bytes(bytesValue);
+                    }
+                }
+            }
+            case FLOAT:
+                return Value.float64((Float) object);
+            case DOUBLE:
+                return Value.float64((Double) object);
+            case INT: {
+                final Integer intValue = (Integer) object;
+                if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
+                    return Value.date(isNull ? null : convertEpochDaysToDate(intValue));
+                } else if(LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                    return Value.string(isNull ? null : LocalTime.ofNanoOfDay(((intValue) * 1000 * 1000)).format(DateTimeFormatter.ISO_LOCAL_TIME));
+                } else {
+                    return Value.int64(isNull ? null : ((Integer) object).longValue());
+                }
+            }
+            case LONG: {
+                final Long longValue = (Long)object;
+                if(LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    return Value.timestamp(isNull ? null : convertMicrosecToTimestamp(longValue * 1000));
+                } else if(LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return Value.timestamp(isNull ? null : convertMicrosecToTimestamp(longValue));
+                } else if(LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                    return Value.string(isNull ? null : convertNanosecToTimeString(longValue * 1000));
+                } else {
+                    return Value.int64(longValue);
+                }
+            }
+            case ARRAY: {
+                final Schema elementSchema = AvroSchemaUtil.unnestUnion(fieldSchema.getElementType());
+                switch (elementSchema.getType()) {
+                    case BOOLEAN:
+                        return Value.boolArray(isNull ? new ArrayList<>() : (List<Boolean>)object);
+                    case ENUM:
+                    case STRING: {
+                        final String sqlType = elementSchema.getProp("sqlType");
+                        if("DATETIME".equals(sqlType)) {
+                            return Value.timestampArray(isNull ? new ArrayList<>() : ((List<Object>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(o -> Timestamp.parseTimestamp(o.toString()))
+                                    .collect(Collectors.toList()));
+                        } else if("JSON".equals(sqlType)) {
+                            return Value.jsonArray(isNull ? new ArrayList<>() : ((List<Object>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList()));
+                        } else if("GEOGRAPHY".equals(sqlType)) {
+                            return Value.stringArray(isNull ? new ArrayList<>() : ((List<Object>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList()));
+                        } else {
+                            return Value.stringArray(isNull ? new ArrayList<>() : ((List<Object>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList()));
+                        }
+                    }
+                    case FIXED:
+                    case BYTES: {
+                        if(AvroSchemaUtil.isLogicalTypeDecimal(elementSchema)) {
+                            return Value.numericArray(isNull ? new ArrayList<>() : ((List<ByteBuffer>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(ByteArray::copyFrom)
+                                    .map(b -> AvroSchemaUtil.getAsBigDecimal(elementSchema, b.toByteArray()))
+                                    .collect(Collectors.toList()));
+                        } else {
+                            return Value.bytesArray(isNull ? new ArrayList<>() : ((List<ByteBuffer>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(ByteArray::copyFrom)
+                                    .collect(Collectors.toList()));
+                        }
+                    }
+                    case FLOAT:
+                        return Value.float64Array(isNull ? new ArrayList<>() : ((List<Float>)object)
+                                .stream()
+                                .filter(Objects::nonNull)
+                                .map(Float::doubleValue)
+                                .collect(Collectors.toList()));
+                    case DOUBLE:
+                        return Value.float64Array(isNull ? new ArrayList<>() : ((List<Double>)object)
+                                .stream()
+                                .filter(Objects::nonNull)
+                                .collect(Collectors.toList()));
+                    case INT: {
+                        final Integer intValue = (Integer) object;
+                        if(LogicalTypes.date().equals(elementSchema.getLogicalType())) {
+                            return Value.dateArray(isNull ? new ArrayList<>() : ((List<Integer>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(RecordToMutationConverter::convertEpochDaysToDate)
+                                    .collect(Collectors.toList()));
+                        } else if(LogicalTypes.timeMillis().equals(elementSchema.getLogicalType())) {
+                            return Value.stringArray(isNull ? new ArrayList<>() : ((List<Integer>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(i -> LocalTime.ofNanoOfDay(((i) * 1000 * 1000)).format(DateTimeFormatter.ISO_LOCAL_TIME))
+                                    .collect(Collectors.toList()));
+                        } else {
+                            return Value.int64Array(isNull ? new ArrayList<>() : ((List<Integer>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(Integer::longValue)
+                                    .collect(Collectors.toList()));
+                        }
+                    }
+                    case LONG: {
+                        if(LogicalTypes.timestampMillis().equals(elementSchema.getLogicalType())) {
+                            return Value.timestampArray(isNull ? new ArrayList<>() : ((List<Long>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(l -> convertMicrosecToTimestamp(l * 1000))
+                                    .collect(Collectors.toList()));
+                        } else if(LogicalTypes.timestampMicros().equals(elementSchema.getLogicalType())) {
+                            return Value.timestampArray(isNull ? new ArrayList<>() : ((List<Long>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(RecordToMutationConverter::convertMicrosecToTimestamp)
+                                    .collect(Collectors.toList()));
+                        } else if(LogicalTypes.timeMicros().equals(elementSchema.getLogicalType())) {
+                            return Value.stringArray(isNull ? new ArrayList<>() : ((List<Long>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .map(l -> convertNanosecToTimeString(l * 1000))
+                                    .collect(Collectors.toList()));
+                        } else {
+                            return Value.int64Array(isNull ? new ArrayList<>() : ((List<Long>)object)
+                                    .stream()
+                                    .filter(Objects::nonNull)
+                                    .collect(Collectors.toList()));
+                        }
+                    }
+                    default: {
+                        throw new IllegalStateException("Not supported array field schema: " + elementSchema);
+                    }
+                }
+            }
+            case UNION: {
+                return convertValue(AvroSchemaUtil.unnestUnion(fieldSchema), object);
+            }
+            case NULL:
+                throw new IllegalArgumentException("Not supported field null");
+            case RECORD:
+            case MAP:
+            default: {
+                throw new IllegalArgumentException("Not supported field schema: " + fieldSchema);
+            }
+        }
     }
 
     private static Date convertEpochDaysToDate(final Integer epochDays) {

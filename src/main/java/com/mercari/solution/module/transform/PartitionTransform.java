@@ -35,6 +35,7 @@ public class PartitionTransform implements TransformModule {
 
         private Boolean exclusive;
         private List<PartitionParameter> partitions;
+        private String separator;
 
         public Boolean getExclusive() {
             return exclusive;
@@ -50,6 +51,14 @@ public class PartitionTransform implements TransformModule {
 
         public void setPartitions(List<PartitionParameter> partitions) {
             this.partitions = partitions;
+        }
+
+        public String getSeparator() {
+            return separator;
+        }
+
+        public void setSeparator(String separator) {
+            this.separator = separator;
         }
 
         private class PartitionParameter implements Serializable {
@@ -75,6 +84,26 @@ public class PartitionTransform implements TransformModule {
 
         }
 
+        private void validate() {
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.getPartitions() == null || this.getPartitions().size() == 0) {
+                errorMessages.add("PartitionTransform config parameters must contain partitions parameter.");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
+        }
+
+        private void setDefaults() {
+            if(this.getExclusive() == null) {
+                this.setExclusive(true);
+            }
+            if(this.getSeparator() == null) {
+                this.setSeparator(".");
+            }
+        }
+
     }
 
     public String getName() { return "partition"; }
@@ -87,8 +116,12 @@ public class PartitionTransform implements TransformModule {
         final PartitionTransformParameters parameters = new Gson()
                 .fromJson(config.getParameters(), PartitionTransformParameters.class);
 
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("PartitionTransform config parameters must not be empty!");
+        }
+
+        parameters.validate();
+        parameters.setDefaults();
 
         final List<KV<String, String>> conditionJsons = parameters.getPartitions().stream()
                 .map(p -> KV.of(p.getOutput(), p.getFilters().toString()))
@@ -103,7 +136,7 @@ public class PartitionTransform implements TransformModule {
                     final Transform<GenericRecord> transform = new Transform<>(conditionJsons, AvroSchemaUtil::getValue, parameters.getExclusive());
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = prefix + "." + entry.getKey().getId();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());//prefix + "." + entry.getKey().getId();
                         final PCollection<GenericRecord> collection = entry.getValue()
                                 .setCoder((Coder)input.getCollection().getCoder());
                         results.put(name, FCollection.of(name, collection, DataType.AVRO, inputCollection.getAvroSchema()));
@@ -115,7 +148,7 @@ public class PartitionTransform implements TransformModule {
                     final Transform<Row> transform = new Transform<>(conditionJsons, RowSchemaUtil::getValue, parameters.getExclusive());
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = prefix + "." + entry.getKey().getId();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());
                         final PCollection<GenericRecord> collection = entry.getValue()
                                 .setCoder((Coder)input.getCollection().getCoder());
                         results.put(name, FCollection.of(name, collection, DataType.ROW, inputCollection.getSchema()));
@@ -127,7 +160,7 @@ public class PartitionTransform implements TransformModule {
                     final Transform<Struct> transform = new Transform<>(conditionJsons, StructSchemaUtil::getValue, parameters.getExclusive());
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = prefix + "." + entry.getKey().getId();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());
                         final PCollection<GenericRecord> collection = entry.getValue()
                                 .setCoder((Coder)input.getCollection().getCoder());
                         results.put(name, FCollection.of(name, collection, DataType.STRUCT, inputCollection.getSpannerType()));
@@ -139,7 +172,7 @@ public class PartitionTransform implements TransformModule {
                     final Transform<Entity> transform = new Transform<>(conditionJsons, EntitySchemaUtil::getValue, parameters.getExclusive());
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = prefix + "." + entry.getKey().getId();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());
                         final PCollection<GenericRecord> collection = entry.getValue()
                                 .setCoder((Coder)input.getCollection().getCoder());
                         results.put(name, FCollection.of(name, collection, DataType.ENTITY, inputCollection.getSchema()));
@@ -152,27 +185,6 @@ public class PartitionTransform implements TransformModule {
         }
 
         return results;
-    }
-
-    private static void validateParameters(final PartitionTransformParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("PartitionTransform config parameters must not be empty!");
-        }
-
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getPartitions() == null) {
-            errorMessages.add("PartitionTransform config parameters must contain partitions parameter.");
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void setDefaultParameters(PartitionTransformParameters parameters) {
-        if(parameters.getExclusive() == null) {
-            parameters.setExclusive(true);
-        }
     }
 
     public static class Transform<T> extends PTransform<PCollection<T>, PCollectionTuple> {

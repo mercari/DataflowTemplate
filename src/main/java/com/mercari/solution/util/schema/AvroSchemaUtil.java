@@ -460,9 +460,18 @@ public class AvroSchemaUtil {
 
     public static GenericRecord merge(final Schema schema, final GenericRecord record, final Map<String, ? extends Object> values) {
         final GenericRecordBuilder builder = toBuilder(schema, record);
-        for(var entry : values.entrySet()) {
-            builder.set(entry.getKey(), entry.getValue());
+        for(Schema.Field field : schema.getFields()) {
+            if(values.containsKey(field.name())) {
+                builder.set(field.name(), values.get(field.name()));
+            } else if(record.getSchema().getField(field.name()) != null) {
+                builder.set(field.name(), record.get(field.name()));
+            } else {
+                builder.set(field.name(), null);
+            }
         }
+        //for(var entry : values.entrySet()) {
+        //    builder.set(entry.getKey(), entry.getValue());
+        //}
         return builder.build();
     }
 
@@ -480,11 +489,14 @@ public class AvroSchemaUtil {
                     final Schema elementSchema = unnestUnion(fieldSchema.getElementType());
                     if (elementSchema.getType().equals(Schema.Type.RECORD)) {
                         final List<GenericRecord> children = new ArrayList<>();
-                        for (final GenericRecord child : (List<GenericRecord>) fieldValue) {
-                            if (child == null) {
-                                children.add(null);
-                            } else {
-                                children.add(create(elementSchema, (Map<String, ? extends Object>)fieldValue));
+                        for (final Object child : (List<Object>) fieldValue) {
+                            if(child == null) {
+                                continue;
+                            }
+                            if(child instanceof Map) {
+                                children.add(create(elementSchema, (Map<String, ? extends Object>)child));
+                            } else if(child instanceof GenericRecord) {
+                                children.add((GenericRecord) child);
                             }
                         }
                         builder.set(field.name(), children);
@@ -494,7 +506,14 @@ public class AvroSchemaUtil {
                     break;
                 }
                 case RECORD: {
-                    final GenericRecord child = create(fieldSchema, (Map<String, ? extends Object>)fieldValue);
+                    final GenericRecord child;
+                    if(fieldValue instanceof Map) {
+                        child = create(fieldSchema, (Map<String, ? extends Object>)fieldValue);
+                    } else if(fieldValue instanceof GenericRecord) {
+                        child = (GenericRecord) fieldValue;
+                    } else {
+                        child = null;
+                    }
                     builder.set(field.name(), child);
                     break;
                 }

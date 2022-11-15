@@ -30,7 +30,11 @@ import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.DataChangeRecord;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
+import org.apache.beam.sdk.transforms.windowing.FixedWindows;
+import org.apache.beam.sdk.transforms.windowing.Window;
 import org.apache.beam.sdk.values.*;
+import org.joda.time.Duration;
 import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +43,7 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+
 
 public class SpannerSource implements SourceModule {
 
@@ -523,13 +528,17 @@ public class SpannerSource implements SourceModule {
 
     private enum ChangeStreamMode implements Serializable {
         struct,
-        mutation
+        mutation,
+        mutationGroup
     }
 
     public String getName() { return "spanner"; }
 
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
         final SpannerSourceParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+        }
         final boolean isStreaming = OptionUtil.isStreaming(begin.getPipeline().getOptions());
         final Mode mode = Optional
                 .ofNullable(parameters.getMode())
@@ -537,24 +546,29 @@ public class SpannerSource implements SourceModule {
 
         switch (mode) {
             case batch:
-                return Collections.singletonMap(config.getName(), SpannerSource.batch(begin, config));
+                return Collections.singletonMap(config.getName(), batch(begin, config, parameters));
             case microbatch:
-                return Collections.singletonMap(config.getName(), SpannerSource.microbatch(beats, config));
+                return Collections.singletonMap(config.getName(), microbatch(beats, config, parameters));
             case changestream:
-                return SpannerSource.changestream(begin, config);
+                return changestream(begin, config, parameters);
             default:
                 throw new IllegalStateException("spanner source module does not support mode: " + mode);
         }
     }
 
-    public static FCollection<Struct> batch(final PBegin begin, final SourceConfig config) {
-        final SpannerBatchSource source = new SpannerBatchSource(config);
+    public static FCollection<Struct> batch(final PBegin begin, final SourceConfig config, final SpannerSourceParameters parameters) {
+        parameters.validateBatchParameters();
+        parameters.setBatchDefaultParameters();
+        final SpannerBatchSource source = new SpannerBatchSource(config, parameters);
         final PCollection<Struct> output = begin.apply(config.getName(), source);
         return FCollection.of(config.getName(), output, DataType.STRUCT, source.type);
     }
 
-    public static Map<String, FCollection<?>> changestream(final PBegin begin, final SourceConfig config) {
-        final SpannerSourceParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
+    public static Map<String, FCollection<?>> changestream(
+            final PBegin begin,
+            final SourceConfig config,
+            final SpannerSourceParameters parameters) {
+
         parameters.validateChangeStreamParameters();
         parameters.setChangeStreamDefaultParameters();
 
@@ -583,6 +597,7 @@ public class SpannerSource implements SourceModule {
                     }
                 }
             }
+            /*
             case mutation: {
                 final Schema dummySchema = StructSchemaUtil.createDataChangeRecordRowSchema();
                 final PCollection<Mutation> output = begin
@@ -590,14 +605,29 @@ public class SpannerSource implements SourceModule {
                         .setCoder(SerializableCoder.of(Mutation.class));
                 return Collections.singletonMap(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, dummySchema));
             }
+             */
+            case mutation: {
+                final Schema dummySchema = StructSchemaUtil.createDataChangeRecordRowSchema();
+                final PCollection<MutationGroup> output = begin
+                        .apply(new SpannerChangeStreamMutationGroupRead(parameters, tableTypes))
+                        .setCoder(SerializableCoder.of(MutationGroup.class));
+                return Collections.singletonMap(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATIONGROUP, dummySchema));
+            }
             default: {
                 throw new IllegalStateException("Spanner source module does not support changeStreamMode: " + parameters.getChangeStreamMode());
             }
         }
     }
 
-    public static FCollection<Struct> microbatch(final PCollection<Long> beats, final SourceConfig config) {
-        final SpannerMicrobatchRead source = new SpannerMicrobatchRead(config);
+    public static FCollection<Struct> microbatch(
+            final PCollection<Long> beats,
+            final SourceConfig config,
+            final SpannerSourceParameters parameters) {
+
+        parameters.validateMicroBatchParameters();
+        parameters.setMicroBatchDefaultParameters();
+
+        final SpannerMicrobatchRead source = new SpannerMicrobatchRead(config, parameters);
         final PCollection<Struct> output = beats.apply(config.getName(), source);
         return FCollection.of(config.getName(), output, DataType.STRUCT, source.type);
     }
@@ -616,17 +646,11 @@ public class SpannerSource implements SourceModule {
         private final Map<String, Object> templateArgs;
 
 
-        private SpannerBatchSource(final SourceConfig config) {
+        private SpannerBatchSource(final SourceConfig config, final SpannerSourceParameters parameters) {
             this.timestampAttribute = config.getTimestampAttribute();
             this.timestampDefault = config.getTimestampDefault();
             this.templateArgs = config.getArgs();
-
-            this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
-            if(this.parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-            }
-            this.parameters.validateBatchParameters();
-            this.parameters.setBatchDefaultParameters();
+            this.parameters = parameters;
         }
 
         public PCollection<Struct> expand(final PBegin begin) {
@@ -817,6 +841,7 @@ public class SpannerSource implements SourceModule {
                     final Options.RpcPriority priority,
                     final Boolean emulator,
                     final PCollectionView<Transaction> transactionView) {
+
                 this.projectId = projectId;
                 this.instanceId = instanceId;
                 this.databaseId = databaseId;
@@ -1118,9 +1143,6 @@ public class SpannerSource implements SourceModule {
         private SpannerChangeStreamMutationRead(final SpannerSourceParameters parameters, final Map<String, Type> tableTypes) {
             this.parameters = parameters;
             this.tableTypes = tableTypes;
-            if (this.parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-            }
         }
 
         public PCollection<Mutation> expand(final PBegin begin) {
@@ -1130,6 +1152,69 @@ public class SpannerSource implements SourceModule {
                     .apply("ReadChangeStream", readChangeStream)
                     .apply("Reshuffle", Reshuffle.viaRandomKey())
                     .apply("ConvertToMutation",ParDo.of(new ConvertMutationDoFn(tableTypes)));
+        }
+
+        private static class ConvertMutationDoFn extends DoFn<DataChangeRecord, Mutation> {
+            private static final Logger LOG = LoggerFactory.getLogger(ConvertMutationDoFn.class);
+
+            private final Map<String, Type> tableTypes;
+
+            private ConvertMutationDoFn(final Map<String, Type> tableTypes) {
+                this.tableTypes = tableTypes;
+            }
+
+            @Setup
+            public void setup() {
+                LOG.info("ConvertMutationDoFn.setup");
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final DataChangeRecord record = c.element();
+                final Type type = tableTypes.get(record.getTableName());
+                if(type == null) {
+                    return;
+                }
+                final List<Mutation> mutations = StructSchemaUtil.convertToMutation(type, record);
+                for(final Mutation mutation : mutations) {
+                    c.output(mutation);
+                }
+            }
+
+        }
+
+    }
+
+    private static class SpannerChangeStreamMutationGroupRead extends PTransform<PBegin, PCollection<MutationGroup>> {
+
+        private final SpannerSourceParameters parameters;
+        private final Map<String, Type> tableTypes;
+
+        private SpannerChangeStreamMutationGroupRead(
+                final SpannerSourceParameters parameters,
+                final Map<String, Type> tableTypes) {
+
+            this.parameters = parameters;
+            this.tableTypes = tableTypes;
+        }
+
+        public PCollection<MutationGroup> expand(final PBegin begin) {
+
+            final SpannerIO.ReadChangeStream readChangeStream = createDataChangeRecordSource(parameters);
+            return begin
+                    .apply("ReadChangeStream", readChangeStream)
+                    .apply("WithFixedWindow", Window
+                            .<DataChangeRecord>into(FixedWindows.of(Duration.standardSeconds(1L)))
+                            .triggering(AfterWatermark.pastEndOfWindow())
+                            .accumulatingFiredPanes()
+                            .withAllowedLateness(Duration.ZERO))
+                    .apply("WithKeyTransaction", WithKeys
+                            .of(DataChangeRecord::getServerTransactionId)
+                            .withKeyType(TypeDescriptors.strings()))
+                    .apply("GroupByTransaction", GroupByKey.create())
+                    .apply("ConvertToMutationGroup", ParDo
+                            .of(new ConvertMutationGroupDoFn(tableTypes)))
+                    .setCoder(SerializableCoder.of(MutationGroup.class));
         }
 
         private static class ConvertMutationGroupDoFn extends DoFn<KV<String, Iterable<DataChangeRecord>>, MutationGroup> {
@@ -1166,35 +1251,6 @@ public class SpannerSource implements SourceModule {
 
         }
 
-        private static class ConvertMutationDoFn extends DoFn<DataChangeRecord, Mutation> {
-            private static final Logger LOG = LoggerFactory.getLogger(ConvertMutationDoFn.class);
-
-            private final Map<String, Type> tableTypes;
-
-            private ConvertMutationDoFn(final Map<String, Type> tableTypes) {
-                this.tableTypes = tableTypes;
-            }
-
-            @Setup
-            public void setup() {
-                LOG.info("ConvertMutationDoFn.setup");
-            }
-
-            @ProcessElement
-            public void processElement(final ProcessContext c) {
-                final DataChangeRecord record = c.element();
-                final Type type = tableTypes.get(record.getTableName());
-                if(type == null) {
-                    return;
-                }
-                final List<Mutation> mutations = StructSchemaUtil.convertToMutation(type, record);
-                for(final Mutation mutation : mutations) {
-                    c.output(mutation);
-                }
-            }
-
-        }
-
     }
 
     private static class SpannerMicrobatchRead extends PTransform<PCollection<Long>, PCollection<Struct>> {
@@ -1204,15 +1260,9 @@ public class SpannerSource implements SourceModule {
         private final String timestampAttribute;
         private final SpannerSourceParameters parameters;
 
-        public SpannerMicrobatchRead(final SourceConfig config) {
+        public SpannerMicrobatchRead(final SourceConfig config, final SpannerSourceParameters parameters) {
             this.timestampAttribute = config.getTimestampAttribute();
-            this.parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
-            if(this.parameters == null) {
-                throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-            }
-
-            this.parameters.validateMicroBatchParameters();
-            this.parameters.setMicroBatchDefaultParameters();
+            this.parameters = parameters;
         }
 
         public PCollection<Struct> expand(final PCollection<Long> beat) {

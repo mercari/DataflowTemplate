@@ -1,9 +1,6 @@
 package com.mercari.solution.util.converter;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
+import com.google.gson.*;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
@@ -26,8 +23,29 @@ public class JsonToRowConverter {
         if(text == null || text.trim().length() < 2) {
             return null;
         }
-        final JsonObject jsonObject = new Gson().fromJson(text, JsonObject.class);
-        return convert(schema, jsonObject);
+        final JsonElement jsonElement = new Gson().fromJson(text, JsonElement.class);
+        return convert(schema, jsonElement);
+    }
+
+    public static Row convert(final Schema schema, final JsonElement jsonElement) {
+        if(jsonElement.isJsonObject()) {
+            return convert(schema, jsonElement.getAsJsonObject());
+        } else if(jsonElement.isJsonArray()) {
+            final Row.FieldValueBuilder builder = Row.withSchema(schema).withFieldValues(new HashMap<>());
+            final JsonArray array = jsonElement.getAsJsonArray();
+            for(int i=0; i<schema.getFieldCount(); i++) {
+                final Schema.Field field = schema.getField(i);
+                if(i < array.size()) {
+                    final JsonElement arrayElement = array.get(i);
+                    builder.withFieldValue(field.getName(), convertValue(field.getType(), arrayElement));
+                } else {
+                    builder.withFieldValue(field.getName(), null);
+                }
+            }
+            return builder.build();
+        } else {
+            return null;
+        }
     }
 
     public static Row convert(final Schema schema, final JsonObject jsonObject) {
@@ -128,7 +146,11 @@ public class JsonToRowConverter {
                     if(primitive.isString()) {
                         return DateTimeUtil.toJodaInstant(jsonElement.getAsString());
                     } else if(primitive.isNumber()) {
-                        return DateTimeUtil.toJodaInstant(primitive.getAsLong());
+                        if(primitive.getAsString().contains(".")) {
+                            return DateTimeUtil.toJodaInstant(primitive.getAsDouble());
+                        } else {
+                            return DateTimeUtil.toJodaInstant(primitive.getAsLong());
+                        }
                     } else {
                         final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + jsonElement + " could not be convert to timestamp";
                         LOG.warn(message);
@@ -189,18 +211,19 @@ public class JsonToRowConverter {
                         throw new IllegalStateException(message);
                     }
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
-                    return primitive.getAsString();
+                    final String enumString = primitive.getAsString();
+                    return RowSchemaUtil.toEnumerationTypeValue(fieldType, enumString);
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
             }
             case ROW:
-                if(!jsonElement.isJsonObject()) {
+                if(!jsonElement.isJsonObject() && !jsonElement.isJsonArray()) {
                     throw new IllegalStateException(String.format("FieldType: %s's type is record, but jsonElement is %s",
                             fieldType.getTypeName(), jsonElement.toString()));
                 }
-                return convert(fieldType.getRowSchema(), jsonElement.getAsJsonObject());
+                return convert(fieldType.getRowSchema(), jsonElement);
             case MAP: {
                 if(!jsonElement.isJsonObject()) {
                     throw new IllegalStateException(String.format("FieldType: %s's type is map, but jsonElement is %s",
@@ -237,8 +260,9 @@ public class JsonToRowConverter {
 
                 final List<Object> childValues = new ArrayList<>();
                 for(final JsonElement childJsonElement : jsonElement.getAsJsonArray()) {
-                    if(childJsonElement.isJsonArray()) {
-                        throw new IllegalArgumentException("");
+                    if(!Schema.TypeName.ROW.equals(fieldType.getCollectionElementType().getTypeName())
+                            && childJsonElement.isJsonArray()) {
+                        throw new IllegalArgumentException("Not supported Array in Array field");
                     }
                     final Object arrayValue = convertValue(fieldType.getCollectionElementType(), childJsonElement);
                     if(arrayValue != null) {

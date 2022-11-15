@@ -5,6 +5,11 @@ import com.google.cloud.spanner.Type;
 import com.mercari.solution.util.converter.*;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionTuple;
+import org.apache.beam.sdk.values.TupleTag;
+
+import java.util.HashMap;
+import java.util.Map;
 
 
 public class FCollection<T> {
@@ -15,6 +20,13 @@ public class FCollection<T> {
     private final Schema schema;
     private final org.apache.avro.Schema avroSchema;
     private final Type spannerType;
+
+    // for support multiple collection
+    private final Boolean isTuple;
+    private final PCollectionTuple tuple;
+    private final Map<TupleTag<?>, DataType> dataTypes;
+    private final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas;
+
 
     private FCollection(
             final String name,
@@ -30,6 +42,30 @@ public class FCollection<T> {
         this.schema = schema;
         this.avroSchema = avroSchema;
         this.spannerType = spannerType;
+
+        this.isTuple = false;
+        this.tuple = null;
+        this.dataTypes = new HashMap<>();
+        this.avroSchemas = new HashMap<>();
+    }
+
+    private FCollection(
+            final String name,
+            final PCollectionTuple tuple,
+            final Map<TupleTag<?>, DataType> dataTypes,
+            final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas) {
+
+        this.name = name;
+        this.collection = null;
+        this.dataType = null;
+        this.schema = null;
+        this.avroSchema = null;
+        this.spannerType = null;
+
+        this.isTuple = true;
+        this.tuple = tuple;
+        this.dataTypes = dataTypes;
+        this.avroSchemas = avroSchemas;
     }
 
     public static <T> FCollection<T> of(
@@ -59,6 +95,15 @@ public class FCollection<T> {
         return new FCollection<>(name, pCollection, dataType, null, null, spannerType);
     }
 
+    public static <T> FCollection<T> of(
+            final String name,
+            final PCollectionTuple tuple,
+            final Map<TupleTag<?>, DataType> dataTypes,
+            final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas) {
+
+        return new FCollection<>(name, tuple, dataTypes, avroSchemas);
+    }
+
     public static <T> FCollection<T> update(final FCollection<T> base, final PCollection<T> pCollection) {
         return update(base, base.getName(), pCollection);
     }
@@ -75,6 +120,10 @@ public class FCollection<T> {
         return collection;
     }
 
+    public PCollectionTuple getTuple() {
+        return tuple;
+    }
+
     public DataType getDataType() {
         return dataType;
     }
@@ -87,6 +136,9 @@ public class FCollection<T> {
         } else if(this.spannerType != null) {
             return StructToRowConverter.convertSchema(spannerType);
         } else {
+            if(DataType.MUTATIONGROUP.equals(dataType) || DataType.MUTATION.equals(dataType)) {
+                return null;
+            }
             throw new IllegalArgumentException("FCollection has no schemas!");
         }
     }
@@ -99,6 +151,11 @@ public class FCollection<T> {
         } else if(this.spannerType != null) {
             return StructToRecordConverter.convertSchema(spannerType);
         } else {
+            switch (dataType) {
+                case MUTATION:
+                case MUTATIONGROUP:
+                    return null;
+            }
             throw new IllegalArgumentException("FCollection has no schemas!");
         }
     }
@@ -111,6 +168,11 @@ public class FCollection<T> {
         } else if(this.schema != null) {
             return RowToMutationConverter.convertSchema(this.schema);
         } else {
+            switch (dataType) {
+                case MUTATION:
+                case MUTATIONGROUP:
+                    return null;
+            }
             throw new IllegalArgumentException("FCollection has no SpannerType!");
         }
     }
@@ -123,8 +185,25 @@ public class FCollection<T> {
         } else if(this.spannerType != null) {
             return StructToTableRowConverter.convertSchema(spannerType);
         } else {
+            switch (dataType) {
+                case MUTATION:
+                case MUTATIONGROUP:
+                    return null;
+            }
             throw new IllegalArgumentException("FCollection has no schemas!");
         }
+    }
+
+    public Boolean getIsTuple() {
+        return isTuple;
+    }
+
+    public Map<TupleTag<?>, DataType> getDataTypes() {
+        return dataTypes;
+    }
+
+    public Map<TupleTag<?>, org.apache.avro.Schema> getAvroSchemas() {
+        return avroSchemas;
     }
 
 }

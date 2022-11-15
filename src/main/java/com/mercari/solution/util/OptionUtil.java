@@ -1,7 +1,10 @@
 package com.mercari.solution.util;
 
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
+import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.StreamingOptions;
+import org.apache.beam.sdk.values.PInput;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
@@ -38,8 +41,32 @@ public class OptionUtil {
         return PipelineOptions.DirectRunner.class.getSimpleName().equals(options.getRunner().getSimpleName());
     }
 
+    public static boolean isDirectRunner(final PInput input) {
+        return PipelineOptions.DirectRunner.class.getSimpleName().equals(input.getPipeline().getOptions().getRunner().getSimpleName());
+    }
+
     public static boolean isStreaming(final PipelineOptions options) {
         return options.as(StreamingOptions.class).isStreaming();
+    }
+
+    public static boolean isStreaming(final PInput input) {
+        return isStreaming(input.getPipeline().getOptions());
+    }
+
+    public static String getProject(final PipelineOptions options) {
+        return options.as(GcpOptions.class).getProject();
+    }
+
+    public static String getProject(final PInput input) {
+        return getProject(input.getPipeline().getOptions());
+    }
+
+    public static Integer getMaxNumWorkers(final PipelineOptions options) {
+        return options.as(DataflowPipelineOptions.class).getMaxNumWorkers();
+    }
+
+    public static Integer getMaxNumWorkers(final PInput input) {
+        return input.getPipeline().getOptions().as(DataflowPipelineOptions.class).getMaxNumWorkers();
     }
 
     public static String replaceParameter(final String text) {
