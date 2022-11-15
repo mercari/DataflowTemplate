@@ -14,23 +14,24 @@
   <properties>
     <beam.version>2.42.0</beam.version>
 
-    <joda.version>2.12.0</joda.version>
+    <joda.version>2.12.1</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
     <hadoop.version>3.3.4</hadoop.version>
     <hbase.version>2.4.13</hbase.version>
-    <onnx.version>1.10.2-1.5.7</onnx.version>
+    <onnx.version>1.12.0-1.5.8</onnx.version>
     <onnxruntime.version>1.13.1</onnxruntime.version>
     <tensorflow.version>1.15.0</tensorflow.version>
     <solr.version>9.0.0</solr.version>
     <pdfbox.version>2.0.27</pdfbox.version>
     <jst.version>1.19.0</jst.version>
-    <mysql-connector.version>8.0.30</mysql-connector.version>
+    <mysql-connector.version>8.0.31</mysql-connector.version>
     <postgresql-connector.version>42.5.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.7.1</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.7.2</jdbc-socket-factory.version>
     <secretmanager.version>2.3.1</secretmanager.version>
     <iamcredentials.version>2.3.2</iamcredentials.version>
     <drive.version>v3-rev20220110-1.32.1</drive.version>
+    <exp4j.version>0.4.8</exp4j.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -450,7 +451,7 @@
     <dependency>
       <groupId>net.objecthunter</groupId>
       <artifactId>exp4j</artifactId>
-      <version>0.4.8</version>
+      <version>${exp4j.version}</version>
     </dependency>
 
     <!-- Log -->
