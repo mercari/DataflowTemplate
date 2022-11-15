@@ -64,6 +64,7 @@ public class WebSocketSource implements SourceModule {
         private Boolean ignoreError;
         private Boolean isArrayContent;
         private Long requestIntervalSeconds;
+        private Boolean pruning;
 
         public String getEndpoint() {
             return endpoint;
@@ -161,6 +162,14 @@ public class WebSocketSource implements SourceModule {
             this.requestIntervalSeconds = requestIntervalSeconds;
         }
 
+        public Boolean getPruning() {
+            return pruning;
+        }
+
+        public void setPruning(Boolean pruning) {
+            this.pruning = pruning;
+        }
+
         private void validateParameters(final PBegin begin) {
 
             if(!OptionUtil.isStreaming(begin.getPipeline().getOptions())) {
@@ -217,6 +226,9 @@ public class WebSocketSource implements SourceModule {
             }
             if(this.requestIntervalSeconds == null) {
                 this.requestIntervalSeconds = 0L;
+            }
+            if(this.pruning == null) {
+                this.pruning = false;
             }
         }
     }
@@ -419,6 +431,7 @@ public class WebSocketSource implements SourceModule {
         private final Boolean ignoreError;
         private final Boolean isArrayContent;
         private final Long requestIntervalMillis;
+        private final Boolean pruning;
         private final List<KV<TupleTag<T>, SourceConfig.Output>> additionalOutputs;
 
         private final TupleTag<T> outputTag;
@@ -450,6 +463,7 @@ public class WebSocketSource implements SourceModule {
             this.ignoreError = parameters.getIgnoreError();
             this.isArrayContent = parameters.getIsArrayContent();
             this.requestIntervalMillis = parameters.getRequestIntervalSeconds() * 1000L;
+            this.pruning = parameters.getPruning();
 
             this.outputTag = outputTag;
             this.failuresTag = failuresTag;
@@ -521,7 +535,7 @@ public class WebSocketSource implements SourceModule {
                     return beats
                             .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(
                                     name, endpoint, requests,
-                                    heartbeatRequests, heartbeatIntervalMillis, requestIntervalMillis)))
+                                    heartbeatRequests, heartbeatIntervalMillis, requestIntervalMillis, pruning)))
                             .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()))
                             .apply("JsonToRecord", ParDo
                                     .of(new JsonConvertDoFn<>(
@@ -551,6 +565,7 @@ public class WebSocketSource implements SourceModule {
             private final List<String> heartbeatRequests;
             private final Long heartbeatIntervalMillis;
             private final Long requestIntervalMillis;
+            private final Boolean pruning;
 
             private transient java.net.http.WebSocket socket;
             private transient Listener listener;
@@ -560,7 +575,8 @@ public class WebSocketSource implements SourceModule {
                           final List<String> requests,
                           final List<String> heartbeatRequests,
                           final Long heartbeatIntervalMillis,
-                          final Long requestIntervalMillis) {
+                          final Long requestIntervalMillis,
+                          final Boolean pruning) {
 
                 this.name = name;
                 this.endpoint = endpoint;
@@ -568,6 +584,7 @@ public class WebSocketSource implements SourceModule {
                 this.heartbeatRequests = heartbeatRequests;
                 this.heartbeatIntervalMillis = heartbeatIntervalMillis;
                 this.requestIntervalMillis = requestIntervalMillis;
+                this.pruning = pruning;
             }
 
             private void connect() throws InterruptedException, ExecutionException {
@@ -598,8 +615,15 @@ public class WebSocketSource implements SourceModule {
                     throws InterruptedException, ExecutionException {
 
                 synchronized (listener) {
-                    for(final KV<Instant, String> message : listener.getMessages()) {
-                        c.output(message);
+                    if(pruning) {
+                        if(listener.getMessages().size() > 0) {
+                            final KV<Instant, String> message = listener.getMessages().get(listener.getMessages().size() - 1);
+                            c.output(message);
+                        }
+                    } else {
+                        for(final KV<Instant, String> message : listener.getMessages()) {
+                            c.output(message);
+                        }
                     }
                     listener.clearMessages();
                 }
