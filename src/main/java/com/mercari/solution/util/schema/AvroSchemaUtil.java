@@ -1111,6 +1111,18 @@ public class AvroSchemaUtil {
         return null;
     }
 
+    public static Instant toInstant(final Object value) {
+        if(value == null) {
+            return null;
+        }
+        if(value instanceof Long) {
+            Instant.ofEpochMilli(DateTimeUtil.assumeEpochMilliSecond((Long)value));
+        } else if(value instanceof String) {
+            Instant.parse((String) value);
+        }
+        return null;
+    }
+
     public static String convertNumericBytesToString(final byte[] bytes, final int scale) {
         if(bytes == null) {
             return null;

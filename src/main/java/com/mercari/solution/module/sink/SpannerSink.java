@@ -2,6 +2,7 @@ package com.mercari.solution.module.sink;
 
 import com.google.api.gax.longrunning.OperationFuture;
 import com.google.cloud.spanner.*;
+import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
 import com.google.spanner.admin.instance.v1.UpdateInstanceMetadata;
 import com.mercari.solution.config.SinkConfig;
@@ -9,10 +10,13 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
+import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.gcp.SpannerUtil;
+import com.mercari.solution.util.schema.SchemaUtil;
+import com.mercari.solution.util.schema.StructSchemaUtil;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
@@ -41,6 +45,7 @@ public class SpannerSink implements SinkModule {
         private String table;
         private String mutationOp;
         private List<String> keyFields;
+        private List<String> commitTimestampFields;
         private Boolean failFast;
         private WriteMode writeMode;
 
@@ -157,6 +162,14 @@ public class SpannerSink implements SinkModule {
 
         public void setKeyFields(List<String> keyFields) {
             this.keyFields = keyFields;
+        }
+
+        public List<String> getCommitTimestampFields() {
+            return commitTimestampFields;
+        }
+
+        public void setCommitTimestampFields(List<String> commitTimestampFields) {
+            this.commitTimestampFields = commitTimestampFields;
         }
 
         public String getInterleavedIn() {
@@ -427,14 +440,80 @@ public class SpannerSink implements SinkModule {
                                              final List<FCollection<?>> waits,
                                              final List<FCollection<?>> sideInputs) {
 
-        final SpannerWriteSingle write = new SpannerWriteSingle(collection, parameters, waits);
-        final PCollection output = collection.getCollection().apply(config.getName(), write);
         try {
             config.outputAvroSchema(collection.getAvroSchema());
         } catch (Exception e) {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
-        return FCollection.update(write.collection, output);
+
+        final PCollection output;
+        switch (collection.getDataType()) {
+            case AVRO: {
+                final PCollection<GenericRecord> input = (PCollection<GenericRecord>) collection.getCollection();
+                final SpannerWriteSingle<String, org.apache.avro.Schema, GenericRecord> write = new SpannerWriteSingle<>(
+                        collection.getSchema(),
+                        parameters,
+                        collection.getAvroSchema().toString(),
+                        AvroSchemaUtil::convertSchema,
+                        RecordToMutationConverter::convert,
+                        waits);
+                output = input.apply(config.getName(), write);
+                break;
+            }
+            case ROW: {
+                final PCollection<Row> input = (PCollection<Row>) collection.getCollection();
+                final SpannerWriteSingle<Schema, Schema, Row> write = new SpannerWriteSingle<>(
+                        collection.getSchema(),
+                        parameters,
+                        collection.getSchema(),
+                        s -> s,
+                        RowToMutationConverter::convert,
+                        waits);
+                output = input.apply(config.getName(), write);
+                break;
+            }
+            case STRUCT: {
+                final PCollection<Struct> input = (PCollection<Struct>) collection.getCollection();
+                final SpannerWriteSingle<Schema, Schema, Struct> write = new SpannerWriteSingle<>(
+                        collection.getSchema(),
+                        parameters,
+                        collection.getSchema(),
+                        s -> s,
+                        StructToMutationConverter::convert,
+                        waits);
+                output = input.apply(config.getName(), write);
+                break;
+            }
+            case ENTITY: {
+                final PCollection<Entity> input = (PCollection<Entity>) collection.getCollection();
+                final SpannerWriteSingle<Type, Type, Entity> write = new SpannerWriteSingle<>(
+                        collection.getSchema(),
+                        parameters,
+                        collection.getSpannerType(),
+                        s -> s,
+                        EntityToMutationConverter::convert,
+                        waits);
+                output = input.apply(config.getName(), write);
+                break;
+            }
+            case MUTATION: {
+                final PCollection<Mutation> input = (PCollection<Mutation>) collection.getCollection();
+                final SpannerWriteSingle<Type, Type, Mutation> write = new SpannerWriteSingle<>(
+                        collection.getSchema(),
+                        parameters,
+                        collection.getSpannerType(),
+                        s -> s,
+                        StructSchemaUtil::convert,
+                        waits);
+                output = input.apply(config.getName(), write);
+                break;
+            }
+            default: {
+                throw new IllegalArgumentException();
+            }
+        }
+
+        return FCollection.update(collection, output);
     }
 
     public static FCollection<?> writeMulti(final FCollection<?> collection,
@@ -463,28 +542,39 @@ public class SpannerSink implements SinkModule {
         return FCollection.update(collection, output);
     }
 
-    public static class SpannerWriteSingle extends PTransform<PCollection<?>, PCollection<Void>> {
+    public static class SpannerWriteSingle<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection<T>, PCollection<Void>> {
 
         private static final Logger LOG = LoggerFactory.getLogger(SpannerWriteSingle.class);
 
-        private FCollection<?> collection;
         private final SpannerSinkParameters parameters;
         private final List<FCollection<?>> waits;
 
-        private SpannerWriteSingle(final FCollection<?> collection,
+        private final Schema schema;
+
+        private final InputSchemaT inputSchema;
+        private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+        private final SpannerMutationConverter<RuntimeSchemaT, T> converter;
+
+        private SpannerWriteSingle(final Schema schema,
                                    final SpannerSinkParameters parameters,
+                                   final InputSchemaT inputSchema,
+                                   final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                                   final SpannerMutationConverter<RuntimeSchemaT, T> converter,
                                    final List<FCollection<?>> waits) {
 
-            this.collection = collection;
             this.parameters = parameters;
             this.waits = waits;
+
+            this.schema = schema;
+            this.inputSchema = inputSchema;
+            this.schemaConverter = schemaConverter;
+            this.converter = converter;
         }
 
-        public PCollection<Void> expand(final PCollection<?> input) {
+        public PCollection<Void> expand(final PCollection<T> input) {
             final String projectId = this.parameters.getProjectId();
             final String instanceId = this.parameters.getInstanceId();
             final String databaseId = this.parameters.getDatabaseId();
-            final String mutationOp = this.parameters.getMutationOp();
             final Set<String> fields = OptionUtil.toSet(this.parameters.getFields());
             final Set<String> maskFields = OptionUtil.toSet(this.parameters.getMaskFields());
 
@@ -494,7 +584,6 @@ public class SpannerSink implements SinkModule {
                 if(parameters.getExclude()) {
                     excludeFields = fields;
                 } else {
-                    final Schema schema = collection.getSchema();
                     excludeFields = schema.getFields().stream()
                             .map(Schema.Field::getName)
                             .collect(Collectors.toSet());
@@ -507,7 +596,6 @@ public class SpannerSink implements SinkModule {
             // CreateTable DDLs
             final List<List<String>> ddls;
             if (this.parameters.getCreateTable()) {
-                final Schema schema = collection.getSchema();
                 final List<String> ddl = buildDdls(projectId, instanceId, databaseId, parameters.getTable(), schema, parameters.getKeyFields(), excludeFields);
                 if(ddl == null || ddl.size() == 0) {
                     ddls = new ArrayList<>();
@@ -522,18 +610,11 @@ public class SpannerSink implements SinkModule {
             // SpannerWrite
             final SpannerIO.Write write = createWrite(parameters);
 
-            // For Mutation and MutationGroup
-            if(DataType.MUTATION.equals(collection.getDataType())) {
-                final SpannerWriteResult writeResult = ((PCollection<Mutation>)input).apply("WriteSpanner", write);
-                return writeResult.getOutput();
-            } else if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
-                final SpannerWriteResult writeResult = ((PCollection<MutationGroup>)input).apply("WriteSpanner", write.grouped());
-                return writeResult.getOutput();
-            }
-
             final PCollection<Mutation> mutations = input
-                        .apply("ToMutation", DataTypeTransform
-                                .spannerMutation(collection, parameters.getTable(), mutationOp, parameters.getKeyFields(), excludeFields, maskFields));
+                    .apply("ToMutation", ParDo.of(new SpannerMutationDoFn<>(
+                            parameters.getTable(), parameters.getMutationOp(), parameters.getKeyFields(), parameters.getCommitTimestampFields(),
+                            excludeFields, maskFields, inputSchema, schemaConverter, converter)))
+                    .setCoder(SerializableCoder.of(Mutation.class));
 
             final PCollection<Mutation> mutationTableReady;
             if(ddls.size() == 0 && parameters.getEmptyTable()) {
@@ -1078,6 +1159,69 @@ public class SpannerSink implements SinkModule {
         }
 
         return write;
+    }
+
+    private static class SpannerMutationDoFn<InputSchemaT,RuntimeSchemaT,T> extends DoFn<T, Mutation> {
+
+        private final String table;
+        private final String mutationOp;
+        private final List<String> keyFields;
+        private final List<String> allowCommitTimestampFields;
+        private final Set<String> excludeFields;
+        private final Set<String> maskFields;
+
+        private final InputSchemaT inputSchema;
+        private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+        private final SpannerMutationConverter<RuntimeSchemaT, T> converter;
+
+        private transient RuntimeSchemaT runtimeSchema;
+
+        private SpannerMutationDoFn(final String table,
+                                    final String mutationOp,
+                                    final List<String> keyFields,
+                                    final List<String> allowCommitTimestampFields,
+                                    final Set<String> excludeFields,
+                                    final Set<String> maskFields,
+                                    final InputSchemaT inputSchema,
+                                    final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                                    final SpannerMutationConverter<RuntimeSchemaT, T> converter) {
+            this.table = table;
+            this.mutationOp = mutationOp;
+            this.keyFields = keyFields;// == null ? null : Arrays.asList(keyFields.split(","));
+            this.allowCommitTimestampFields = allowCommitTimestampFields;
+            this.excludeFields = excludeFields;
+            this.maskFields = maskFields;
+            this.inputSchema = inputSchema;
+            this.schemaConverter = schemaConverter;
+            this.converter = converter;
+        }
+
+        @Setup
+        public void setup() {
+            if(this.inputSchema == null || this.schemaConverter == null) {
+                this.runtimeSchema = null;
+            } else {
+                this.runtimeSchema = this.schemaConverter.convert(inputSchema);
+            }
+        }
+
+        @ProcessElement
+        public void processElement(final @Element T input, final OutputReceiver<Mutation> receiver) {
+            final Mutation mutation = converter.convert(runtimeSchema, input, table, mutationOp, keyFields, allowCommitTimestampFields, excludeFields, maskFields);
+            receiver.output(mutation);
+        }
+
+    }
+
+    public interface SpannerMutationConverter<SchemaT, InputT> extends Serializable {
+        Mutation convert(final SchemaT schema,
+                         final InputT element,
+                         final String table,
+                         final String mutationOp,
+                         final Iterable<String> keyFields,
+                         final List<String> allowCommitTimestampFields,
+                         final Set<String> excludeFields,
+                         final Set<String> maskFields);
     }
 
     private static class TablePrepareDoFn extends DoFn<List<String>, String> {

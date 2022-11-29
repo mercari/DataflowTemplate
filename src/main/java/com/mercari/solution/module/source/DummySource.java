@@ -448,7 +448,7 @@ public class DummySource implements SourceModule {
             final Row primaryRow = row.getRow(mutationPrimaryField);
             final Mutation primary = RowToMutationConverter.convert(primaryRow.getSchema(), primaryRow,
                     mutationPrimaryField, mutationOp.name(), mutationKeyFields,
-                    null, null);
+                    null, null, null);
 
             // create other mutations
             final List<Mutation> others = new ArrayList<>();
@@ -459,7 +459,7 @@ public class DummySource implements SourceModule {
                         final Row otherRow = row.getRow(mutationOtherField);
                         final Mutation other = RowToMutationConverter.convert(otherRow.getSchema(), otherRow,
                                 mutationOtherField, mutationOp.name(), mutationKeyFields,
-                                null, null);
+                                null, null, null);
                         others.add(other);
                         break;
                     }
@@ -469,7 +469,7 @@ public class DummySource implements SourceModule {
                         for(final Row otherRow : otherRows) {
                             final Mutation other = RowToMutationConverter.convert(otherRow.getSchema(), otherRow,
                                     mutationOtherField, mutationOp.name(), mutationKeyFields,
-                                    null, null);
+                                    null, null, null);
                             others.add(other);
                         }
                         break;

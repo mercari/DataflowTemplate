@@ -43,6 +43,10 @@ public class SchemaUtil {
         ElementT setValues(SchemaT schema, ElementT element, Map<String, ? extends Object> values);
     }
 
+    public interface TimestampConverter extends Serializable {
+        Instant toInstant(Object value);
+    }
+
     public interface JsonConverter<SchemaT, ElementT> extends Serializable {
         ElementT convert(SchemaT schema, JsonObject element);
     }

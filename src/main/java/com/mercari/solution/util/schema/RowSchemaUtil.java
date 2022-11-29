@@ -711,6 +711,10 @@ public class RowSchemaUtil {
         }
     }
 
+    public static Instant getAsInstant(final Row row, final String fieldName) {
+        return getTimestamp(row, fieldName, null);
+    }
+
     public static Instant getTimestamp(final Row row, final String fieldName, final Instant defaultTimestamp) {
         final Schema.Field field = row.getSchema().getField(fieldName);
         if(field == null) {
@@ -771,6 +775,10 @@ public class RowSchemaUtil {
             default:
                 return defaultTimestamp;
         }
+    }
+
+    public static Instant toInstant(final Object value) {
+        return (Instant) value;
     }
 
     public static EnumerationType.Value toEnumerationTypeValue(final Schema.FieldType fieldType, final String value) {
