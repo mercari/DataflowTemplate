@@ -9,10 +9,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class Filter implements Serializable {
@@ -214,6 +211,28 @@ public class Filter implements Serializable {
         if(condition.getNodes() != null && condition.getNodes().size() > 0) {
             for(ConditionNode node : condition.getNodes()) {
                 bits.add(filter(element, getter, node));
+            }
+        }
+
+        if(bits.size() == 0) {
+            return false;
+        }
+
+        return is(condition.getType(), bits);
+    }
+
+    public static <T> boolean filter(final T element, final Getter<T> getter, final ConditionNode condition, final Map<String, Object> values) {
+        final List<Boolean> bits = new ArrayList<>();
+
+        if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
+            for(ConditionLeaf leaf : condition.getLeaves()) {
+                final Object value = Optional.ofNullable(values.get(leaf.getKey())).orElseGet(() -> getter.getValue(element, leaf.getKey()));
+                bits.add(is(value, leaf));
+            }
+        }
+        if(condition.getNodes() != null && condition.getNodes().size() > 0) {
+            for(ConditionNode node : condition.getNodes()) {
+                bits.add(filter(element, getter, node, values));
             }
         }
 
