@@ -1,0 +1,34 @@
+{
+  "sources": [
+    {
+      "name": "firestoreInput",
+      "module": "firestore",
+      "schema": {
+        "fields": [
+          { "name": "Description", "type": "string", "mode": "nullable" },
+          { "name": "Status", "type": "long", "mode": "required" },
+          { "name": "CreatedAt", "type": "timestamp", "mode": "required" },
+          { "name": "__name__", "type": "string", "mode": "required" },
+          { "name": "__updatetime__", "type": "timestamp", "mode": "required" }
+        ]
+      },
+      "parameters": {
+        "projectId": "myproject",
+        "filter": "CreatedAt >= '2022-01-01T00:00:00Z' AND CreatedAt < '2023-01-01T00:00:00Z'",
+        "collection": "MyCollection"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "bigqueryOutput",
+      "module": "bigquery",
+      "input": "firestoreInput",
+      "parameters": {
+        "table": "myproject:temp.MyCollection",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    }
+  ]
+}
