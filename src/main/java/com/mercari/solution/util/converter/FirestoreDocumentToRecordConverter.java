@@ -186,6 +186,36 @@ public class FirestoreDocumentToRecordConverter {
                         default:
                             throw new IllegalArgumentException("Schema type is " + schema.getType() + ", but value type is " + value.getValueTypeCase().name());
                     }
+                } else if (AvroSchemaUtil.isLogicalTypeLocalTimestampMillis(schema)) {
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE: {
+                            final String timestamp = value.getStringValue();
+                            return DateTimeUtil.toEpochMicroSecond(timestamp) / 1000L;
+                        }
+                        case INTEGER_VALUE:
+                            return value.getIntegerValue();
+                        case DOUBLE_VALUE:
+                            return Double.valueOf(value.getDoubleValue()).longValue();
+                        case TIMESTAMP_VALUE:
+                            return DateTimeUtil.toEpochMicroSecond(value.getTimestampValue()) / 1000L;
+                        default:
+                            throw new IllegalArgumentException("Schema type is " + schema.getType() + ", but value type is " + value.getValueTypeCase().name());
+                    }
+                } else if (AvroSchemaUtil.isLogicalTypeLocalTimestampMicros(schema)) {
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE: {
+                            final String timestamp = value.getStringValue();
+                            return DateTimeUtil.toEpochMicroSecond(timestamp);
+                        }
+                        case INTEGER_VALUE:
+                            return value.getIntegerValue();
+                        case DOUBLE_VALUE:
+                            return Double.valueOf(value.getDoubleValue()).longValue();
+                        case TIMESTAMP_VALUE:
+                            return DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+                        default:
+                            throw new IllegalArgumentException("Schema type is " + schema.getType() + ", but value type is " + value.getValueTypeCase().name());
+                    }
                 } else {
                     switch (value.getValueTypeCase()) {
                         case STRING_VALUE:

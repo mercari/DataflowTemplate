@@ -10,6 +10,7 @@ import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.SqlTypes;
 
 import java.io.Serializable;
 import java.util.*;
@@ -181,6 +182,11 @@ public class SourceConfig implements Serializable {
                             .build());
                 }
             }
+            if("json".equalsIgnoreCase(inputSchemaField.getType().trim())) {
+                optionsList.add(Schema.Options.builder()
+                        .setOption("sqlType", Schema.FieldType.STRING, "JSON")
+                        .build());
+            }
 
             final Schema.FieldType fieldType = convertFieldType(inputSchemaField);
             Schema.Field field = Schema.Field.of(fieldName, fieldType);
@@ -226,8 +232,14 @@ public class SourceConfig implements Serializable {
         switch (field.getType().trim().toLowerCase()) {
             case "bytes":
                 return Schema.FieldType.BYTES.withNullable(nullable);
+            case "json":
             case "string":
                 return Schema.FieldType.STRING.withNullable(nullable);
+            case "byte":
+                return Schema.FieldType.BYTE.withNullable(nullable);
+            case "short":
+            case "int16":
+                return Schema.FieldType.INT16.withNullable(nullable);
             case "int":
             case "integer":
             case "int32":
@@ -252,6 +264,7 @@ public class SourceConfig implements Serializable {
             case "date":
                 return nullable ? CalciteUtils.NULLABLE_DATE : CalciteUtils.DATE;
             case "datetime":
+                return Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(nullable);
             case "timestamp":
                 return Schema.FieldType.DATETIME.withNullable(nullable);
             case "row":

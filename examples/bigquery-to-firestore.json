@@ -1,0 +1,32 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "table": "myproject.mydataset.books"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "datastoreOutputA",
+      "module": "firestore",
+      "input": "bigqueryInput",
+      "parameters": {
+        "projectId": "myprojectA",
+        "collection": "Book",
+        "nameFields": ["bookID"]
+      }
+    },
+    {
+      "name": "datastoreOutputB",
+      "module": "firestore",
+      "input": "bigqueryInput",
+      "parameters": {
+        "projectId": "myprojectB",
+        "nameTemplate": "Book/${bookID}"
+      }
+    }
+  ]
+}

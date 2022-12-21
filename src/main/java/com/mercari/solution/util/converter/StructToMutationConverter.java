@@ -6,10 +6,7 @@
  */
 package com.mercari.solution.util.converter;
 
-import com.google.cloud.spanner.Key;
-import com.google.cloud.spanner.Mutation;
-import com.google.cloud.spanner.Struct;
-import com.google.cloud.spanner.Type;
+import com.google.cloud.spanner.*;
 import com.google.gson.JsonArray;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
@@ -32,23 +29,30 @@ public class StructToMutationConverter {
     public static Mutation convert(final Struct struct,
                                    final String table, final String mutationOp, final Iterable<String> keyFields) {
 
-        return convert(struct, table, mutationOp, keyFields, null, null, DEFAULT_PREFIX);
+        return convert(struct, table, mutationOp, keyFields, null, null, null, DEFAULT_PREFIX);
     }
 
     public static Mutation convert(final Struct struct,
-                                   final String table, final String mutationOp, final Iterable<String> keyFields,
-                                   final Set<String> excludeFields, final Set<String> hideFields) {
-
-        return convert(struct, table, mutationOp, keyFields, excludeFields, hideFields, DEFAULT_PREFIX);
-    }
-
-    // For DataTypeTransform.SpannerMutationDoFn interface
-    public static Mutation convert(final Schema schema, final Struct struct,
-                                   final String table, final String mutationOp, final Iterable<String> keyFields,
+                                   final String table,
+                                   final String mutationOp,
+                                   final Iterable<String> keyFields,
                                    final Set<String> excludeFields,
                                    final Set<String> hideFields) {
 
-        return convert(struct, table, mutationOp, keyFields, excludeFields, hideFields, DEFAULT_PREFIX);
+        return convert(struct, table, mutationOp, keyFields, null, excludeFields, hideFields, DEFAULT_PREFIX);
+    }
+
+    // For DataTypeTransform.SpannerMutationDoFn interface
+    public static Mutation convert(final Schema schema,
+                                   final Struct struct,
+                                   final String table,
+                                   final String mutationOp,
+                                   final Iterable<String> keyFields,
+                                   final List<String> allowCommitTimestampFields,
+                                   final Set<String> excludeFields,
+                                   final Set<String> hideFields) {
+
+        return convert(struct, table, mutationOp, keyFields, allowCommitTimestampFields, excludeFields, hideFields, DEFAULT_PREFIX);
     }
 
     /**
@@ -60,11 +64,15 @@ public class StructToMutationConverter {
      * @return Spanner Mutation object.
      */
     public static Mutation convert(final Struct struct,
-                                   final String table, final String mutationOp, final Iterable<String> keyFields,
-                                   final Set<String> excludeFields, final Set<String> hideFields,
+                                   final String table,
+                                   final String mutationOp,
+                                   final Iterable<String> keyFields,
+                                   final List<String> commitTimestampFields,
+                                   final Set<String> excludeFields,
+                                   final Set<String> hideFields,
                                    final String fieldPrefix) {
 
-        if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
+        if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
             return delete(struct, table, keyFields);
         }
 
@@ -75,6 +83,7 @@ public class StructToMutationConverter {
             }
 
             final boolean isNullField = struct.isNull(field.getName());
+            final boolean isCommitTimestampField = commitTimestampFields != null && commitTimestampFields.contains(field.getName());
             final String fieldName;
             if(field.getName().startsWith("_")) {
                 fieldName = fieldPrefix + field.getName();
@@ -84,6 +93,15 @@ public class StructToMutationConverter {
             switch(field.getType().getCode()) {
                 case STRING:
                     builder = builder.set(fieldName).to(isNullField ? null : struct.getString(field.getName()));
+                    break;
+                case JSON:
+                    builder = builder.set(fieldName).to(isNullField ? null : struct.getJson(field.getName()));
+                    break;
+                case PG_NUMERIC:
+                    builder = builder.set(fieldName).to(isNullField ? null : struct.getString(field.getName()));
+                    break;
+                case PG_JSONB:
+                    builder = builder.set(fieldName).to(isNullField ? null : struct.getPgJsonb(field.getName()));
                     break;
                 case BYTES:
                     builder = builder.set(fieldName).to(isNullField ? null : struct.getBytes(field.getName()));
@@ -97,11 +115,18 @@ public class StructToMutationConverter {
                 case FLOAT64:
                     builder = builder.set(fieldName).to(isNullField ? null : struct.getDouble(field.getName()));
                     break;
+                case NUMERIC:
+                    builder = builder.set(fieldName).to(isNullField ? null : struct.getBigDecimal(field.getName()));
+                    break;
                 case DATE:
                     builder = builder.set(fieldName).to(isNullField ? null : struct.getDate(field.getName()));
                     break;
                 case TIMESTAMP:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getTimestamp(field.getName()));
+                    if(isCommitTimestampField) {
+                        builder = builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                    } else {
+                        builder = builder.set(fieldName).to(isNullField ? null : struct.getTimestamp(field.getName()));
+                    }
                     break;
                 case STRUCT:
                     // NOT SUPPOERTED TO STORE STRUCT AS FIELD! (2019/03/04)
@@ -119,6 +144,15 @@ public class StructToMutationConverter {
                         case STRING:
                             builder = builder.set(fieldName).toStringArray(isNullField ? null : struct.getStringList(field.getName()));
                             break;
+                        case JSON:
+                            builder = builder.set(fieldName).toJsonArray(isNullField ? null : struct.getJsonList(field.getName()));
+                            break;
+                        case PG_JSONB:
+                            builder = builder.set(fieldName).toPgJsonbArray(isNullField ? null : struct.getPgJsonbList(field.getName()));
+                            break;
+                        case PG_NUMERIC:
+                            builder = builder.set(fieldName).toPgNumericArray(isNullField ? null : struct.getStringList(field.getName()));
+                            break;
                         case BYTES:
                             builder = builder.set(fieldName).toBytesArray(isNullField ? null : struct.getBytesList(field.getName()));
                             break;
@@ -130,6 +164,9 @@ public class StructToMutationConverter {
                             break;
                         case FLOAT64:
                             builder = builder.set(fieldName).toFloat64Array(isNullField ? null : struct.getDoubleArray(field.getName()));
+                            break;
+                        case NUMERIC:
+                            builder = builder.set(fieldName).toNumericArray(isNullField ? null : struct.getBigDecimalList(field.getName()));
                             break;
                         case DATE:
                             builder = builder.set(fieldName).toDateArray(isNullField ? null : struct.getDateList(field.getName()));
@@ -158,6 +195,15 @@ public class StructToMutationConverter {
                     }
             }
         }
+
+        if(commitTimestampFields != null) {
+            for(final String commitTimestampField : commitTimestampFields) {
+                if(!StructSchemaUtil.hasField(struct, commitTimestampField)) {
+                    builder = builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);
+                }
+            }
+        }
+
         return builder.build();
     }
 
@@ -238,6 +284,9 @@ public class StructToMutationConverter {
                 case STRING:
                     builder = builder.append(struct.getString(keyField));
                     break;
+                case JSON:
+                    builder = builder.append(struct.getJson(keyField));
+                    break;
                 case BYTES:
                     builder = builder.append(struct.getBytes(keyField));
                     break;
@@ -249,6 +298,9 @@ public class StructToMutationConverter {
                     break;
                 case FLOAT64:
                     builder = builder.append(struct.getDouble(keyField));
+                    break;
+                case NUMERIC:
+                    builder = builder.append(struct.getBigDecimal(keyField));
                     break;
                 case DATE:
                     builder = builder.append(struct.getDate(keyField));

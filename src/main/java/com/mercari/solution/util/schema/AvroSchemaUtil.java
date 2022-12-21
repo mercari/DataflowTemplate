@@ -236,6 +236,66 @@ public class AvroSchemaUtil {
     }
 
     /**
+     * Check Avro {@link Schema} is logical type local-timestamp or not.
+     *
+     * @param schema Avro Schema object.
+     * @return true if schema is logical type local-timestamp.
+     */
+    public static boolean isLogicalTypeLocalTimestampMillis(Schema schema) {
+        if(schema.getType().equals(Schema.Type.UNION)) {
+            Schema childSchema = unnestUnion(schema);
+            return isLogicalTypeLocalTimestampMillis(childSchema);
+        }
+        if(schema.getLogicalType() == null && schema.getProp("logicalType") == null) {
+            return false;
+        } else if(schema.getLogicalType() != null) {
+            switch (schema.getLogicalType().getName()) {
+                case "local-timestamp-millis":
+                    return true;
+                default:
+                    return false;
+            }
+        } else {
+            switch (schema.getProp("logicalType")) {
+                case "local-timestamp-millis":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    /**
+     * Check Avro {@link Schema} is logical type local-timestamp or not.
+     *
+     * @param schema Avro Schema object.
+     * @return true if schema is logical type local-timestamp.
+     */
+    public static boolean isLogicalTypeLocalTimestampMicros(Schema schema) {
+        if(schema.getType().equals(Schema.Type.UNION)) {
+            Schema childSchema = unnestUnion(schema);
+            return isLogicalTypeLocalTimestampMicros(childSchema);
+        }
+        if(schema.getLogicalType() == null && schema.getProp("logicalType") == null) {
+            return false;
+        } else if(schema.getLogicalType() != null) {
+            switch (schema.getLogicalType().getName()) {
+                case "local-timestamp-micros":
+                    return true;
+                default:
+                    return false;
+            }
+        } else {
+            switch (schema.getProp("logicalType")) {
+                case "local-timestamp-micros":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    /**
      * Check Avro {@link Schema} is sql datetime type or not.
      *
      * @param schema Avro Schema object.
@@ -1107,6 +1167,18 @@ public class AvroSchemaUtil {
             final int scale = fieldSchema.getObjectProp("scale") != null ?
                     Integer.parseInt(fieldSchema.getObjectProp("scale").toString()) : 0;
             return BigDecimal.valueOf(new BigInteger(bytes).longValue(), scale);
+        }
+        return null;
+    }
+
+    public static Instant toInstant(final Object value) {
+        if(value == null) {
+            return null;
+        }
+        if(value instanceof Long) {
+            Instant.ofEpochMilli(DateTimeUtil.assumeEpochMilliSecond((Long)value));
+        } else if(value instanceof String) {
+            Instant.parse((String) value);
         }
         return null;
     }

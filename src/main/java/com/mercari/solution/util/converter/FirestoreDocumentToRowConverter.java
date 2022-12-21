@@ -21,8 +21,16 @@ public class FirestoreDocumentToRowConverter {
         }
         final Map<String,Object> values = new HashMap<>();
         for(final Schema.Field field : schema.getFields()) {
-            final Value value = document.getFieldsMap().get(field.getName());
-            values.put(field.getName(), getValue(field.getType(), value));
+            if("__name__".equals(field.getName()) && !document.containsFields(field.getName())) {
+                values.put(field.getName(), document.getName());
+            } else if("__createtime__".equals(field.getName()) && !document.containsFields(field.getName())) {
+                values.put(field.getName(), DateTimeUtil.toJodaInstant(document.getCreateTime()));
+            } else if("__updatetime__".equals(field.getName()) && !document.containsFields(field.getName())) {
+                values.put(field.getName(), DateTimeUtil.toJodaInstant(document.getUpdateTime()));
+            } else {
+                final Value value = document.getFieldsMap().get(field.getName());
+                values.put(field.getName(), getValue(field.getType(), value));
+            }
         }
         return Row
                 .withSchema(schema)
@@ -60,17 +68,21 @@ public class FirestoreDocumentToRowConverter {
             case BOOLEAN:
                 return value.getBooleanValue();
             case BYTE:
+                return Long.valueOf(value.getIntegerValue()).byteValue();
             case INT16:
+                return Long.valueOf(value.getIntegerValue()).shortValue();
             case INT32:
+                return Long.valueOf(value.getIntegerValue()).intValue();
             case INT64:
                 return value.getIntegerValue();
             case FLOAT:
+                return Double.valueOf(value.getDoubleValue()).floatValue();
             case DOUBLE:
                 return value.getDoubleValue();
             case DECIMAL:
                 return new BigDecimal(value.getStringValue());
             case DATETIME:
-                return value.getTimestampValue();
+                return DateTimeUtil.toJodaInstant(value.getTimestampValue());
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return DateTimeUtil.toLocalDate(value.getStringValue());
@@ -78,6 +90,9 @@ public class FirestoreDocumentToRowConverter {
                     return DateTimeUtil.toLocalTime(value.getStringValue());
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
                     return DateTimeUtil.toJodaInstant(value.getTimestampValue());
+                } else if(RowSchemaUtil.isLogicalTypeDateTime(fieldType)) {
+                    final Long epochMicroSecond = DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+                    return DateTimeUtil.toLocalDateTime(epochMicroSecond);
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     return value.getStringValue();
                 } else {

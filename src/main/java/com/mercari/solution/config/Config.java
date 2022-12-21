@@ -324,9 +324,7 @@ public class Config implements Serializable {
                                     .peek(c -> {
                                         if(iparams.containsKey(c.getName())) {
                                             final JsonObject iparam = iparams.get(c.getName());
-                                            for(final Map.Entry<String, JsonElement> entry : iparam.entrySet()) {
-                                                c.getParameters().add(entry.getKey(), entry.getValue());
-                                            }
+                                            setAltParameters(c.getParameters(), iparam);
                                         }
                                     })
                                     .collect(Collectors.toList()));
@@ -338,9 +336,7 @@ public class Config implements Serializable {
                                     .peek(c -> {
                                         if(iparams.containsKey(c.getName())) {
                                             final JsonObject iparam = iparams.get(c.getName());
-                                            for(final Map.Entry<String, JsonElement> entry : iparam.entrySet()) {
-                                                c.getParameters().add(entry.getKey(), entry.getValue());
-                                            }
+                                            setAltParameters(c.getParameters(), iparam);
                                         }
                                         if(inputs.containsKey(c.getName())) {
                                             c.setInputs(inputs.get(c.getName()));
@@ -355,9 +351,7 @@ public class Config implements Serializable {
                                     .peek(c -> {
                                         if(iparams.containsKey(c.getName())) {
                                             final JsonObject iparam = iparams.get(c.getName());
-                                            for(final Map.Entry<String, JsonElement> entry : iparam.entrySet()) {
-                                                c.getParameters().add(entry.getKey(), entry.getValue());
-                                            }
+                                            setAltParameters(c.getParameters(), iparam);
                                         }
                                         if(inputs.containsKey(c.getName())) {
                                             final List<String> input = inputs.get(c.getName());
@@ -490,6 +484,16 @@ public class Config implements Serializable {
             return list;
         }
         return null;
+    }
+
+    private static void setAltParameters(final JsonObject parameters, final JsonObject altParameters) {
+        for(final Map.Entry<String, JsonElement> entry : altParameters.entrySet()) {
+            if(entry.getValue().isJsonObject()) {
+                setAltParameters(parameters.get(entry.getKey()).getAsJsonObject(), entry.getValue().getAsJsonObject());
+            } else {
+                parameters.add(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
 }

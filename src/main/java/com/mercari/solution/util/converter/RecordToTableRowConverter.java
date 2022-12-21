@@ -4,6 +4,7 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.common.io.BaseEncoding;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -120,6 +121,14 @@ public class RecordToTableRowConverter {
                     return LocalTime
                             .ofNanoOfDay(longValue * 1000)
                             .format(DateTimeFormatter.ISO_LOCAL_TIME);
+                } else if (AvroSchemaUtil.isLogicalTypeLocalTimestampMillis(schema)) {
+                    return DateTimeUtil
+                            .toLocalDateTime(longValue * 1000)
+                            .format(DateTimeFormatter.ISO_LOCAL_TIME);
+                } else if (AvroSchemaUtil.isLogicalTypeLocalTimestampMicros(schema)) {
+                    return DateTimeUtil
+                            .toLocalDateTime(longValue)
+                            .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
                 }
                 return value;
             }
@@ -163,10 +172,13 @@ public class RecordToTableRowConverter {
             case BOOLEAN:
                 return tableFieldSchema.setName(name).setType("BOOLEAN");
             case ENUM:
+                return tableFieldSchema.setName(name).setType("STRING");
             case STRING:
                 final String sqlType = schema.getProp("sqlType");
                 if ("DATETIME".equals(sqlType)) {
                     return tableFieldSchema.setName(name).setType("DATETIME");
+                } else if("JSON".equalsIgnoreCase(sqlType)) {
+                    return tableFieldSchema.setName(name).setType("JSON");
                 } else if("GEOGRAPHY".equals(sqlType)) {
                     return tableFieldSchema.setName(name).setType("GEOGRAPHY");
                 }
@@ -191,6 +203,8 @@ public class RecordToTableRowConverter {
                     return tableFieldSchema.setName(name).setType("TIMESTAMP");
                 } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     return tableFieldSchema.setName(name).setType("TIME");
+                } else if(AvroSchemaUtil.isLogicalTypeLocalTimestampMillis(schema) || AvroSchemaUtil.isLogicalTypeLocalTimestampMicros(schema)) {
+                    return tableFieldSchema.setName(name).setType("DATETIME");
                 }
                 return tableFieldSchema.setName(name).setType("INTEGER");
             case FLOAT:

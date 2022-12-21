@@ -50,7 +50,14 @@ public class StructSchemaUtil {
         if(struct == null || fieldName == null) {
             return false;
         }
-        return struct.getType().getStructFields().stream()
+        return hasField(struct.getType(), fieldName);
+    }
+
+    public static boolean hasField(final Type type, final String fieldName) {
+        if(type == null || fieldName == null) {
+            return false;
+        }
+        return type.getStructFields().stream()
                 .anyMatch(f -> f.getName().equals(fieldName));
     }
 
@@ -73,6 +80,7 @@ public class StructSchemaUtil {
                 return struct.getDouble(fieldName);
             case NUMERIC:
                 return struct.getBigDecimal(fieldName);
+            case PG_JSONB:
             case PG_NUMERIC:
                 return struct.getString(fieldName);
             case DATE: {
@@ -109,6 +117,7 @@ public class StructSchemaUtil {
                 return struct.getDouble(field);
             case NUMERIC:
                 return struct.getBigDecimal(field);
+            case PG_JSONB:
             case PG_NUMERIC:
                 return struct.getString(field);
             case DATE:
@@ -139,6 +148,8 @@ public class StructSchemaUtil {
                 return Value.numeric(struct.getBigDecimal(field));
             case PG_NUMERIC:
                 return Value.pgNumeric(struct.getString(field));
+            case PG_JSONB:
+                return Value.pgJsonb(struct.getString(field));
             case STRING:
                 return Value.string(struct.getString(field));
             case JSON:
@@ -163,6 +174,8 @@ public class StructSchemaUtil {
                         return Value.numericArray(struct.getBigDecimalList(field));
                     case PG_NUMERIC:
                         return Value.pgNumericArray(struct.getStringList(field));
+                    case PG_JSONB:
+                        return Value.pgJsonbArray(struct.getStringList(field));
                     case STRING:
                         return Value.stringArray(struct.getStringList(field));
                     case JSON:
@@ -203,6 +216,7 @@ public class StructSchemaUtil {
                 return Double.toString(struct.getDouble(field));
             case NUMERIC:
                 return struct.getBigDecimal(field).toString();
+            case PG_JSONB:
             case PG_NUMERIC:
                 return struct.getString(field);
             case DATE:
@@ -2009,6 +2023,17 @@ public class StructSchemaUtil {
                 return builder.build();
             }
         }
+    }
+
+    public static Mutation convert(final Type type,
+                                   final Mutation mutation,
+                                   final String table,
+                                   final String mutationOp,
+                                   final Iterable<String> keyFields,
+                                   final List<String> allowCommitTimestampFields,
+                                   final Set<String> excludeFields,
+                                   final Set<String> hideFields) {
+        return mutation;
     }
 
     private static List<Type.StructField> flattenFields(final Type type, final List<String> paths, final String prefix, final boolean addPrefix) {

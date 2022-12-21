@@ -7,6 +7,7 @@ import com.google.common.io.BaseEncoding;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
+import org.apache.beam.sdk.schemas.logicaltypes.SqlTypes;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.joda.time.format.DateTimeFormat;
@@ -14,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -78,6 +80,10 @@ public class RowToTableRowConverter {
                     return ((LocalDate) value).format(FORMATTER_YYYY_MM_DD);
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return ((LocalTime) value).format(FORMATTER_HH_MM_SS);
+                } else if(RowSchemaUtil.isLogicalTypeDateTime(fieldType)) {
+                    final Row base = (Row) value;
+                    final LocalDateTime localDateTime = SqlTypes.DATETIME.toInputType(base);
+                    return localDateTime.format(FORMATTER_HH_MM_SS);
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     final EnumerationType.Value enumValue = (EnumerationType.Value) value;
                     return RowSchemaUtil.toString(fieldType, enumValue);
@@ -121,7 +127,7 @@ public class RowToTableRowConverter {
                 return tableFieldSchema.setName(fieldName).setType("BOOLEAN");
             case STRING: {
                 if(RowSchemaUtil.isSqlTypeJson(fieldOptions)) {
-                    //return tableFieldSchema.setName(fieldName).setType("JSON");
+                    return tableFieldSchema.setName(fieldName).setType("JSON");
                 }
                 return tableFieldSchema.setName(fieldName).setType("STRING");
             }
@@ -143,6 +149,8 @@ public class RowToTableRowConverter {
                     return tableFieldSchema.setName(fieldName).setType("DATE");
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return tableFieldSchema.setName(fieldName).setType("TIME");
+                } else if(RowSchemaUtil.isLogicalTypeDateTime(fieldType)) {
+                    return tableFieldSchema.setName(fieldName).setType("DATETIME");
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     final String values = fieldType.getLogicalType(EnumerationType.class).getValues().stream().collect(Collectors.joining(","));
                     return tableFieldSchema.setName(fieldName).setType("STRING").setDescription(values);

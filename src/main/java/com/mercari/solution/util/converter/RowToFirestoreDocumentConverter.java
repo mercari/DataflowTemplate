@@ -13,6 +13,7 @@ import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 
 import java.math.BigDecimal;
+import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,6 +33,54 @@ public class RowToFirestoreDocumentConverter {
             builder.putFields(field.getName(), getValue(field.getType(), row.getValue(field.getName())));
         }
         return builder.build();
+    }
+
+    public static Value getValue(final Schema.FieldType fieldType, final String strValue) {
+        if(strValue == null) {
+            return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+        }
+        switch (fieldType.getTypeName()) {
+            case BOOLEAN:
+                return getValue(fieldType, Boolean.valueOf(strValue));
+            case STRING:
+                return getValue(fieldType, strValue);
+            case BYTES:
+                return getValue(fieldType, Base64.getDecoder().decode(strValue));
+            case INT16:
+                return getValue(fieldType, Short.valueOf(strValue));
+            case INT32:
+                return getValue(fieldType, Integer.valueOf(strValue));
+            case INT64:
+                return getValue(fieldType, Long.valueOf(strValue));
+            case FLOAT:
+                return getValue(fieldType, Float.valueOf(strValue));
+            case DOUBLE:
+                return getValue(fieldType, Double.valueOf(strValue));
+            case DECIMAL:
+                return getValue(fieldType, BigDecimal.valueOf(Double.parseDouble(strValue)));
+            case DATETIME:
+                return getValue(fieldType, Instant.parse(strValue));
+            case LOGICAL_TYPE:
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return getValue(fieldType, strValue);
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return getValue(fieldType, strValue);
+                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                    return getValue(fieldType, Instant.parse(strValue));
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return getValue(fieldType, strValue);
+                } else {
+                    throw new IllegalArgumentException(
+                            "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
+                }
+            case BYTE:
+            case ROW:
+            case MAP:
+            case ITERABLE:
+            case ARRAY:
+            default:
+                throw new IllegalArgumentException();
+        }
     }
 
     private static Value getValue(final Schema.FieldType fieldType, final Object v) {

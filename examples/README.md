@@ -8,6 +8,7 @@ Try to find and arrange a configuration file that is similar to the data process
   * Data Transfer
     * [BigQuery to Cloud Spanner](bigquery-to-spanner.json)
     * [BigQuery to Cloud Storage(Parquet)](bigquery-to-parquet.json)
+    * [BigQuery to Cloud Firestore](bigquery-to-firestore.json)
     * [BigQuery to Cloud Datastore](bigquery-to-datastore.json)
     * [BigQuery to Cloud Bigtable](bigquery-to-bigtable.json)
     * [BigQuery to Cloud SQL](bigquery-to-jdbc.json)
@@ -21,6 +22,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Cloud Storage(CSV) to Cloud Spanner](csv-to-spanner.json)
     * [Cloud Storage(Avro) to Cloud Spanner](avro-to-spanner.json)
     * [Cloud Storage(Avro) to Cloud Datastore](avro-to-datastore.json)
+    * [Cloud Firestore to BigQuery](firestore-to-bigquery.json)
     * [Cloud Datastore to Cloud Storage(Avro)](datastore-to-avro.json)
     * [Cloud Datastore to Delete](datastore-to-delete.json)
     * [AWS S3(Avro) to Cloud Spanner](aws-avro-to-spanner.json)

@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -42,15 +43,20 @@ public class RowToMutationConverter {
     }
 
     public static Mutation convert(final Row row, final String table, final String mutationOp) {
-        return convert(null, row, table, mutationOp, null, null, null);
+        return convert(null, row, table, mutationOp, null, null, null, null);
     }
 
     // For DataTypeTransform.SpannerMutationDoFn interface
-    public static Mutation convert(final Schema schema, final Row row,
-                                   final String table, final String mutationOp, final Iterable<String> keyFields,
-                                   final Set<String> excludeFields, final Set<String> hideFields) {
+    public static Mutation convert(final Schema schema,
+                                   final Row row,
+                                   final String table,
+                                   final String mutationOp,
+                                   final Iterable<String> keyFields,
+                                   final List<String> commitTimestampFields,
+                                   final Set<String> excludeFields,
+                                   final Set<String> hideFields) {
 
-        if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
+        if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
             return StructSchemaUtil.createDeleteMutation(row, table, keyFields, Row::getValue);
         }
 
@@ -59,11 +65,12 @@ public class RowToMutationConverter {
             if(excludeFields != null && excludeFields.contains(field.getName())) {
                 continue;
             }
-            //Value.COMMIT_TIMESTAMP
+
             final boolean hide = hideFields != null && hideFields.contains(field.getName());
             final String fieldName = field.getName();
             final boolean isNullField = row.getValue(fieldName) == null;
             final boolean nullableField = field.getType().getNullable();
+            final boolean isCommitTimestampField = commitTimestampFields != null && commitTimestampFields.contains(fieldName);
             switch(field.getType().getTypeName()) {
                 case BOOLEAN:
                     final Boolean booleanValue = hide ? (nullableField ? null : false) : (isNullField ? null : row.getBoolean(fieldName));
@@ -111,18 +118,23 @@ public class RowToMutationConverter {
                     final BigDecimal decimalValue = hide ? (nullableField ? null : BigDecimal.ZERO) : (isNullField ? null : row.getDecimal(fieldName));
                     builder.set(fieldName).to(decimalValue);
                     break;
-                case DATETIME:
-                    final ReadableDateTime datetimeValue = hide ?
-                            (nullableField ? null : DateTime.now()) :
-                            (isNullField ? null : row.getDateTime(fieldName));
-                    final String allow_commit_timestamp = field.getOptions().hasOption("allow_commit_timestamp") ?
-                            field.getOptions().getValue("allow_commit_timestamp") : null;
-                    final Timestamp defaultTimestamp = "true".equalsIgnoreCase(allow_commit_timestamp) ? Value.COMMIT_TIMESTAMP : null;
-                    builder.set(fieldName).to(datetimeValue == null ? defaultTimestamp : Timestamp
-                            .parseTimestamp(datetimeValue
-                                    .toDateTime()
-                                    .toString(ISODateTimeFormat.dateTime())));
+                case DATETIME: {
+                    if(isCommitTimestampField) {
+                        builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                    } else {
+                        final ReadableDateTime datetimeValue = hide ?
+                                (nullableField ? null : DateTime.now()) :
+                                (isNullField ? null : row.getDateTime(fieldName));
+                        final String allow_commit_timestamp = field.getOptions().hasOption("allow_commit_timestamp") ?
+                                field.getOptions().getValue("allow_commit_timestamp") : null;
+                        final Timestamp defaultTimestamp = "true".equalsIgnoreCase(allow_commit_timestamp) ? Value.COMMIT_TIMESTAMP : null;
+                        builder.set(fieldName).to(datetimeValue == null ? defaultTimestamp : Timestamp
+                                .parseTimestamp(datetimeValue
+                                        .toDateTime()
+                                        .toString(ISODateTimeFormat.dateTime())));
+                    }
                     break;
+                }
                 case LOGICAL_TYPE:
                     if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
                         if(hide) {
@@ -146,14 +158,33 @@ public class RowToMutationConverter {
                                 (isNullField ? null : row.getLogicalTypeValue(fieldName, Instant.class).toString(FORMATTER_HH_MM_SS));
                         builder.set(fieldName).to(timeValue);
                     } else if(RowSchemaUtil.isLogicalTypeTimestamp(field.getType())) {
-                        LOG.info(DateTime.now().toDateTime()
-                                .toString(ISODateTimeFormat.dateTime()));
-                        final String datetimeStrValue = hide ?
-                                (nullableField ? null : "1970-01-01T00:00:00.00Z") :
-                                (isNullField ? null : row.getDateTime(fieldName)
-                                        .toDateTime()
-                                        .toString(ISODateTimeFormat.dateTime()));
-                        builder.set(fieldName).to(datetimeStrValue);
+                        if(isCommitTimestampField) {
+                            builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                        } else {
+                            final String datetimeStrValue = hide ?
+                                    (nullableField ? null : "1970-01-01T00:00:00.00Z") :
+                                    (isNullField ? null : row.getDateTime(fieldName)
+                                            .toDateTime()
+                                            .toString(ISODateTimeFormat.dateTime()));
+                            builder.set(fieldName).to(datetimeStrValue);
+                        }
+                    } else if(RowSchemaUtil.isLogicalTypeDateTime(field.getType())) {
+                        if(isCommitTimestampField) {
+                            builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                        } else {
+                            final Timestamp datetime;
+                            if(isNullField) {
+                                if(nullableField) {
+                                    datetime = null;
+                                } else {
+                                    datetime = Timestamp.ofTimeMicroseconds(0L);
+                                }
+                            } else {
+                                final LocalDateTime localDateTime = row.getLogicalTypeValue(fieldName, LocalDateTime.class);
+                                datetime = Timestamp.ofTimeSecondsAndNanos(localDateTime.getSecond(), localDateTime.getNano());
+                            }
+                            builder.set(fieldName).to(datetime);
+                        }
                     } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
                         final String timeValue = hide ?
                                 (nullableField ? null : field.getType().getLogicalType(EnumerationType.class).getValues().get(0)) :
@@ -162,7 +193,6 @@ public class RowToMutationConverter {
                     } else {
                         throw new IllegalArgumentException(
                                 "Unsupported Beam logical type: " + field.getType().getLogicalType().getIdentifier());
-
                     }
                     break;
                 case ROW:
@@ -304,6 +334,15 @@ public class RowToMutationConverter {
 
             }
         }
+
+        if(commitTimestampFields != null) {
+            for(final String commitTimestampField : commitTimestampFields) {
+                if(!schema.hasField(commitTimestampField)) {
+                    builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);
+                }
+            }
+        }
+
         return builder.build();
     }
 
@@ -331,7 +370,7 @@ public class RowToMutationConverter {
                 case BYTE:
                     break;
                 case ROW:
-                    final Mutation mutation = convert(schema, row, fieldName, mutationOp, null, null, null);
+                    final Mutation mutation = convert(schema, row, fieldName, mutationOp,null, null, null, null);
                     if(fieldName.equals(primaryField)) {
                         primary = mutation;
                     } else {
@@ -344,7 +383,7 @@ public class RowToMutationConverter {
                         break;
                     }
                     final List<Mutation> mutationArray = row.<Row>getArray(fieldName).stream()
-                            .map(r -> convert(r.getSchema(), r, fieldName, mutationOp, null, null, null))
+                            .map(r -> convert(r.getSchema(), r, fieldName, mutationOp,null, null, null, null))
                             .collect(Collectors.toList());
                     if(mutationArray.size() == 0) {
                         break;
@@ -394,6 +433,8 @@ public class RowToMutationConverter {
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return Type.string();
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                    return Type.timestamp();
+                } else if(RowSchemaUtil.isLogicalTypeDateTime(fieldType)) {
                     return Type.timestamp();
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     return Type.string();

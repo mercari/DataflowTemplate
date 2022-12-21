@@ -48,17 +48,6 @@ public class DataTypeTransform {
                 excludeFields, maskFields);
     }
 
-    public static PTransform<PCollection<?>, PCollection<Entity>> datastoreEntity(
-            final FCollection<?> input,
-            final String kind,
-            final List<String> keyFields) {
-
-        return new TypeTransform<>(
-                input, DataType.ENTITY, kind, keyFields,
-                null,
-                null, null);
-    }
-
     public static PTransform<PCollection<?>, PCollection<KV<String, ?>>> withKeys(
             final FCollection<?> inputCollection, final List<String> keyFields) {
         return new WithKeyTransform(inputCollection, keyFields);
@@ -153,7 +142,7 @@ public class DataTypeTransform {
                         case MUTATION: {
                             output = (PCollection<OutputT>) inputAvro
                                     .apply("RecordToMutation", ParDo.of(new SpannerMutationDoFn<>(
-                                            destination, spannerMutationOp, keyFields, excludeFields, maskFields,
+                                            destination, spannerMutationOp, keyFields, null, excludeFields, maskFields,
                                             inputAvroSchema,
                                             AvroSchemaUtil::convertSchema,
                                             RecordToMutationConverter::convert)))
@@ -190,7 +179,7 @@ public class DataTypeTransform {
                         case MUTATION: {
                             output = (PCollection<OutputT>) inputRow
                                     .apply("RowToMutation", ParDo.of(new SpannerMutationDoFn<Schema, Schema, Row>(
-                                            destination, spannerMutationOp, keyFields, excludeFields, maskFields,
+                                            destination, spannerMutationOp, keyFields, null, excludeFields, maskFields,
                                             RowToMutationConverter::convert)))
                                     .setCoder(SerializableCoder.of(Mutation.class));
                             this.outputCollection = FCollection.of(name, output, outputType, inputCollection.getSchema());
@@ -234,7 +223,7 @@ public class DataTypeTransform {
                         case MUTATION: {
                             output = (PCollection<OutputT>) inputStruct
                                     .apply("StructToMutation", ParDo.of(new SpannerMutationDoFn<Schema, Schema, Struct>(
-                                            destination, spannerMutationOp, keyFields, excludeFields, maskFields,
+                                            destination, spannerMutationOp, keyFields, null, excludeFields, maskFields,
                                             StructToMutationConverter::convert)))
                                     .setCoder(SerializableCoder.of(Mutation.class));
                             this.outputCollection = FCollection.of(name, output, outputType, inputCollection.getSpannerType());
@@ -280,7 +269,7 @@ public class DataTypeTransform {
                         case MUTATION: {
                             output = (PCollection<OutputT>) inputEntity
                                     .apply("EntityToMutation", ParDo.of(new SpannerMutationDoFn<>(
-                                            destination, spannerMutationOp, keyFields, excludeFields, maskFields,
+                                            destination, spannerMutationOp, keyFields, null, excludeFields, maskFields,
                                             inputCollection.getSpannerType(),
                                             s -> s,
                                             EntityToMutationConverter::convert)))
@@ -374,6 +363,7 @@ public class DataTypeTransform {
         private final String table;
         private final String mutationOp;
         private final List<String> keyFields;
+        private final List<String> allowCommitTimestampFields;
         private final Set<String> excludeFields;
         private final Set<String> maskFields;
 
@@ -384,13 +374,15 @@ public class DataTypeTransform {
         private transient OutputSchemaT runtimeSchema;
 
         private SpannerMutationDoFn(final String table, final String mutationOp, final List<String> keyFields,
+                                    final List<String> allowCommitTimestampFields,
                                     final Set<String> excludeFields, final Set<String> maskFields,
                                     final SpannerMutationConverter<OutputSchemaT, InputT> recordConverter) {
 
-            this(table, mutationOp, keyFields, excludeFields, maskFields, null, null, recordConverter);
+            this(table, mutationOp, keyFields, allowCommitTimestampFields, excludeFields, maskFields, null, null, recordConverter);
         }
 
         private SpannerMutationDoFn(final String table, final String mutationOp, final List<String> keyFields,
+                                    final List<String> allowCommitTimestampFields,
                                     final Set<String> excludeFields, final Set<String> maskFields,
                                     final InputSchemaT schema,
                                     final SchemaConverter<InputSchemaT, OutputSchemaT> schemaConverter,
@@ -398,6 +390,7 @@ public class DataTypeTransform {
             this.table = table;
             this.mutationOp = mutationOp;
             this.keyFields = keyFields;// == null ? null : Arrays.asList(keyFields.split(","));
+            this.allowCommitTimestampFields = allowCommitTimestampFields;
             this.excludeFields = excludeFields;
             this.maskFields = maskFields;
             this.schema = schema;
@@ -416,7 +409,7 @@ public class DataTypeTransform {
 
         @ProcessElement
         public void processElement(final @Element InputT input, final OutputReceiver<Mutation> receiver) {
-            final Mutation mutation = recordConverter.convert(runtimeSchema, input, table, mutationOp, keyFields, excludeFields, maskFields);
+            final Mutation mutation = recordConverter.convert(runtimeSchema, input, table, mutationOp, keyFields, allowCommitTimestampFields, excludeFields, maskFields);
             receiver.output(mutation);
         }
 
@@ -625,9 +618,14 @@ public class DataTypeTransform {
     }
 
     private interface SpannerMutationConverter<SchemaT, InputT> extends Serializable {
-        Mutation convert(final SchemaT schema, final InputT element,
-                         final String table, final String mutationOp, final Iterable<String> keyFields,
-                         final Set<String> excludeFields, final Set<String> maskFields);
+        Mutation convert(final SchemaT schema,
+                         final InputT element,
+                         final String table,
+                         final String mutationOp,
+                         final Iterable<String> keyFields,
+                         final List<String> allowCommitTimestampFields,
+                         final Set<String> excludeFields,
+                         final Set<String> maskFields);
     }
 
     private interface DatastoreEntityConverter<SchemaT, InputT> extends Serializable {

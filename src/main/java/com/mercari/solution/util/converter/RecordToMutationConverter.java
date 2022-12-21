@@ -30,9 +30,14 @@ public class RecordToMutationConverter {
         return convertFieldType(schema);
     }
 
-    public static Mutation convert(final Schema schema, final GenericRecord record,
-                                   final String table, final String mutationOp, final Iterable<String> keyFields,
-                                   final Set<String> excludeFields, final Set<String> hideFields) {
+    public static Mutation convert(final Schema schema,
+                                   final GenericRecord record,
+                                   final String table,
+                                   final String mutationOp,
+                                   final Iterable<String> keyFields,
+                                   final List<String> commitTimestampFields,
+                                   final Set<String> excludeFields,
+                                   final Set<String> hideFields) {
 
         if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
             return StructSchemaUtil.createDeleteMutation(record, table, keyFields, GenericRecord::get);
@@ -46,7 +51,16 @@ public class RecordToMutationConverter {
             final boolean hide = hideFields != null && hideFields.contains(field.name());
             final String fieldName = field.name();
             final Object value = record.get(fieldName);
-            setValue(builder, fieldName, field.schema(), value, hide, false);
+            final boolean isCommitTimestampField = commitTimestampFields != null && commitTimestampFields.contains(fieldName);
+            setValue(builder, fieldName, field.schema(), value, hide, false, isCommitTimestampField);
+        }
+
+        if(commitTimestampFields != null) {
+            for(final String commitTimestampField : commitTimestampFields) {
+                if(schema.getField(commitTimestampField) == null) {
+                    builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);
+                }
+            }
         }
         return builder.build();
     }
@@ -70,7 +84,7 @@ public class RecordToMutationConverter {
                 case MAP:
                     break;
                 case RECORD:
-                    final Mutation mutation = convert(schema, record, fieldName, mutationOp, null, null, null);
+                    final Mutation mutation = convert(schema, record, fieldName, mutationOp, null, null,null, null);
                     if(field.name().equals(primaryField)) {
                         primary = mutation;
                     } else {
@@ -82,7 +96,7 @@ public class RecordToMutationConverter {
                         break;
                     }
                     final List<Mutation> mutationArray = ((List<GenericRecord>)record.get(fieldName)).stream()
-                            .map(r -> convert(r.getSchema(), r, fieldName, mutationOp, null, null, null))
+                            .map(r -> convert(r.getSchema(), r, fieldName, mutationOp, null, null, null, null))
                             .collect(Collectors.toList());
                     if(mutationArray.size() == 0) {
                         break;
@@ -208,8 +222,12 @@ public class RecordToMutationConverter {
     }
 
     private static void setValue(final Mutation.WriteBuilder builder,
-                                 final String fieldName, final Schema schema, final Object value,
-                                 final boolean hide, final boolean nullableField) {
+                                 final String fieldName,
+                                 final Schema schema,
+                                 final Object value,
+                                 final boolean hide,
+                                 final boolean nullableField,
+                                 final boolean isCommitTimestampField) {
 
         final boolean isNullField = value == null;
         switch(schema.getType()) {
@@ -223,11 +241,11 @@ public class RecordToMutationConverter {
                         (nullableField ? null : "") :
                         (isNullField ? null : value.toString());
                 final String sqlType = schema.getProp("sqlType");
-                if("DATETIME".equals(sqlType)) {
+                if("DATETIME".equalsIgnoreCase(sqlType)) {
                     builder.set(fieldName).to(stringValue);
-                } else if("GEOGRAPHY".equals(sqlType)) {
+                } else if("GEOGRAPHY".equalsIgnoreCase(sqlType)) {
                     builder.set(fieldName).to(stringValue);
-                } else if("JSON".equals(sqlType)) {
+                } else if("JSON".equalsIgnoreCase(sqlType)) {
                     builder.set(fieldName).to(stringValue);
                 } else {
                     builder.set(fieldName).to(stringValue);
@@ -272,13 +290,21 @@ public class RecordToMutationConverter {
             case LONG:
                 final Long longValue = (Long)value;
                 if(LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
-                    final Timestamp timestampValue = hide ? (nullableField ? null : Timestamp.MIN_VALUE)
-                            : isNullField ? null : convertMicrosecToTimestamp(longValue * 1000);
-                    builder.set(fieldName).to(timestampValue);
+                    if(isCommitTimestampField) {
+                        builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                    } else {
+                        final Timestamp timestampValue = hide ? (nullableField ? null : Timestamp.MIN_VALUE)
+                                : isNullField ? null : convertMicrosecToTimestamp(longValue * 1000);
+                        builder.set(fieldName).to(timestampValue);
+                    }
                 } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
-                    final Timestamp timestampValue = hide ? (nullableField ? null : Timestamp.MIN_VALUE)
-                            : isNullField ? null : convertMicrosecToTimestamp(longValue);
-                    builder.set(fieldName).to(timestampValue);
+                    if(isCommitTimestampField) {
+                        builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                    } else {
+                        final Timestamp timestampValue = hide ? (nullableField ? null : Timestamp.MIN_VALUE)
+                                : isNullField ? null : convertMicrosecToTimestamp(longValue);
+                        builder.set(fieldName).to(timestampValue);
+                    }
                 } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     final String timeValue = hide ? (nullableField ? null : "00:00:00")
                             : isNullField ? null : convertNanosecToTimeString(longValue * 1000);
@@ -308,7 +334,7 @@ public class RecordToMutationConverter {
                         .filter(s -> !s.getType().equals(Schema.Type.NULL))
                         .findAny()
                         .orElseThrow(() -> new IllegalArgumentException(""));
-                setValue(builder, fieldName, unnested, value, hide, nullable);
+                setValue(builder, fieldName, unnested, value, hide, nullable, isCommitTimestampField);
                 break;
             case ARRAY: {
                 final List list = new ArrayList();
@@ -468,11 +494,11 @@ public class RecordToMutationConverter {
                 return Type.string();
             case STRING: {
                 final String sqlType = schema.getProp("sqlType");
-                if ("DATETIME".equals(sqlType)) {
+                if ("DATETIME".equalsIgnoreCase(sqlType)) {
                     return Type.string();
-                } else if("GEOGRAPHY".equals(sqlType)) {
+                } else if("GEOGRAPHY".equalsIgnoreCase(sqlType)) {
                     return Type.string();
-                } else if("JSON".equals(sqlType)) {
+                } else if("JSON".equalsIgnoreCase(sqlType)) {
                     return Type.json();
                 }
                 return Type.string();
@@ -533,11 +559,11 @@ public class RecordToMutationConverter {
             case STRING: {
                 final String stringValue = isNull ? null : object.toString();
                 final String sqlType = fieldSchema.getProp("sqlType");
-                if("DATETIME".equals(sqlType)) {
+                if("DATETIME".equalsIgnoreCase(sqlType)) {
                     return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(stringValue));
-                } else if("JSON".equals(sqlType)) {
+                } else if("JSON".equalsIgnoreCase(sqlType)) {
                     return Value.json(stringValue);
-                } else if("GEOGRAPHY".equals(sqlType)) {
+                } else if("GEOGRAPHY".equalsIgnoreCase(sqlType)) {
                     return Value.string(stringValue);
                 } else {
                     return Value.string(stringValue);
@@ -596,19 +622,19 @@ public class RecordToMutationConverter {
                     case ENUM:
                     case STRING: {
                         final String sqlType = elementSchema.getProp("sqlType");
-                        if("DATETIME".equals(sqlType)) {
+                        if("DATETIME".equalsIgnoreCase(sqlType)) {
                             return Value.timestampArray(isNull ? new ArrayList<>() : ((List<Object>)object)
                                     .stream()
                                     .filter(Objects::nonNull)
                                     .map(o -> Timestamp.parseTimestamp(o.toString()))
                                     .collect(Collectors.toList()));
-                        } else if("JSON".equals(sqlType)) {
+                        } else if("JSON".equalsIgnoreCase(sqlType)) {
                             return Value.jsonArray(isNull ? new ArrayList<>() : ((List<Object>)object)
                                     .stream()
                                     .filter(Objects::nonNull)
                                     .map(Object::toString)
                                     .collect(Collectors.toList()));
-                        } else if("GEOGRAPHY".equals(sqlType)) {
+                        } else if("GEOGRAPHY".equalsIgnoreCase(sqlType)) {
                             return Value.stringArray(isNull ? new ArrayList<>() : ((List<Object>)object)
                                     .stream()
                                     .filter(Objects::nonNull)

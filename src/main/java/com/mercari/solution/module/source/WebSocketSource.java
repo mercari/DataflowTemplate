@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.WebSocketHandshakeException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -56,6 +57,7 @@ public class WebSocketSource implements SourceModule {
 
         private Long intervalSeconds;
         private Long heartbeatIntervalSeconds;
+        private Long checkIntervalSeconds;
         private String receivedTimestampField;
         private String eventtimeField;
 
@@ -106,6 +108,14 @@ public class WebSocketSource implements SourceModule {
             this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
         }
 
+        public Long getCheckIntervalSeconds() {
+            return checkIntervalSeconds;
+        }
+
+        public void setCheckIntervalSeconds(Long checkIntervalSeconds) {
+            this.checkIntervalSeconds = checkIntervalSeconds;
+        }
+
         public String getReceivedTimestampField() {
             return receivedTimestampField;
         }
@@ -151,7 +161,7 @@ public class WebSocketSource implements SourceModule {
         }
 
         public void setIsArrayContent(Boolean isArrayContent) {
-            isArrayContent = isArrayContent;
+            this.isArrayContent = isArrayContent;
         }
 
         public Long getRequestIntervalSeconds() {
@@ -188,8 +198,13 @@ public class WebSocketSource implements SourceModule {
                 }
             }
             if(this.getHeartbeatIntervalSeconds() != null) {
-                if(this.getHeartbeatIntervalSeconds() < 1) {
+                if(this.getHeartbeatIntervalSeconds() < 0) {
                     errorMessages.add("WebSocket source module heartbeatIntervalSeconds parameter must over zero");
+                }
+            }
+            if(this.getCheckIntervalSeconds() != null) {
+                if(this.getCheckIntervalSeconds() < 0) {
+                    errorMessages.add("WebSocket source module checkIntervalSeconds parameter must over zero");
                 }
             }
             if(errorMessages.size() > 0) {
@@ -207,6 +222,9 @@ public class WebSocketSource implements SourceModule {
             if(this.getHeartbeatIntervalSeconds() == null) {
                 this.setHeartbeatIntervalSeconds(60L);
             }
+            if(this.getCheckIntervalSeconds() == null) {
+                this.setCheckIntervalSeconds(0L);
+            }
             if(this.getOutputType() == null) {
                 switch (this.getFormat()) {
                     case json: {
@@ -218,17 +236,17 @@ public class WebSocketSource implements SourceModule {
                         break;
                 }
             }
-            if(this.ignoreError == null) {
-                this.ignoreError = false;
+            if(this.getIgnoreError() == null) {
+                this.setIgnoreError(false);
             }
-            if(this.isArrayContent == null) {
-                this.isArrayContent = false;
+            if(this.getIsArrayContent() == null) {
+                this.setIsArrayContent(false);
             }
-            if(this.requestIntervalSeconds == null) {
-                this.requestIntervalSeconds = 0L;
+            if(this.getRequestIntervalSeconds() == null) {
+                this.setRequestIntervalSeconds(0L);
             }
-            if(this.pruning == null) {
-                this.pruning = false;
+            if(this.getPruning() == null) {
+                this.setPruning(false);
             }
         }
     }
@@ -426,6 +444,7 @@ public class WebSocketSource implements SourceModule {
         private final List<String> heartbeatRequests;
         private final Long intervalMillis;
         private final Long heartbeatIntervalMillis;
+        private final Long checkIntervalMillis;
         private final String receivedTimestampField;
         private final String eventtimeField;
         private final Boolean ignoreError;
@@ -458,6 +477,7 @@ public class WebSocketSource implements SourceModule {
             this.format = parameters.getFormat();
             this.intervalMillis = parameters.getIntervalSeconds() * 1000L;
             this.heartbeatIntervalMillis = parameters.getHeartbeatIntervalSeconds() * 1000L;
+            this.checkIntervalMillis = parameters.getCheckIntervalSeconds() * 1000L;
             this.receivedTimestampField = parameters.getReceivedTimestampField();
             this.eventtimeField = parameters.getEventtimeField();
             this.ignoreError = parameters.getIgnoreError();
@@ -535,7 +555,7 @@ public class WebSocketSource implements SourceModule {
                     return beats
                             .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(
                                     name, endpoint, requests,
-                                    heartbeatRequests, heartbeatIntervalMillis, requestIntervalMillis, pruning)))
+                                    heartbeatRequests, heartbeatIntervalMillis, checkIntervalMillis, requestIntervalMillis, pruning)))
                             .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()))
                             .apply("JsonToRecord", ParDo
                                     .of(new JsonConvertDoFn<>(
@@ -554,16 +574,26 @@ public class WebSocketSource implements SourceModule {
 
         private static class WebSocketDoFn extends DoFn<KV<String, Long>, KV<Instant, String>> {
 
-            @StateId("beatState")
+            private static final String STATE_ID_BEAT = "beatState";
+            private static final String STATE_ID_HEARTBEAT_EPOCH_MILLIS = "heartbeatPrevState";
+            private static final String STATE_ID_CHECK_EPOCH_MILLIS = "checkPrevState";
+            private static final String STATE_ID_INTERVAL_MESSAGE_COUNT = "intervalMessageCountState";
+
+            @StateId(STATE_ID_BEAT)
             private final StateSpec<ValueState<Long>> beatStateSpec = StateSpecs.value(BigEndianLongCoder.of());
-            @StateId("prevState")
-            private final StateSpec<ValueState<Long>> prevStateSpec = StateSpecs.value(BigEndianLongCoder.of());
+            @StateId(STATE_ID_HEARTBEAT_EPOCH_MILLIS)
+            private final StateSpec<ValueState<Long>> prevHeartbeatStateSpec = StateSpecs.value(BigEndianLongCoder.of());
+            @StateId(STATE_ID_CHECK_EPOCH_MILLIS)
+            private final StateSpec<ValueState<Long>> prevCheckStateSpec = StateSpecs.value(BigEndianLongCoder.of());
+            @StateId(STATE_ID_INTERVAL_MESSAGE_COUNT)
+            private final StateSpec<ValueState<Integer>> intervalMessageCountStateSpec = StateSpecs.value(BigEndianIntegerCoder.of());
 
             private final String name;
             private final String endpoint;
             private final List<String> requests;
             private final List<String> heartbeatRequests;
             private final Long heartbeatIntervalMillis;
+            private final Long checkIntervalMillis;
             private final Long requestIntervalMillis;
             private final Boolean pruning;
 
@@ -575,6 +605,7 @@ public class WebSocketSource implements SourceModule {
                           final List<String> requests,
                           final List<String> heartbeatRequests,
                           final Long heartbeatIntervalMillis,
+                          final Long checkIntervalMillis,
                           final Long requestIntervalMillis,
                           final Boolean pruning) {
 
@@ -583,6 +614,7 @@ public class WebSocketSource implements SourceModule {
                 this.requests = requests;
                 this.heartbeatRequests = heartbeatRequests;
                 this.heartbeatIntervalMillis = heartbeatIntervalMillis;
+                this.checkIntervalMillis = checkIntervalMillis;
                 this.requestIntervalMillis = requestIntervalMillis;
                 this.pruning = pruning;
             }
@@ -596,52 +628,91 @@ public class WebSocketSource implements SourceModule {
             }
 
             @Setup
-            public void setup() throws Exception {
+            public void setup() throws InterruptedException, ExecutionException {
                 LOG.info("WebSocket[" + name + "] setup");
-                connect();
+                try {
+                    connect();
+                } catch (final ExecutionException e) {
+                    final String message;
+                    if(e.getCause() instanceof WebSocketHandshakeException) {
+                        final WebSocketHandshakeException hse = (WebSocketHandshakeException) e.getCause();
+                        message = "WebSocket[" + name + "] setup failed to connect. WebSocketHandshakeException.statusCode: " + hse.getResponse().statusCode() + ", body: "  + hse.getResponse().body();
+                    } else {
+                        message = "WebSocket[" + name + "] setup failed to connect. cause: " + e.getCause() + ", message: "  + e.getMessage();
+                    }
+                    LOG.error(message);
+                    throw new IllegalStateException(message, e);
+                }
             }
 
             @Teardown
             public void teardown() throws InterruptedException, ExecutionException {
                 LOG.info("WebSocket[" + name + "] teardown");
-                final CompletableFuture<java.net.http.WebSocket> end = socket.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, "");
-                end.get();
+                final CompletableFuture<java.net.http.WebSocket> comp = socket.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, "");
+                this.socket = comp.get();
             }
 
             @ProcessElement
             public void processElement(final ProcessContext c,
-                                       final @StateId("beatState") ValueState<Long> beatState,
-                                       final @StateId("prevState") ValueState<Long> prevState)
+                                       final @StateId(STATE_ID_BEAT) ValueState<Long> beatState,
+                                       final @StateId(STATE_ID_HEARTBEAT_EPOCH_MILLIS) ValueState<Long> prevHeartbeatEpochMillisState,
+                                       final @StateId(STATE_ID_CHECK_EPOCH_MILLIS) ValueState<Long> prevCheckEpochMillisState,
+                                       final @StateId(STATE_ID_INTERVAL_MESSAGE_COUNT) @AlwaysFetched ValueState<Integer> intervalMessageCountState)
                     throws InterruptedException, ExecutionException {
 
+                int messageCount = Optional.ofNullable(intervalMessageCountState.read()).orElse(0);
                 synchronized (listener) {
+                    final List<KV<Instant, String>> messages = listener.getMessages();
+                    messageCount += messages.size();
                     if(pruning) {
-                        if(listener.getMessages().size() > 0) {
-                            final KV<Instant, String> message = listener.getMessages().get(listener.getMessages().size() - 1);
+                        if(messages.size() > 0) {
+                            final KV<Instant, String> message = messages.get(messages.size() - 1);
                             c.output(message);
                         }
                     } else {
-                        for(final KV<Instant, String> message : listener.getMessages()) {
+                        for(final KV<Instant, String> message : messages) {
                             c.output(message);
                         }
                     }
                     listener.clearMessages();
                 }
 
-                if(listener.isClosed()) {
+                if(this.listener.isClosed()) {
+                    LOG.warn("WebSocket[" + name + "] is closed. Start connection");
                     connect();
-                } else if(this.heartbeatRequests != null) {
-                    final long prevEpochMillis = Optional.ofNullable(prevState.read()).orElse(0L);
-                    final long nextEpochMillis = Instant.now().getMillis();
-                    if(nextEpochMillis - prevEpochMillis > this.heartbeatIntervalMillis) {
-                        for(final String request : this.heartbeatRequests) {
-                            socket.sendText(request, true);
+                } else if(this.socket.isOutputClosed()) {
+                    LOG.warn("WebSocket[" + name + "] output is closed. Start connection");
+                    connect();
+                } else if(this.socket.isInputClosed()) {
+                    LOG.warn("WebSocket[" + name + "] input is closed. Start connection");
+                    connect();
+                } else {
+                    if(this.heartbeatRequests != null && this.heartbeatRequests.size() > 0) {
+                        final long prevEpochMillis = Optional.ofNullable(prevHeartbeatEpochMillisState.read()).orElse(0L);
+                        final long nextEpochMillis = Instant.now().getMillis();
+                        if(nextEpochMillis - prevEpochMillis > this.heartbeatIntervalMillis) {
+                            for (final String request : this.heartbeatRequests) {
+                                this.socket.sendText(request, true);
+                            }
+                            prevHeartbeatEpochMillisState.write(nextEpochMillis);
                         }
-                        prevState.write(nextEpochMillis);
+                    }
+                    if(this.checkIntervalMillis > 0L) {
+                        final long prevEpochMillis = Optional.ofNullable(prevCheckEpochMillisState.read()).orElseGet(() -> Instant.now().getMillis());
+                        final long nextEpochMillis = Instant.now().getMillis();
+                        if(nextEpochMillis - prevEpochMillis > this.checkIntervalMillis) {
+                            if (messageCount == 0) {
+                                LOG.warn("WebSocket[" + name + "] no message in fixed millis: " + heartbeatIntervalMillis + ". Start connection");
+                                connect();
+                            }
+                            messageCount = 0;
+                            prevCheckEpochMillisState.write(nextEpochMillis);
+                        }
                     }
                 }
 
                 beatState.write(c.element().getValue());
+                intervalMessageCountState.write(messageCount);
             }
 
             private class Listener implements java.net.http.WebSocket.Listener {

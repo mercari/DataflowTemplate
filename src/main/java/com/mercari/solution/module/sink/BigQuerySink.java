@@ -22,6 +22,7 @@ import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PInput;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
 import org.joda.time.Duration;
@@ -217,6 +218,71 @@ public class BigQuerySink implements SinkModule {
         public void setNumStorageWriteApiStreams(Integer numStorageWriteApiStreams) {
             this.numStorageWriteApiStreams = numStorageWriteApiStreams;
         }
+
+        private void validate() {
+            if(this.getTable() == null) {
+                throw new IllegalArgumentException("BigQuery output module requires table parameter!");
+            }
+        }
+
+        private void setDefaults(final PInput input) {
+            if(this.getWriteDisposition() == null) {
+                this.setWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_EMPTY.name());
+            } else {
+                this.setWriteDisposition(this.getWriteDisposition().trim().toUpperCase());
+            }
+
+            if(this.getCreateDisposition() == null) {
+                this.setCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_NEVER.name());
+            } else {
+                this.setCreateDisposition(this.getCreateDisposition().trim().toUpperCase());
+            }
+
+            if(this.getMethod() == null) {
+                this.setMethod(BigQueryIO.Write.Method.DEFAULT);
+            }
+
+            if(this.getSkipInvalidRows() == null) {
+                this.setSkipInvalidRows(false);
+            }
+            if(this.getIgnoreUnknownValues() == null) {
+                this.setIgnoreUnknownValues(false);
+            }
+            if(this.getIgnoreInsertIds() == null) {
+                this.setIgnoreInsertIds(false);
+            }
+            if(this.getWithExtendedErrorInfo() == null) {
+                this.setWithExtendedErrorInfo(false);
+            }
+            if(this.getFailedInsertRetryPolicy() == null) {
+                this.setFailedInsertRetryPolicy(FailedInsertRetryPolicy.always);
+            }
+
+            if(this.getOptimizedWrites() == null) {
+                this.setOptimizedWrites(false);
+            }
+            if(BigQueryIO.Write.Method.FILE_LOADS.equals(this.getMethod())
+                    || BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(this.getMethod())
+                    || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(this.getMethod())) {
+                if(this.getTriggeringFrequencySecond() == null) {
+                    if(OptionUtil.isStreaming(input)) {
+                        this.setTriggeringFrequencySecond(10L);
+                    }
+                } else {
+                    if(!OptionUtil.isStreaming(input)) {
+                        LOG.warn("triggeringFrequencySecond must not be set in batch mode");
+                        this.setTriggeringFrequencySecond(null);
+                    }
+                }
+                if(this.getNumStorageWriteApiStreams() == null) {
+                    this.setAutoSharding(true);
+                }
+            }
+            if(this.getAutoSharding() == null) {
+                this.setAutoSharding(false);
+            }
+
+        }
     }
 
     private enum FailedInsertRetryPolicy {
@@ -354,12 +420,12 @@ public class BigQuerySink implements SinkModule {
         }
 
         public PCollection<GenericRecord> expand(final PCollection<T> input) {
-            validateParameters();
-            setDefaultParameters();
+            this.parameters.validate();
+            this.parameters.setDefaults(input);
 
-            final boolean isStreaming = OptionUtil.isStreaming(input.getPipeline().getOptions());
-            final boolean useRow = OptionUtil.isStreaming(input.getPipeline().getOptions())
-                    && BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod());
+            final boolean isStreaming = OptionUtil.isStreaming(input);
+            final boolean useRow = BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
+                    || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod());
 
             final WriteResult writeResult;
             if(useRow) {
@@ -403,8 +469,8 @@ public class BigQuerySink implements SinkModule {
                     BigQueryIO.Write.Method.STREAMING_INSERTS.equals(parameters.getMethod())
                             || (BigQueryIO.Write.Method.DEFAULT.equals(parameters.getMethod()) && isStreaming);
             final boolean isStorageApiInsert =
-                    isStreaming && (BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
-                            || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod()));
+                    BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
+                            || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod());
 
             if(isStreamingInsert) {
                 if(parameters.getWithExtendedErrorInfo()) {
@@ -502,8 +568,12 @@ public class BigQuerySink implements SinkModule {
                     case STORAGE_WRITE_API: {
                         write = write
                                 .withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()))
-                                .withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams())
                                 .useBeamSchema();
+                        if(parameters.getAutoSharding()) {
+                            write = write.withAutoSharding();
+                        } else if(parameters.getNumStorageWriteApiStreams() != null) {
+                            write = write.withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams());
+                        }
                         break;
                     }
                     case STORAGE_API_AT_LEAST_ONCE: {
@@ -528,10 +598,33 @@ public class BigQuerySink implements SinkModule {
                             .withFormatFunction(convertTableRowFunction);
                 } else {
                     LOG.info("BigQuerySink: AvroWrite mode.");
-                    write = write
-                            .withAvroSchemaFactory(TableRowToRecordConverter::convertSchema)
-                            .withAvroFormatFunction(convertAvroFunction)
-                            .useAvroLogicalTypes();
+                    switch (parameters.getMethod()) {
+                        case FILE_LOADS:
+                            write = write
+                                    .withAvroSchemaFactory(TableRowToRecordConverter::convertSchema)
+                                    .withAvroFormatFunction(convertAvroFunction)
+                                    .useAvroLogicalTypes();
+                            break;
+                        case STORAGE_WRITE_API:
+                        case STORAGE_API_AT_LEAST_ONCE: {
+                            write = write.useBeamSchema();
+                            if(parameters.getAutoSharding()) {
+                                write = write.withAutoSharding();
+                            } else if(parameters.getNumStorageWriteApiStreams() != null) {
+                                write = write.withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams());
+                            }
+                            break;
+                        }
+                        case DEFAULT:
+                        case STREAMING_INSERTS: {
+                            write = write.withFormatFunction(convertTableRowFunction);
+                            if(parameters.getAutoSharding()) {
+                                write = write.withAutoSharding();
+                            }
+                            break;
+                        }
+                    }
+
                 }
 
                 if(parameters.getSchemaUpdateOptions() != null && parameters.getSchemaUpdateOptions().size() > 0) {
@@ -540,63 +633,6 @@ public class BigQuerySink implements SinkModule {
             }
 
             return write;
-        }
-
-        private void validateParameters() {
-            if(this.parameters.getTable() == null) {
-                throw new IllegalArgumentException("BigQuery output module requires table parameter!");
-            }
-        }
-
-        private void setDefaultParameters() {
-            if(this.parameters.getWriteDisposition() == null) {
-                this.parameters.setWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_EMPTY.name());
-            } else {
-                this.parameters.setWriteDisposition(this.parameters.getWriteDisposition().trim().toUpperCase());
-            }
-
-            if(this.parameters.getCreateDisposition() == null) {
-                this.parameters.setCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_NEVER.name());
-            } else {
-                this.parameters.setCreateDisposition(this.parameters.getCreateDisposition().trim().toUpperCase());
-            }
-
-            if(this.parameters.getMethod() == null) {
-                this.parameters.setMethod(BigQueryIO.Write.Method.DEFAULT);
-            }
-
-            if(parameters.getSkipInvalidRows() == null) {
-                parameters.setSkipInvalidRows(false);
-            }
-            if(parameters.getIgnoreUnknownValues() == null) {
-                parameters.setIgnoreUnknownValues(false);
-            }
-            if(parameters.getIgnoreInsertIds() == null) {
-                parameters.setIgnoreInsertIds(false);
-            }
-            if(parameters.getWithExtendedErrorInfo() == null) {
-                parameters.setWithExtendedErrorInfo(false);
-            }
-            if(parameters.getFailedInsertRetryPolicy() == null) {
-                parameters.setFailedInsertRetryPolicy(FailedInsertRetryPolicy.always);
-            }
-
-            if(parameters.getOptimizedWrites() == null) {
-                parameters.setOptimizedWrites(false);
-            }
-            if(parameters.getAutoSharding() == null) {
-                parameters.setAutoSharding(false);
-            }
-            if(BigQueryIO.Write.Method.FILE_LOADS.equals(parameters.getMethod())
-                    || BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())) {
-                if(parameters.getTriggeringFrequencySecond() == null) {
-                    parameters.setTriggeringFrequencySecond(10L);
-                }
-                if(parameters.getNumStorageWriteApiStreams() == null) {
-                    parameters.setNumStorageWriteApiStreams(10);
-                }
-            }
-
         }
 
         private static class ToRowDoFn<T> extends DoFn<T, Row> {
