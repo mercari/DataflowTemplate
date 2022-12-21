@@ -137,7 +137,8 @@ public class RowToRecordConverter {
                 && !org.apache.beam.sdk.schemas.Schema.TypeName.ARRAY.equals(fieldType.getTypeName())
                 && !org.apache.beam.sdk.schemas.Schema.TypeName.ITERABLE.equals(fieldType.getTypeName())) {
             for(final String optionName : fieldOptions.getOptionNames()) {
-                fieldSchema.addProp(optionName, fieldOptions.getValue(optionName, String.class));
+                final Object optionValue = fieldOptions.getValue(optionName);
+                fieldSchema.addProp(optionName, optionValue);
             }
         }
 
