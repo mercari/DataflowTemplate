@@ -4,6 +4,7 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
+import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -62,65 +63,88 @@ public class RowToRecordConverter {
             final String fieldName,
             final String parentNamespace) {
 
+        final Schema fieldSchema;
         switch (fieldType.getTypeName()) {
             case BOOLEAN:
-                return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_BOOLEAN : AvroSchemaUtil.REQUIRED_BOOLEAN;
+                fieldSchema = Schema.create(Schema.Type.BOOLEAN);
+                break;
             case STRING:
-                return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_STRING : AvroSchemaUtil.REQUIRED_STRING;
+                fieldSchema = Schema.create(Schema.Type.STRING);
+                break;
             case BYTES:
-                return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_BYTES : AvroSchemaUtil.REQUIRED_BYTES;
+                fieldSchema = Schema.create(Schema.Type.BYTES);
+                break;
             case DECIMAL:
-                return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_LOGICAL_DECIMAL_TYPE : AvroSchemaUtil.REQUIRED_LOGICAL_DECIMAL_TYPE;
+                fieldSchema = LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES));
+                break;
             case INT16:
             case INT32:
+                fieldSchema = Schema.create(Schema.Type.INT);
+                break;
             case INT64:
-                return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_LONG : AvroSchemaUtil.REQUIRED_LONG;
+                fieldSchema = Schema.create(Schema.Type.LONG);
+                break;
             case FLOAT:
+                fieldSchema = Schema.create(Schema.Type.FLOAT);
+                break;
             case DOUBLE:
-                return fieldType.getNullable() ? AvroSchemaUtil.NULLABLE_DOUBLE : AvroSchemaUtil.REQUIRED_DOUBLE;
+                fieldSchema = Schema.create(Schema.Type.DOUBLE);
+                break;
             case DATETIME:
-                return fieldType.getNullable() ?
-                        AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE :
-                        AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
+                fieldSchema = LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));
+                break;
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return fieldType.getNullable() ?
-                            AvroSchemaUtil.NULLABLE_LOGICAL_DATE_TYPE :
-                            AvroSchemaUtil.REQUIRED_LOGICAL_DATE_TYPE;
+                    fieldSchema = LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT));
+                    break;
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return fieldType.getNullable() ?
-                            AvroSchemaUtil.NULLABLE_LOGICAL_TIME_MICRO_TYPE :
-                            AvroSchemaUtil.REQUIRED_LOGICAL_TIME_MICRO_TYPE;
+                    fieldSchema = LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG));
+                    break;
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-                    return fieldType.getNullable() ?
-                            AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE :
-                            AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE;
+                    fieldSchema = LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));
+                    break;
+                } else if(RowSchemaUtil.isLogicalTypeDateTime(fieldType)) {
+                    fieldSchema = (new LogicalType("local-timestamp-micros")).addToSchema(Schema.create(Schema.Type.LONG));
+                    break;
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     final String doc = fieldType.getLogicalType(EnumerationType.class).getValues().stream().collect(Collectors.joining(","));
-                    final Schema enumSchema = Schema.createEnum(fieldName, doc, parentNamespace, fieldType.getLogicalType(EnumerationType.class).getValues());
-                    return fieldType.getNullable() ?
-                            Schema.createUnion(enumSchema, Schema.create(Schema.Type.NULL)) :
-                            enumSchema;
+                    fieldSchema = Schema.createEnum(fieldName, doc, parentNamespace, fieldType.getLogicalType(EnumerationType.class).getValues());
+                    break;
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
-            case ROW:
+            case ROW: {
                 final String namespace = (parentNamespace == null ? fieldName : parentNamespace + "." + fieldName).toLowerCase();
                 final List<Schema.Field> fields = fieldType.getRowSchema().getFields().stream()
-                        .map(f -> new Schema.Field(f.getName(), convertFieldSchema(f.getType(), f.getOptions(), f.getName(), namespace), f.getDescription(), (Object)null, Schema.Field.Order.IGNORE))
+                        .map(f -> new Schema.Field(f.getName(), convertFieldSchema(f.getType(), f.getOptions(), f.getName(), namespace), f.getDescription(), (Object) null, Schema.Field.Order.IGNORE))
                         .collect(Collectors.toList());
-                final Schema rowSchema = Schema.createRecord(fieldName, fieldType.getTypeName().name(), namespace, false, fields);
-                return fieldType.getNullable() ? Schema.createUnion(Schema.create(Schema.Type.NULL), rowSchema) : rowSchema;
+                fieldSchema = Schema.createRecord(fieldName, fieldType.getTypeName().name(), namespace, false, fields);
+                break;
+            }
             case ITERABLE:
             case ARRAY: {
-                final Schema arraySchema = Schema.createArray(convertFieldSchema(fieldType.getCollectionElementType(), fieldOptions, fieldName, parentNamespace));
-                return fieldType.getNullable() ? Schema.createUnion(Schema.create(Schema.Type.NULL), arraySchema) : arraySchema;
+                fieldSchema = Schema.createArray(convertFieldSchema(fieldType.getCollectionElementType(), fieldOptions, fieldName, parentNamespace));
+                break;
             }
             case MAP:
             case BYTE:
             default:
                 throw new IllegalArgumentException(fieldType.getTypeName().name() + " is not supported for bigquery.");
+        }
+
+        if(fieldOptions != null
+                && !org.apache.beam.sdk.schemas.Schema.TypeName.ARRAY.equals(fieldType.getTypeName())
+                && !org.apache.beam.sdk.schemas.Schema.TypeName.ITERABLE.equals(fieldType.getTypeName())) {
+            for(final String optionName : fieldOptions.getOptionNames()) {
+                fieldSchema.addProp(optionName, fieldOptions.getValue(optionName, String.class));
+            }
+        }
+
+        if(fieldType.getNullable()) {
+            return Schema.createUnion(Schema.create(Schema.Type.NULL), fieldSchema);
+        } else {
+            return fieldSchema;
         }
     }
 

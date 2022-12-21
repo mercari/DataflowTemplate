@@ -5,6 +5,7 @@ import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
+import org.apache.beam.sdk.schemas.logicaltypes.SqlTypes;
 import org.apache.beam.sdk.values.Row;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
@@ -20,6 +21,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RowSchemaUtil {
+
+    private static final Schema.FieldType REQUIRED_LOGICAL_DATETIME = Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(false);
+    private static final Schema.FieldType NULLABLE_LOGICAL_DATETIME = Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(true);
 
     public static Schema.Builder toBuilder(final Schema schema) {
         return toBuilder(schema, null, false);
@@ -351,6 +355,9 @@ public class RowSchemaUtil {
     }
 
     public static boolean isLogicalTypeDate(final Schema.FieldType fieldType) {
+        if(fieldType.getLogicalType() == null) {
+            return false;
+        }
         return CalciteUtils.DATE.typesEqual(fieldType) ||
                 CalciteUtils.NULLABLE_DATE.typesEqual(fieldType) ||
                 fieldType.getLogicalType().getIdentifier().equals(CalciteUtils.DATE.getLogicalType().getIdentifier()) ||
@@ -358,6 +365,9 @@ public class RowSchemaUtil {
     }
 
     public static boolean isLogicalTypeTime(final Schema.FieldType fieldType) {
+        if(fieldType.getLogicalType() == null) {
+            return false;
+        }
         return CalciteUtils.TIME.typesEqual(fieldType) ||
                 CalciteUtils.NULLABLE_TIME.typesEqual(fieldType) ||
                 fieldType.getLogicalType().getIdentifier().equals(CalciteUtils.TIME.getLogicalType().getIdentifier()) ||
@@ -365,11 +375,24 @@ public class RowSchemaUtil {
     }
 
     public static boolean isLogicalTypeEnum(final Schema.FieldType fieldType) {
+        if(fieldType.getLogicalType() == null) {
+            return false;
+        }
         return fieldType.getLogicalType().getIdentifier().equals(EnumerationType.IDENTIFIER);
     }
 
     public static boolean isLogicalTypeTimestamp(final Schema.FieldType fieldType) {
+        if(fieldType.getLogicalType() == null) {
+            return false;
+        }
         return CalciteUtils.TIMESTAMP.typesEqual(fieldType) || CalciteUtils.NULLABLE_TIMESTAMP.typesEqual(fieldType);
+    }
+
+    public static boolean isLogicalTypeDateTime(final Schema.FieldType fieldType) {
+        if(fieldType.getLogicalType() == null) {
+            return false;
+        }
+        return REQUIRED_LOGICAL_DATETIME.typesEqual(fieldType) || NULLABLE_LOGICAL_DATETIME.typesEqual(fieldType);
     }
 
     public static boolean isSqlTypeJson(final Schema.Options fieldOptions) {
@@ -380,10 +403,7 @@ public class RowSchemaUtil {
             return false;
         }
         final String sqlType = fieldOptions.getValue("sqlType", String.class);
-        if("json".equalsIgnoreCase(sqlType)) {
-            return true;
-        }
-        return false;
+        return "json".equalsIgnoreCase(sqlType);
     }
 
     public static Object getValue(final Row row, final String fieldName) {

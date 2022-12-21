@@ -6,9 +6,10 @@ public enum DataType implements Serializable {
     ROW,
     AVRO,
     STRUCT,
-    TEXT,
     ENTITY,
+    DOCUMENT,
     MUTATION,
     MUTATIONGROUP,
-    BIGTABLE
+    BIGTABLE,
+    TEXT
 }

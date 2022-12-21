@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -166,6 +167,23 @@ public class RowToMutationConverter {
                                             .toDateTime()
                                             .toString(ISODateTimeFormat.dateTime()));
                             builder.set(fieldName).to(datetimeStrValue);
+                        }
+                    } else if(RowSchemaUtil.isLogicalTypeDateTime(field.getType())) {
+                        if(isCommitTimestampField) {
+                            builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+                        } else {
+                            final Timestamp datetime;
+                            if(isNullField) {
+                                if(nullableField) {
+                                    datetime = null;
+                                } else {
+                                    datetime = Timestamp.ofTimeMicroseconds(0L);
+                                }
+                            } else {
+                                final LocalDateTime localDateTime = row.getLogicalTypeValue(fieldName, LocalDateTime.class);
+                                datetime = Timestamp.ofTimeSecondsAndNanos(localDateTime.getSecond(), localDateTime.getNano());
+                            }
+                            builder.set(fieldName).to(datetime);
                         }
                     } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
                         final String timeValue = hide ?
@@ -415,6 +433,8 @@ public class RowToMutationConverter {
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return Type.string();
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                    return Type.timestamp();
+                } else if(RowSchemaUtil.isLogicalTypeDateTime(fieldType)) {
                     return Type.timestamp();
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     return Type.string();
