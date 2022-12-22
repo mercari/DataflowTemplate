@@ -27,7 +27,7 @@ PubSub sink module publishes record to the specified PubSub topic.
 | protobufDescriptor  | optional | String         | When `protobuf` is specified as the `format`, specify the path of the GCS where the descriptor file for serialization is located.                                                                                                                                                   |
 | protobufMessageName | optional | String         | When `protobuf` is specified as the `format`, Specify the full name(contains package name) of the target message.                                                                                                                                                                   |
 
-* If you specify `orderingKeyFields`, specify 1 for `maxBatchSize`. This is because the current [PubSubIO does not support ordering key](https://issues.apache.org/jira/browse/BEAM-13148).
+* If you specify `orderingKeyFields`, `maxBatchSize` is automatically set to 1. This is because the current [PubSubIO does not support grouping by orderingKey](https://issues.apache.org/jira/browse/BEAM-13148).
 
 ## Related example config files
 

@@ -135,30 +135,27 @@ public class PubSubSink implements SinkModule {
             this.maxBatchBytesSize = maxBatchBytesSize;
         }
 
-        private void validate() {
+        private void validate(final String name) {
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
             if(this.getTopic() == null) {
-                errorMessages.add("PubSub sink module parameter must contain topic");
+                errorMessages.add("PubSub sink module " + name + " parameter must contain topic");
             }
             if(this.getFormat() == null) {
-                errorMessages.add("PubSub sink module parameter must contain format");
+                errorMessages.add("PubSub sink module " + name + " parameter must contain format");
             }
             if(this.getFormat() != null) {
                 if(this.getFormat().equals(Format.protobuf)) {
                     if(this.getProtobufDescriptor() == null) {
-                        errorMessages.add("PubSub sink module parameter must contain protobufDescriptor when set format `protobuf`");
+                        errorMessages.add("PubSub sink module " + name + " parameter must contain protobufDescriptor when set format `protobuf`");
                     }
                     if(this.getProtobufMessageName() == null) {
-                        errorMessages.add("PubSub sink module parameter must contain protobufMessageName when set format `protobuf`");
+                        errorMessages.add("PubSub sink module " + name + " parameter must contain protobufMessageName when set format `protobuf`");
                     }
                 }
             }
-            if(this.maxBatchSize != null) {
-
-            }
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -201,7 +198,7 @@ public class PubSubSink implements SinkModule {
         if(parameters == null) {
             throw new IllegalArgumentException("PubSub source module parameters must not be empty!");
         }
-        parameters.validate();
+        parameters.validate(config.getName());
         parameters.setDefaults();
 
         final Write write = new Write(collection, parameters, waits);
