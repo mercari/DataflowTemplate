@@ -8,7 +8,6 @@
       "name": "dummyInput",
       "module": "dummy",
       "parameters": {
-        "outputType": "row",
         "template": {
           "seq": "${_SEQUENCE}",
           "name": "parent",
