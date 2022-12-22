@@ -50,3 +50,5 @@ Try to find and arrange a configuration file that is similar to the data process
     * [BigQuery(Microbatch) to Spanner](bigquery-microbatch-to-spanner.json)
   * Data Flow Control
     * [Union PubSub messages to BigQuery](pubsub-to-union-to-bigquery.json)
+  * Dummy data generate
+    * [Dummy to PubSub](dummy-to-pubsub.json)

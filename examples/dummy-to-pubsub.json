@@ -1,0 +1,46 @@
+{
+  "name": "dummy-to-pubsub",
+  "settings": {
+    "streaming": true
+  },
+  "sources": [
+    {
+      "name": "dummyInput",
+      "module": "dummy",
+      "parameters": {
+        "outputType": "row",
+        "template": {
+          "seq": "${_SEQUENCE}",
+          "name": "parent",
+          "shardKey": "${_SEQUENCE % 100}"
+        },
+        "throughput": 100,
+        "interval": 1,
+        "intervalUnit": "second",
+        "sequenceFrom": 0,
+        "sequenceTo": 100000
+      },
+      "schema": {
+        "fields": [
+          { "name": "seq", "type": "long", "mode": "required" },
+          { "name": "name", "type": "string", "mode": "nullable" },
+          { "name": "shardKey", "type": "long", "mode": "required" }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "pubsubOutput",
+      "module": "pubsub",
+      "input": "dummyInput",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "json",
+        "idAttribute": "seq",
+        "timestampAttribute": "timestampField",
+        "orderingKeyFields": ["shardKey"]
+      }
+    }
+  ]
+}
