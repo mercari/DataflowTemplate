@@ -202,7 +202,7 @@ public class JsonToRecordConverter {
                                     return instant.getMillis() * 1000;
                                 }
                             } else if (jsonPrimitive.isNumber()) {
-                                return jsonPrimitive.getAsLong();
+                                return DateTimeUtil.assumeEpochMilliSecond(jsonPrimitive.getAsLong());
                             } else {
                                 return null;
                             }
@@ -216,7 +216,7 @@ public class JsonToRecordConverter {
                                 final LocalTime localTime = DateTimeUtil.toLocalTime(jsonPrimitive.getAsString());
                                 return DateTimeUtil.toMicroOfDay(localTime);
                             } else if (jsonPrimitive.isNumber()) {
-                                return jsonPrimitive.getAsLong();
+                                return DateTimeUtil.assumeEpochMicroSecond(jsonPrimitive.getAsLong());
                             } else {
                                 return null;
                             }
