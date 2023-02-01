@@ -406,6 +406,19 @@ public class RowSchemaUtil {
         return "json".equalsIgnoreCase(sqlType);
     }
 
+    public static Object getRawValue(final Row row, final String fieldName) {
+        if(row == null) {
+            return null;
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return null;
+        }
+        if(row.getValue(fieldName) == null) {
+            return null;
+        }
+        return row.getValue(fieldName);
+    }
+
     public static Object getValue(final Row row, final String fieldName) {
         if(row == null) {
             return null;
@@ -579,8 +592,9 @@ public class RowSchemaUtil {
                 return row.getDouble(fieldName);
             case DECIMAL:
                 return row.getDecimal(fieldName).doubleValue();
-            case LOGICAL_TYPE:
             case DATETIME:
+                return Long.valueOf(row.getDateTime(fieldName).toInstant().getMillis()).doubleValue();
+            case LOGICAL_TYPE:
             case BYTES:
             case ARRAY:
             case ITERABLE:
@@ -799,6 +813,10 @@ public class RowSchemaUtil {
 
     public static Instant toInstant(final Object value) {
         return (Instant) value;
+    }
+
+    public static Instant toTimestampValue(final Instant timestamp) {
+        return timestamp;
     }
 
     public static EnumerationType.Value toEnumerationTypeValue(final Schema.FieldType fieldType, final String value) {
