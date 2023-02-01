@@ -35,7 +35,14 @@ public class RowToRecordConverter {
     }
 
     public static Schema convertSchema(final org.apache.beam.sdk.schemas.Schema schema) {
-        final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").fields();
+        final String schemaName;
+        final org.apache.beam.sdk.schemas.Schema.Options options = schema.getOptions();
+        if(options != null && options.hasOption("name")) {
+            schemaName = options.getValue("name", String.class);
+        } else {
+            schemaName = "root";
+        }
+        final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record(schemaName).fields();
         for(final org.apache.beam.sdk.schemas.Schema.Field field : schema.getFields()) {
             if(field.getOptions().hasOption(SourceConfig.OPTION_ORIGINAL_FIELD_NAME)) {
                 schemaFields
