@@ -678,18 +678,18 @@ public class WebSocketSource implements SourceModule {
                 }
 
                 if(this.listener.isClosed()) {
-                    LOG.warn("WebSocket[" + name + "] is closed. Start connection");
+                    LOG.warn("WebSocket[" + name + "].listener is closed. Start connection");
                     connect();
                 } else if(this.socket.isOutputClosed()) {
-                    LOG.warn("WebSocket[" + name + "] output is closed. Start connection");
+                    LOG.warn("WebSocket[" + name + "].socket output is closed. Start connection");
                     connect();
                 } else if(this.socket.isInputClosed()) {
-                    LOG.warn("WebSocket[" + name + "] input is closed. Start connection");
+                    LOG.warn("WebSocket[" + name + "].socket input is closed. Start connection");
                     connect();
                 } else {
                     if(this.heartbeatRequests != null && this.heartbeatRequests.size() > 0) {
-                        final long prevEpochMillis = Optional.ofNullable(prevHeartbeatEpochMillisState.read()).orElse(0L);
                         final long nextEpochMillis = Instant.now().getMillis();
+                        final long prevEpochMillis = Optional.ofNullable(prevHeartbeatEpochMillisState.read()).orElse(0L);
                         if(nextEpochMillis - prevEpochMillis > this.heartbeatIntervalMillis) {
                             for (final String request : this.heartbeatRequests) {
                                 this.socket.sendText(request, true);
@@ -698,14 +698,17 @@ public class WebSocketSource implements SourceModule {
                         }
                     }
                     if(this.checkIntervalMillis > 0L) {
-                        final long prevEpochMillis = Optional.ofNullable(prevCheckEpochMillisState.read()).orElseGet(() -> Instant.now().getMillis());
                         final long nextEpochMillis = Instant.now().getMillis();
+                        final long prevEpochMillis = Optional.ofNullable(prevCheckEpochMillisState.read()).orElse(nextEpochMillis);
                         if(nextEpochMillis - prevEpochMillis > this.checkIntervalMillis) {
                             if (messageCount == 0) {
                                 LOG.warn("WebSocket[" + name + "] no message in fixed millis: " + heartbeatIntervalMillis + ". Start connection");
                                 connect();
                             }
                             messageCount = 0;
+                            prevCheckEpochMillisState.write(nextEpochMillis);
+                        } else if(nextEpochMillis == prevEpochMillis) {
+                            // First time initializing state
                             prevCheckEpochMillisState.write(nextEpochMillis);
                         }
                     }
