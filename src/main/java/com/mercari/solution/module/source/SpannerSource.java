@@ -753,16 +753,22 @@ public class SpannerSource implements SourceModule {
                     keySet = builder.build();
                 }
 
-                structs = begin
-                        .apply("ReadSpannerTable", SpannerIO.read()
-                                .withProjectId(projectId)
-                                .withInstanceId(instanceId)
-                                .withDatabaseId(databaseId)
-                                .withTable(table)
-                                .withKeySet(keySet)
-                                .withColumns(columns)
-                                .withBatching(true)
-                                .withTimestampBound(toTimestampBound(timestampBound)));
+                final SpannerIO.Read read = SpannerIO.read()
+                        .withProjectId(projectId)
+                        .withInstanceId(instanceId)
+                        .withDatabaseId(databaseId)
+                        .withTable(table)
+                        .withKeySet(keySet)
+                        .withColumns(columns)
+                        .withBatching(true)
+                        .withTimestampBound(toTimestampBound(timestampBound));
+
+                if(parameters.getEmulator()) {
+                    structs = begin.apply("ReadSpannerTable", read
+                            .withEmulatorHost(SpannerUtil.SPANNER_HOST_EMULATOR));
+                } else {
+                    structs = begin.apply("ReadSpannerTable", read);
+                }
             } else {
                 throw new IllegalArgumentException("spanner module support only query or table");
             }

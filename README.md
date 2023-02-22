@@ -194,7 +194,9 @@ docker run ^
   --config=/mnt/config/{MyConfig}.json
 ```
 
-Note: If you use BigQuery module locally, you will need to specify the `tempLocation` argument.
+* Note:
+  * If you use BigQuery module locally, you will need to specify the `tempLocation` argument.
+  * If the pipeline is to access an emulator running on a local machine, such as Cloud Spanner, the `--net=host` option is required.
 
 ## Committers
 
@@ -209,6 +211,6 @@ https://www.mercari.com/cla/
 
 ## License
 
-Copyright 2022 Mercari, Inc.
+Copyright 2023 Mercari, Inc.
 
 Licensed under the MIT License.
