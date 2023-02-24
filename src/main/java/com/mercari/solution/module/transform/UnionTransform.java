@@ -376,7 +376,7 @@ public class UnionTransform implements TransformModule {
                         .map(s -> s.getField(mapping.getInputs().get(0).getField()))
                         .findAny()
                         .orElseThrow();
-                builder.addField(mapping.getOutputField(), field.getType());
+                builder.addField(mapping.getOutputField(), field.getType().withNullable(true));
             }
             return builder.build();
         } else {
@@ -385,7 +385,7 @@ public class UnionTransform implements TransformModule {
             for(final FCollection<?> input : inputs) {
                 for(final Schema.Field field : input.getSchema().getFields()) {
                     if(!fieldNames.contains(field.getName())) {
-                        builder.addField(field);
+                        builder.addField(field.withNullable(true));
                         fieldNames.add(field.getName());
                     }
                 }

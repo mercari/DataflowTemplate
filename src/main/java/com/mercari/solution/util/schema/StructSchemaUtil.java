@@ -21,6 +21,7 @@ import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.*;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.Row;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -96,6 +97,84 @@ public class StructSchemaUtil {
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
         }
+    }
+
+    public static Object getRawValue(final Struct struct, final String fieldName) {
+        if(struct == null) {
+            return null;
+        }
+
+        if(!hasField(struct, fieldName)) {
+            return null;
+        }
+        if(struct.isNull(fieldName)) {
+            return null;
+        }
+        switch (struct.getColumnType(fieldName).getCode()) {
+            case BOOL:
+                return struct.getBoolean(fieldName);
+            case BYTES:
+                return struct.getBytes(fieldName);
+            case STRING:
+                return struct.getString(fieldName);
+            case JSON:
+                return struct.getJson(fieldName);
+            case INT64:
+                return struct.getLong(fieldName);
+            case FLOAT64:
+                return struct.getDouble(fieldName);
+            case NUMERIC:
+                return struct.getBigDecimal(fieldName);
+            case PG_JSONB:
+                return struct.getPgJsonb(fieldName);
+            case PG_NUMERIC:
+                return struct.getString(fieldName);
+            case DATE: {
+                return struct.getDate(fieldName);
+            }
+            case TIMESTAMP:
+                return struct.getTimestamp(fieldName);
+            case STRUCT:
+                return struct.getStruct(fieldName);
+            case ARRAY: {
+                switch (struct.getColumnType(fieldName).getArrayElementType().getCode()) {
+                    case BOOL:
+                        return struct.getBooleanList(fieldName);
+                    case BYTES:
+                        return struct.getBytesList(fieldName);
+                    case STRING:
+                        return struct.getStringList(fieldName);
+                    case JSON:
+                        return struct.getJsonList(fieldName);
+                    case INT64:
+                        return struct.getLongList(fieldName);
+                    case FLOAT64:
+                        return struct.getDoubleList(fieldName);
+                    case NUMERIC:
+                        return struct.getBigDecimalList(fieldName);
+                    case PG_JSONB:
+                        return struct.getPgJsonbList(fieldName);
+                    case PG_NUMERIC:
+                        return struct.getStringList(fieldName);
+                    case DATE: {
+                        return struct.getDateList(fieldName);
+                    }
+                    case TIMESTAMP:
+                        return struct.getTimestampList(fieldName);
+                    case STRUCT:
+                        return struct.getStructList(fieldName);
+                    case ARRAY:
+                        throw new IllegalArgumentException("Not supported array in array for field: " + fieldName);
+                }
+            }
+            default:
+                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
+        }
+    }
+
+    public static Instant toInstant(final Object value) {
+        final Timestamp timestamp = (Timestamp) value;
+        return DateTimeUtil.toJodaInstant(timestamp);
     }
 
     public static Object getCSVLineValue(final Struct struct, final String field) {

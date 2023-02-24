@@ -490,7 +490,16 @@ public class AvroSchemaUtil {
             final Collection<String> includeFields,
             final Collection<String> excludeFields) {
 
-        SchemaBuilder.RecordBuilder<Schema> builder = SchemaBuilder.record(schema.getName());
+        return toSchemaBuilder(schema, includeFields, excludeFields, schema.getName());
+    }
+
+    public static SchemaBuilder.FieldAssembler<Schema> toSchemaBuilder(
+            final Schema schema,
+            final Collection<String> includeFields,
+            final Collection<String> excludeFields,
+            final String name) {
+
+        SchemaBuilder.RecordBuilder<Schema> builder = SchemaBuilder.record(name);
         SchemaBuilder.FieldAssembler<Schema> schemaFields = builder.fields();
         for(final Schema.Field field : schema.getFields()) {
             if(includeFields != null && !includeFields.contains(field.name())) {
@@ -648,6 +657,17 @@ public class AvroSchemaUtil {
                         .fields()
                         .name("key").type(Schema.create(Schema.Type.STRING)).noDefault()
                         .endRecord());
+    }
+
+    public static Object getRawValue(final GenericRecord record, final String fieldName) {
+        if(record == null) {
+            return null;
+        }
+        Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+        return record.get(fieldName);
     }
 
     public static Object getValue(final GenericRecord record, final String fieldName) {
@@ -972,8 +992,18 @@ public class AvroSchemaUtil {
             }
             case INT:
                 return ((Integer) value).doubleValue();
-            case LONG:
-                return ((Long) value).doubleValue();
+            case LONG: {
+                final Long longValue = (Long) value;
+                if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    return longValue.doubleValue();
+                } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return longValue.doubleValue() / 1000;
+                } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                    return longValue.doubleValue() / 1000;
+                } else {
+                    return longValue.doubleValue();
+                }
+            }
             case RECORD:
             case MAP:
             case ARRAY:
@@ -1176,11 +1206,20 @@ public class AvroSchemaUtil {
             return null;
         }
         if(value instanceof Long) {
-            Instant.ofEpochMilli(DateTimeUtil.assumeEpochMilliSecond((Long)value));
+            return Instant.ofEpochMilli(DateTimeUtil.assumeEpochMilliSecond((Long)value));
+        }if(value instanceof Integer) {
+            return Instant.ofEpochMilli(DateTimeUtil.assumeEpochMilliSecond(((Integer)value).longValue()));
         } else if(value instanceof String) {
-            Instant.parse((String) value);
+            return Instant.parse((String) value);
         }
         return null;
+    }
+
+    public static Object toTimestampValue(final Instant timestamp) {
+        if(timestamp == null) {
+            return null;
+        }
+        return timestamp.getMillis() * 1000L;
     }
 
     public static String convertNumericBytesToString(final byte[] bytes, final int scale) {
@@ -1268,6 +1307,12 @@ public class AvroSchemaUtil {
             return false;
         }
         return PATTERN_FIELD_NAME.matcher(name).find();
+    }
+
+    public static Schema rename(final Schema schema, final String name) {
+        return AvroSchemaUtil
+                .toSchemaBuilder(schema, null, null, name)
+                .endRecord();
     }
 
     private static Schema convertSchema(final TableFieldSchema fieldSchema) {

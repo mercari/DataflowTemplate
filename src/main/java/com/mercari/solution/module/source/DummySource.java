@@ -320,7 +320,6 @@ public class DummySource implements SourceModule {
         private final DateTimeUtil.TimeUnit intervalUnit;
         private final Long sequenceFrom;
         private final Long sequenceTo;
-        private final OutputType outputType;
 
         private DummyStream(final DummySourceParameters parameters,
                             final InputSchemaT inputSchema,
@@ -338,7 +337,6 @@ public class DummySource implements SourceModule {
             this.schemaConverter = schemaConverter;
             this.jsonConverter = jsonConverter;
 
-            this.outputType = parameters.getOutputType();
         }
 
         public PCollection<ElementT> expand(final PBegin begin) {
@@ -350,71 +348,77 @@ public class DummySource implements SourceModule {
                 generateSequence = generateSequence.to(sequenceTo);
             }
 
-            return begin
-                    .apply("GenerateSequence", generateSequence)
-                    .apply("GenerateDummies", ParDo
-                            .of(new DummyGenerateDoFn<>(
-                                    templateString, inputSchema, schemaConverter, jsonConverter)));
+            final PCollection<Long> sequence = begin.apply("GenerateSequence", generateSequence);
+            return sequence
+                    .apply("GenerateDummies", ParDo.of(new DummyGenerateDoFn<>(
+                            templateString, inputSchema, schemaConverter, jsonConverter, sequenceTo)));
         }
 
-    }
+        private static class DummyGenerateDoFn<InputSchemaT, RuntimeSchemaT, ElementT> extends DoFn<Long, ElementT> {
 
-    private static class DummyGenerateDoFn<InputSchemaT, RuntimeSchemaT, ElementT> extends DoFn<Long, ElementT> {
-
-
-        private final String templateString;
-        private final InputSchemaT inputSchema;
-        private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
-        private final SchemaUtil.JsonConverter<RuntimeSchemaT,ElementT> jsonConverter;
-        private transient Template template;
-        private transient RuntimeSchemaT runtimeSchema;
+            private final String templateString;
+            private final InputSchemaT inputSchema;
+            private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+            private final SchemaUtil.JsonConverter<RuntimeSchemaT,ElementT> jsonConverter;
+            private final Long sequenceTo;
+            private transient Template template;
+            private transient RuntimeSchemaT runtimeSchema;
 
 
-        DummyGenerateDoFn(final String templateString,
-                          final InputSchemaT inputSchema,
-                          final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                          final SchemaUtil.JsonConverter<RuntimeSchemaT,ElementT> jsonConverter) {
+            DummyGenerateDoFn(final String templateString,
+                              final InputSchemaT inputSchema,
+                              final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                              final SchemaUtil.JsonConverter<RuntimeSchemaT,ElementT> jsonConverter,
+                              final Long sequenceTo) {
 
-            this.templateString = templateString;
-            this.inputSchema = inputSchema;
-            this.schemaConverter = schemaConverter;
-            this.jsonConverter = jsonConverter;
-        }
-
-        @Setup
-        public void setup() {
-            this.template = TemplateUtil.createStrictTemplate("", templateString);
-            this.runtimeSchema = schemaConverter.convert(this.inputSchema);
-        }
-
-        @ProcessElement
-        public void processElement(final ProcessContext c) throws IOException {
-            final Map<String, Object> data = new HashMap<>();
-            data.put("_SEQUENCE", c.element());
-            data.put("_UUID", UUID.randomUUID().toString());
-            //data.put("_DateTimeUtil", datetimeUtils);
-            data.put("_EVENTTIME", Instant.ofEpochMilli(c.timestamp().getMillis()));
-
-            final String jsonText = TemplateUtil.executeStrictTemplate(template, data);
-            final JsonElement jsonElement = new Gson().fromJson(jsonText, JsonElement.class);
-            if(jsonElement.isJsonObject()) {
-                final ElementT output = jsonConverter.convert(runtimeSchema, jsonElement.getAsJsonObject());
-                c.output(output);
-            } else if(jsonElement.isJsonArray()) {
-                for(final JsonElement child : jsonElement.getAsJsonArray()) {
-                    if(child.isJsonObject()) {
-                        final ElementT output = jsonConverter.convert(runtimeSchema, child.getAsJsonObject());
-                        c.output(output);
-                    } else {
-                        throw new IllegalArgumentIOException();
-                    }
-                }
-            } else {
-                throw new IllegalArgumentIOException();
+                this.templateString = templateString;
+                this.inputSchema = inputSchema;
+                this.schemaConverter = schemaConverter;
+                this.jsonConverter = jsonConverter;
+                this.sequenceTo = sequenceTo;
             }
+
+            @Setup
+            public void setup() {
+                this.template = TemplateUtil.createStrictTemplate("", templateString);
+                this.runtimeSchema = schemaConverter.convert(this.inputSchema);
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) throws IOException {
+                if(sequenceTo != null && sequenceTo.compareTo(Objects.requireNonNull(c.element())) < 0) {
+                    LOG.warn("skip duplicated sequence: " + c.element());
+                    return;
+                }
+                final Map<String, Object> data = new HashMap<>();
+                data.put("_SEQUENCE", c.element());
+                data.put("_UUID", UUID.randomUUID().toString());
+                //data.put("_DateTimeUtil", datetimeUtils);
+                data.put("_EVENTTIME", Instant.ofEpochMilli(c.timestamp().getMillis()));
+
+                final String jsonText = TemplateUtil.executeStrictTemplate(template, data);
+                final JsonElement jsonElement = new Gson().fromJson(jsonText, JsonElement.class);
+                if(jsonElement.isJsonObject()) {
+                    final ElementT output = jsonConverter.convert(runtimeSchema, jsonElement.getAsJsonObject());
+                    c.output(output);
+                } else if(jsonElement.isJsonArray()) {
+                    for(final JsonElement child : jsonElement.getAsJsonArray()) {
+                        if(child.isJsonObject()) {
+                            final ElementT output = jsonConverter.convert(runtimeSchema, child.getAsJsonObject());
+                            c.output(output);
+                        } else {
+                            throw new IllegalArgumentIOException();
+                        }
+                    }
+                } else {
+                    throw new IllegalArgumentIOException();
+                }
+            }
+
         }
 
     }
+
 
     private static class MutationGroupDoFn extends DoFn<Row, MutationGroup> {
 

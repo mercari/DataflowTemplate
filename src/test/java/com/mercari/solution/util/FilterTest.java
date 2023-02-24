@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mercari.solution.util.converter.StructToMapConverter;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.joda.time.Instant;
 import org.junit.Assert;
@@ -12,6 +13,7 @@ import org.junit.Test;
 
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.Map;
 
 
 public class FilterTest {
@@ -480,21 +482,72 @@ public class FilterTest {
                 .set("field2").to(2)
                 .set("field3").to(3)
                 .build();
+        Map<String,Object> values = StructToMapConverter.convert(struct);
         Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter1)));
+        Assert.assertTrue(Filter.filter(Filter.parse(filter1), values));
 
         struct = Struct.newBuilder()
                 .set("field1").to(2)
                 .set("field2").to(2)
                 .set("field3").to(3)
                 .build();
+        values = StructToMapConverter.convert(struct);
         Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter1)));
+        Assert.assertTrue(Filter.filter(Filter.parse(filter1), values));
 
         struct = Struct.newBuilder()
                 .set("field1").to(2)
                 .set("field2").to(2)
                 .set("field3").to(4)
                 .build();
+        values = StructToMapConverter.convert(struct);
         Assert.assertFalse(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter1)));
+        Assert.assertFalse(Filter.filter(Filter.parse(filter1), values));
+
+        final String filter2String =
+                "{ \"key\": \"field1\", \"op\": \"=\", \"value\": 1 }";
+
+        final JsonObject filter2 = new Gson().fromJson(filter2String, JsonObject.class);
+        Struct struct2 = Struct.newBuilder()
+                .set("field1").to(1)
+                .set("field2").to(2)
+                .set("field3").to(3)
+                .build();
+        values = StructToMapConverter.convert(struct2);
+        Assert.assertTrue(Filter.filter(struct2, StructSchemaUtil::getValue, Filter.parse(filter2)));
+        Assert.assertTrue(Filter.filter(Filter.parse(filter2), values));
+
+        struct2 = Struct.newBuilder()
+                .set("field1").to(2)
+                .set("field2").to(1)
+                .set("field3").to(1)
+                .build();
+        values = StructToMapConverter.convert(struct2);
+        Assert.assertFalse(Filter.filter(struct2, StructSchemaUtil::getValue, Filter.parse(filter2)));
+        Assert.assertFalse(Filter.filter(Filter.parse(filter2), values));
+
+
+        final String filter3String =
+                "{ \"expression\": \"(field1 / field2) - field3\", \"op\": \">\", \"value\": 0 }";
+
+        final JsonObject filter3 = new Gson().fromJson(filter3String, JsonObject.class);
+        Struct struct3 = Struct.newBuilder()
+                .set("field1").to(1)
+                .set("field2").to(2)
+                .set("field3").to(3)
+                .build();
+        values = StructToMapConverter.convert(struct3);
+        Assert.assertFalse(Filter.filter(struct3, StructSchemaUtil::getValue, Filter.parse(filter3)));
+        Assert.assertFalse(Filter.filter(Filter.parse(filter3), values));
+
+        struct3 = Struct.newBuilder()
+                .set("field1").to(2)
+                .set("field2").to(1)
+                .set("field3").to(1)
+                .build();
+        values = StructToMapConverter.convert(struct3);
+        Assert.assertTrue(Filter.filter(struct3, StructSchemaUtil::getValue, Filter.parse(filter3)));
+        Assert.assertTrue(Filter.filter(Filter.parse(filter3), values));
     }
 
 }

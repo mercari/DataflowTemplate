@@ -1,5 +1,6 @@
 package com.mercari.solution.util.converter;
 
+/*
 import com.google.protobuf.ByteString;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -11,8 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+ */
+
 public class RowToTFRecordConverter {
 
+    /*
     public static byte[] convert(final Schema schema, final Row row) {
         final Features features = Features.newBuilder().putAllFeature(getFeatureMap(null, schema, row)).build();
         final Example example = Example.newBuilder().setFeatures(features).build();
@@ -116,5 +120,7 @@ public class RowToTFRecordConverter {
         }
         return featureMap;
     }
+
+     */
 
 }

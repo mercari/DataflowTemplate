@@ -1,6 +1,7 @@
 package com.mercari.solution.module.sink.fileio;
 
 import com.google.api.services.storage.Storage;
+import com.mercari.solution.util.domain.search.SolrUtil;
 import com.mercari.solution.util.schema.SolrSchemaUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.sdk.io.FileIO;
@@ -126,13 +127,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
             create = true;
         }
 
-        this.writer = SolrIndexWriter.create(core, "",
-                this.core.getIndexDir(),
-                this.core.getDirectoryFactory(), create,
-                this.core.getLatestSchema(),
-                this.core.getSolrConfig().indexConfig,
-                this.core.getDeletionPolicy(),
-                this.core.getCodec());
+        this.writer = SolrUtil.createWriter(core, "Shops", create);
         this.outputStream = Channels.newOutputStream(channel);
     }
 

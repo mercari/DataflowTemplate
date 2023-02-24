@@ -14,22 +14,24 @@
   <properties>
     <beam.version>2.43.0</beam.version>
 
-    <joda.version>2.12.1</joda.version>
     <freemarker.version>2.3.31</freemarker.version>
     <hadoop.version>3.3.4</hadoop.version>
     <hbase.version>2.5.2</hbase.version>
+    <onnxruntime.version>1.14.0</onnxruntime.version>
     <onnx.version>1.12.0-1.5.8</onnx.version>
-    <onnxruntime.version>1.13.1</onnxruntime.version>
-    <tensorflow.version>1.15.0</tensorflow.version>
-    <solr.version>9.1.0</solr.version>
+    <openblas.version>0.3.21-1.5.8</openblas.version>
+    <arpack-ng.version>3.8.0-1.5.8</arpack-ng.version>
+    <smile.version>3.0.0</smile.version>
+    <solr.version>9.0.0</solr.version>
+    <lucene.version>9.0.0</lucene.version>
     <pdfbox.version>2.0.27</pdfbox.version>
-    <jst.version>1.19.0</jst.version>
-    <mysql-connector.version>8.0.31</mysql-connector.version>
-    <postgresql-connector.version>42.5.1</postgresql-connector.version>
+    <jts.version>1.19.0</jts.version>
+    <mysql-connector.version>8.0.32</mysql-connector.version>
+    <postgresql-connector.version>42.5.3</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.8.0</jdbc-socket-factory.version>
-    <secretmanager.version>2.7.0</secretmanager.version>
-    <iamcredentials.version>2.7.0</iamcredentials.version>
+    <jdbc-socket-factory.version>1.10.0</jdbc-socket-factory.version>
+    <secretmanager.version>2.10.0</secretmanager.version>
+    <iamcredentials.version>2.10.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
     <junit.version>4.13.1</junit.version>
@@ -281,13 +283,6 @@
       <version>${beam.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-extensions-python -->
-    <dependency>
-      <groupId>org.apache.beam</groupId>
-      <artifactId>beam-sdks-java-extensions-python</artifactId>
-      <version>${beam.version}</version>
-    </dependency>
-
     <!-- Big Data -->
     <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-client -->
     <dependency>
@@ -310,14 +305,7 @@
       <artifactId>onnxruntime</artifactId>
       <version>${onnxruntime.version}</version>
     </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx -->
-    <dependency>
-      <groupId>org.bytedeco</groupId>
-      <artifactId>onnx</artifactId>
-      <version>${onnx.version}</version>
-    </dependency>
-
+    
     <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx-platform -->
     <dependency>
       <groupId>org.bytedeco</groupId>
@@ -325,11 +313,25 @@
       <version>${onnx.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/org.tensorflow/tensorflow -->
+    <!-- https://mvnrepository.com/artifact/org.bytedeco/openblas-platform -->
     <dependency>
-      <groupId>org.tensorflow</groupId>
-      <artifactId>proto</artifactId>
-      <version>${tensorflow.version}</version>
+      <groupId>org.bytedeco</groupId>
+      <artifactId>openblas-platform</artifactId>
+      <version>${openblas.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.bytedeco/arpack-ng-platform -->
+    <dependency>
+      <groupId>org.bytedeco</groupId>
+      <artifactId>arpack-ng-platform</artifactId>
+      <version>${arpack-ng.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/com.github.haifengl/smile-core -->
+    <dependency>
+      <groupId>com.github.haifengl</groupId>
+      <artifactId>smile-core</artifactId>
+      <version>${smile.version}</version>
     </dependency>
 
     <!-- Search Engine -->
@@ -344,21 +346,21 @@
     <dependency>
       <groupId>org.apache.lucene</groupId>
       <artifactId>lucene-analysis-kuromoji</artifactId>
-      <version>${solr.version}</version>
+      <version>${lucene.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.lucene/lucene-analysis-opennlp -->
     <dependency>
       <groupId>org.apache.lucene</groupId>
       <artifactId>lucene-analysis-opennlp</artifactId>
-      <version>${solr.version}</version>
+      <version>${lucene.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.lucene/lucene-analysis-icu -->
     <dependency>
       <groupId>org.apache.lucene</groupId>
       <artifactId>lucene-analysis-icu</artifactId>
-      <version>${solr.version}</version>
+      <version>${lucene.version}</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.pdfbox/pdfbox -->
@@ -372,7 +374,7 @@
     <dependency>
       <groupId>org.locationtech.jts</groupId>
       <artifactId>jts-core</artifactId>
-      <version>${jst.version}</version>
+      <version>${jts.version}</version>
     </dependency>
 
     <!-- Google Services -->
@@ -441,12 +443,6 @@
     </dependency>
 
     <!-- Utils -->
-    <dependency>
-      <groupId>joda-time</groupId>
-      <artifactId>joda-time</artifactId>
-      <version>${joda.version}</version>
-    </dependency>
-
     <!-- https://mvnrepository.com/artifact/org.freemarker/freemarker -->
     <dependency>
       <groupId>org.freemarker</groupId>

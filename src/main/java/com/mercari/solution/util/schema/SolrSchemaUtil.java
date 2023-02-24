@@ -3,6 +3,7 @@ package com.mercari.solution.util.schema;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.XmlUtil;
+import org.apache.beam.sdk.schemas.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
@@ -192,7 +193,8 @@ public class SolrSchemaUtil {
 
             public void setDefaults() {
                 if(this.className == null) {
-                    this.className = "solr.NRTCachingDirectoryFactory";
+                    //this.className = "solr.NRTCachingDirectoryFactory";
+                    this.className = "solr.MMapDirectoryFactory";
                     // or solr.MMapDirectoryFactory or solr.NIOFSDirectoryFactory or org.apache.solr.core.RAMDirectoryFactory
                 }
                 if(this.preload == null) {
@@ -469,7 +471,175 @@ public class SolrSchemaUtil {
         return solrconfig;
     }
 
-    public static Document parseSchema(final JsonObject jsonObject) {
+    public static Schema parseIndexSchema(final String indexSchemaXML) {
+        try(final InputStream is = new ByteArrayInputStream(indexSchemaXML.getBytes())) {
+            final DocumentBuilder documentBuilder = DocumentBuilderFactory
+                    .newInstance()
+                    .newDocumentBuilder();
+            final Document document = documentBuilder.parse(is);
+
+            return parseIndexSchema(document);
+        } catch (Exception e) {
+            LOG.error("Failed to parse schema.xml: " + indexSchemaXML);
+            throw new IllegalStateException("Failed to parse schema.xml: " + indexSchemaXML, e);
+        }
+    }
+
+    public static Schema parseIndexSchema(final Document indexSchemaDocument) {
+        // types
+        final NodeList typeNodeList = indexSchemaDocument.getElementsByTagName("types");
+        if(typeNodeList.getLength() == 0) {
+            throw new IllegalArgumentException();
+        }
+
+        final Node types = typeNodeList.item(0);
+        final NodeList ts = types.getChildNodes();
+
+        final Map<String, Schema.FieldType> fieldTypes = new HashMap<>();
+        final Map<String, Map<String, String>> fieldOptions = new HashMap<>();
+        for(int i=0; i<ts.getLength(); i++) {
+            final Node node = ts.item(i);
+            if(!"fieldType".equals(node.getNodeName())) {
+                continue;
+            }
+            if(node.getAttributes().getNamedItem("name") == null) {
+                continue;
+            }
+            if(node.getAttributes().getNamedItem("class") == null) {
+                continue;
+            }
+            final String typeName = node.getAttributes().getNamedItem("name").getNodeValue();
+            final String className = node.getAttributes().getNamedItem("class").getNodeValue();
+            final Schema.FieldType fieldType;
+            switch (className) {
+                case "solr.StrField":
+                case "solr.TextField":
+                    fieldType = Schema.FieldType.STRING;
+                    break;
+                case "solr.BoolField":
+                    fieldType = Schema.FieldType.BOOLEAN;
+                    break;
+                case "solr.BinaryField":
+                    fieldType = Schema.FieldType.BYTES;
+                    break;
+                case "solr.IntPointField":
+                    fieldType = Schema.FieldType.INT32;
+                    break;
+                case "solr.LongPointField":
+                    fieldType = Schema.FieldType.INT64;
+                    break;
+                case "solr.FloatPointField":
+                    fieldType = Schema.FieldType.FLOAT;
+                    break;
+                case "solr.DoublePointField":
+                    fieldType = Schema.FieldType.DOUBLE;
+                    break;
+                case "solr.DatePointField":
+                    fieldType = Schema.FieldType.DATETIME;
+                    break;
+                case "solr.DenseVectorField":
+                    fieldType = Schema.FieldType.array(Schema.FieldType.FLOAT);
+                    break;
+                default:
+                    fieldType = null;
+                    break;
+            }
+            if(fieldType != null) {
+                fieldTypes.put(typeName, fieldType);
+            }
+
+            final Map<String, String> attributes = new HashMap<>();
+            for(int j=0; j<node.getAttributes().getLength(); j++) {
+                final Node attrNode = node.getAttributes().item(j);
+                final String attrName = attrNode.getNodeName();
+                if("name".equals(attrName) || "class".equals(attrName)) {
+                    continue;
+                }
+                attributes.put(attrName, attrNode.getNodeValue());
+            }
+            fieldOptions.put(typeName, attributes);
+        }
+
+
+        final Schema.Builder builder = Schema.builder();
+
+        // fields
+        final NodeList nodeList = indexSchemaDocument.getElementsByTagName("fields");
+        if(nodeList.getLength() == 0) {
+            throw new IllegalArgumentException();
+        }
+
+        final Node fields = nodeList.item(0);
+        final NodeList fs = fields.getChildNodes();
+
+        for(int i=0; i<fs.getLength(); i++) {
+            final Node node = fs.item(i);
+            if(!"field".equals(node.getNodeName())) {
+                continue;
+            }
+            if(node.getAttributes().getNamedItem("name") == null) {
+                continue;
+            }
+            if(node.getAttributes().getNamedItem("type") == null) {
+                continue;
+            }
+
+            final String fieldName = node.getAttributes().getNamedItem("name").getNodeValue();
+            final String fieldTypeName = node.getAttributes().getNamedItem("type").getNodeValue();
+            final Map<String, String> fieldAttributes = new HashMap<>();
+            for(int j=0; j<node.getAttributes().getLength(); j++) {
+                final Node attrNode = node.getAttributes().item(j);
+                final String attrName = attrNode.getNodeName();
+                if("name".equals(attrName) || "type".equals(attrName)) {
+                    continue;
+                }
+                fieldAttributes.put(attrName, attrNode.getNodeValue());
+            }
+            if(fieldTypes.containsKey(fieldTypeName)) {
+                final Schema.FieldType fieldType = fieldTypes.get(fieldTypeName);
+                final Boolean stored = Boolean.valueOf(fieldAttributes.getOrDefault("stored", "false"));
+                if(!stored) {
+                    continue;
+                }
+                final Boolean required = Boolean.valueOf(fieldAttributes.getOrDefault("required", "false"));
+                final Boolean multiValued = Boolean.valueOf(fieldAttributes.getOrDefault("multiValued", "false"));
+
+                if(multiValued) {
+                    builder.addField(fieldName, Schema.FieldType.array(fieldType).withNullable(!required));
+                } else {
+                    builder.addField(fieldName, fieldType.withNullable(!required));
+                }
+            }
+
+            /*
+            if (node.hasChildNodes()) {
+                final NodeList cfs = node.getChildNodes();
+                for (int j=0; j<cfs.getLength(); j++) {
+                    final Node childNode = cfs.item(j);
+                    if(!"field".equals(childNode.getNodeName())) {
+                        continue;
+                    }
+                    if(childNode.getAttributes().getNamedItem("name") == null) {
+                        continue;
+                    }
+                    if(childNode.getAttributes().getNamedItem("type") == null) {
+                        continue;
+                    }
+                    final String childFieldName = childNode.getAttributes().getNamedItem("name").getNodeValue();
+                    final String childFieldType = childNode.getAttributes().getNamedItem("name").getNodeValue();
+                }
+            }
+             */
+        }
+
+        final Schema.Options.Builder optionBuilder = Schema.Options.builder()
+                .setOption("name", Schema.FieldType.STRING, "searchResults");
+
+        builder.setOptions(optionBuilder);
+        return builder.build();
+    }
+
+    public static Document convertIndexSchemaJsonToXml(final JsonObject jsonObject) {
         final Document document = createSchemaXML("content");
         final Element root = document.getDocumentElement();
 
@@ -552,6 +722,12 @@ public class SolrSchemaUtil {
         booleanType.setAttribute("class", "solr.BoolField");
         booleanType.setAttribute("sortMissingLast", "true");
         types.appendChild(booleanType);
+        // bytes
+        final Element bytesType = document.createElement("fieldType");
+        bytesType.setAttribute("name", "string");
+        bytesType.setAttribute("class", "solr.BinaryField");
+        bytesType.setAttribute("sortMissingLast", "true");
+        types.appendChild(bytesType);
         // int
         final Element intType = document.createElement("fieldType");
         intType.setAttribute("name", "int");
@@ -582,6 +758,13 @@ public class SolrSchemaUtil {
         dateType.setAttribute("class", "solr.DatePointField");
         dateType.setAttribute("sortMissingLast", "true");
         types.appendChild(dateType);
+        // vector
+        final Element vectorType = document.createElement("fieldType");
+        vectorType.setAttribute("name", "vector");
+        vectorType.setAttribute("class", "solr.DenseVectorField");
+        vectorType.setAttribute("vectorDimension", "4");
+        vectorType.setAttribute("similarityFunction", "cosine");
+        types.appendChild(vectorType);
 
         // text_ja
         final Element textJaType = document.createElement("fieldType");

@@ -200,6 +200,15 @@ public class SpannerUtil {
         try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
             final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
             final DatabaseClient client = spanner.getDatabaseClient(database);
+            if(emulator) {
+                // Currently, Emulator's query planner does not support schema acquisition by analyzeQuery.
+                try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
+                    final ResultSet resultSet = transaction.executeQuery(Statement.of(query.split(SQL_SPLITTER)[0]))) {
+
+                    resultSet.next();
+                    return resultSet.getType();
+                }
+            }
             try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
                 final ResultSet resultSet = transaction.analyzeQuery(Statement.of(query.split(SQL_SPLITTER)[0]), ReadContext.QueryAnalyzeMode.PLAN)) {
 

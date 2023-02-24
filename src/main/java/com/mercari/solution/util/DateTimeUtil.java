@@ -398,9 +398,9 @@ public class DateTimeUtil {
             return EpochType.UNKNOWN;
         }
         final long l = Math.abs(epoch);
-        if(l > 50000000000000L) {
+        if(l > 50_000_000_000_000L) {
             return EpochType.MICROS;
-        } else if(l > 10000000L) {
+        } else if(l > 5_000_000_000L) {
             return EpochType.MILLIS;
         } else {
             return EpochType.SECOND;
