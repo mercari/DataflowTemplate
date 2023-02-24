@@ -163,7 +163,12 @@ public class Filter implements Serializable {
         public <T> Double evaluateExpression(final T input, final Getter<T> getter, final Map<String, Object> values) {
             final Map<String, Double> variables = new HashMap<>();
             for(final String variableName : this.expression.getVariableNames()) {
-                final Object fieldValue = Optional.ofNullable(values.get(variableName)).orElseGet(() -> getter.getValue(input, variableName));
+                final Object fieldValue;
+                if(values == null) {
+                    fieldValue = getter.getValue(input, variableName);
+                } else {
+                    fieldValue = Optional.ofNullable(values.get(variableName)).orElseGet(() -> getter.getValue(input, variableName));
+                }
                 variables.put(variableName, ExpressionUtil.getAsDouble(fieldValue));
             }
             return expression.setVariables(variables).evaluate();
