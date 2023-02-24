@@ -525,6 +525,29 @@ public class FilterTest {
         values = StructToMapConverter.convert(struct2);
         Assert.assertFalse(Filter.filter(struct2, StructSchemaUtil::getValue, Filter.parse(filter2)));
         Assert.assertFalse(Filter.filter(Filter.parse(filter2), values));
+
+
+        final String filter3String =
+                "{ \"expression\": \"(field1 / field2) - field3\", \"op\": \">\", \"value\": 0 }";
+
+        final JsonObject filter3 = new Gson().fromJson(filter3String, JsonObject.class);
+        Struct struct3 = Struct.newBuilder()
+                .set("field1").to(1)
+                .set("field2").to(2)
+                .set("field3").to(3)
+                .build();
+        values = StructToMapConverter.convert(struct3);
+        Assert.assertFalse(Filter.filter(struct3, StructSchemaUtil::getValue, Filter.parse(filter3)));
+        Assert.assertFalse(Filter.filter(Filter.parse(filter3), values));
+
+        struct3 = Struct.newBuilder()
+                .set("field1").to(2)
+                .set("field2").to(1)
+                .set("field3").to(1)
+                .build();
+        values = StructToMapConverter.convert(struct3);
+        Assert.assertTrue(Filter.filter(struct3, StructSchemaUtil::getValue, Filter.parse(filter3)));
+        Assert.assertTrue(Filter.filter(Filter.parse(filter3), values));
     }
 
 }

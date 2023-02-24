@@ -59,3 +59,24 @@ Currently, the following comparison operators are supported
 `=`,`!=`,`>`,`>=`,`<`,`<=`,`in`,`not in`
 
 The fields that can be used for comparison must be of type string or numeric or date or timestamp.
+
+## Compare values by expressions
+
+In addition to comparing field values as single values, you can also compare values by expressions using values from multiple fields.
+
+You can define formulas with the `expression` attribute instead of the `key` attribute.
+The formula can use the field names of the record.
+The values of these fields are treated as double types.
+
+For example, the following configuration will extract records for which the formula result of the `expression` attribute is greater than 1.
+
+```JSON
+{
+  "filters": [
+    { "expression": "(field1 - field2) / field3", "op": ">=", "value": 1 },
+    { "expression": "if(field1 - field2 > 0, field3 * 0.5, field4) / field5", "op": "<", "value": 1 }
+  ]
+}
+```
+
+For more information on expression's detailed functionality, please refer to [this page](expression.md).

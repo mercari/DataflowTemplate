@@ -2,6 +2,8 @@ package com.mercari.solution.util;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mercari.solution.util.domain.math.ExpressionUtil;
+import net.objecthunter.exp4j.Expression;
 import org.joda.time.Instant;
 
 import java.io.Serializable;
@@ -79,12 +81,34 @@ public class Filter implements Serializable {
             this.leaves = leaves;
         }
 
+        public Set<String> getRequiredVariables() {
+            final Set<String> variables = new HashSet<>();
+            if(this.nodes != null && this.nodes.size() > 0) {
+                for(final ConditionNode node : this.nodes) {
+                    variables.addAll(node.getRequiredVariables());
+                }
+            }
+            if(this.leaves != null && this.leaves.size() > 0) {
+                for(final ConditionLeaf leaf : this.leaves) {
+                    variables.addAll(leaf.getRequiredVariables());
+                }
+            }
+            return variables;
+        }
+
         @Override
         public String toString() {
-            return String.format("Type: %s, Leaves: %s", this.type, Optional.ofNullable(this.leaves).orElse(new ArrayList<>())
-                    .stream()
-                    .map(s -> String.format("%s %s %s", s.key, s.op, s.value))
-                    .collect(Collectors.joining(" .")));
+            return String.format("{ Type: %s, Conditions: [ %s ], Children: [ %s ] }",
+                    this.type,
+                    Optional.ofNullable(this.leaves).orElse(new ArrayList<>())
+                            .stream()
+                            .map(ConditionLeaf::toString)
+                            .collect(Collectors.joining(", ")),
+                    Optional.ofNullable(this.nodes).orElse(new ArrayList<>())
+                            .stream()
+                            .map(ConditionNode::toString)
+                            .collect(Collectors.joining(", "))
+                    );
         }
 
     }
@@ -94,6 +118,9 @@ public class Filter implements Serializable {
         private String key;
         private Op op;
         private JsonElement value;
+
+        private Expression expression;
+        private String expressionString;
 
         public String getKey() {
             return key;
@@ -117,6 +144,39 @@ public class Filter implements Serializable {
 
         public void setValue(JsonElement value) {
             this.value = value;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("%s %s %s", this.expression != null ? "(" + this.expressionString + ")" : this.key, this.op, this.value);
+        }
+
+        public <T> Double evaluateExpression(final T input, final Getter<T> getter) {
+            final Map<String, Double> variables = new HashMap<>();
+            for(final String variableName : this.expression.getVariableNames()) {
+                final Object fieldValue = getter.getValue(input, variableName);
+                variables.put(variableName, ExpressionUtil.getAsDouble(fieldValue));
+            }
+            return expression.setVariables(variables).evaluate();
+        }
+
+        public <T> Double evaluateExpression(final T input, final Getter<T> getter, final Map<String, Object> values) {
+            final Map<String, Double> variables = new HashMap<>();
+            for(final String variableName : this.expression.getVariableNames()) {
+                final Object fieldValue = Optional.ofNullable(values.get(variableName)).orElseGet(() -> getter.getValue(input, variableName));
+                variables.put(variableName, ExpressionUtil.getAsDouble(fieldValue));
+            }
+            return expression.setVariables(variables).evaluate();
+        }
+
+        public Set<String> getRequiredVariables() {
+            final Set<String> variables = new HashSet<>();
+            if(this.expression != null) {
+                variables.addAll(this.expression.getVariableNames());
+            } else if(this.key != null) {
+                variables.add(this.key);
+            }
+            return variables;
         }
 
     }
@@ -192,25 +252,7 @@ public class Filter implements Serializable {
     }
 
     public static <T> boolean filter(final T element, final Getter<T> getter, final ConditionNode condition) {
-        final List<Boolean> bits = new ArrayList<>();
-
-        if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
-            for(ConditionLeaf leaf : condition.getLeaves()) {
-                final Object value = getter.getValue(element, leaf.getKey());
-                bits.add(is(value, leaf));
-            }
-        }
-        if(condition.getNodes() != null && condition.getNodes().size() > 0) {
-            for(ConditionNode node : condition.getNodes()) {
-                bits.add(filter(element, getter, node));
-            }
-        }
-
-        if(bits.size() == 0) {
-            return false;
-        }
-
-        return is(condition.getType(), bits);
+        return filter(element, getter, condition, null);
     }
 
     public static <T> boolean filter(final T element, final Getter<T> getter, final ConditionNode condition, final Map<String, Object> values) {
@@ -218,7 +260,14 @@ public class Filter implements Serializable {
 
         if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
             for(ConditionLeaf leaf : condition.getLeaves()) {
-                final Object value = Optional.ofNullable(values.get(leaf.getKey())).orElseGet(() -> getter.getValue(element, leaf.getKey()));
+                final Object value;
+                if(leaf.expression != null) {
+                    value = leaf.evaluateExpression(element, getter, values);
+                } else if(values != null) {
+                    value = Optional.ofNullable(values.get(leaf.getKey())).orElseGet(() -> getter.getValue(element, leaf.getKey()));
+                } else {
+                    value = getter.getValue(element, leaf.getKey());
+                }
                 bits.add(is(value, leaf));
             }
         }
@@ -240,7 +289,21 @@ public class Filter implements Serializable {
 
         if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
             for(ConditionLeaf leaf : condition.getLeaves()) {
-                final Object value = Optional.ofNullable(values.get(leaf.getKey())).orElse(null);
+                final Object value;
+                if(leaf.expression != null) {
+                    final Map<String, Double> variables = values.entrySet()
+                            .stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> ExpressionUtil.getAsDouble(e.getValue(), Double.NaN)));
+                    try {
+                        value = leaf.expression.setVariables(variables).evaluate();
+                    } catch (IllegalArgumentException e) {
+                        return false;
+                    }
+                } else {
+                    value = values.get(leaf.getKey());
+                }
                 bits.add(is(value, leaf));
             }
         }
@@ -302,8 +365,14 @@ public class Filter implements Serializable {
             } else if(value instanceof Long) {
                 c = ((Long)value).compareTo(leaf.getValue().getAsLong());
             } else if(value instanceof Float) {
+                if(Float.isNaN((Float)value) || Float.isInfinite((Float)value)) {
+                    return false;
+                }
                 c = ((Float)value).compareTo(leaf.getValue().getAsFloat());
             } else if(value instanceof Double) {
+                if(Double.isNaN((Double)value) || Double.isInfinite((Double)value)) {
+                    return false;
+                }
                 c = ((Double)value).compareTo(leaf.getValue().getAsDouble());
             } else if(value instanceof String) {
                 c = ((String)value).compareTo(leaf.getValue().getAsString());
@@ -344,13 +413,26 @@ public class Filter implements Serializable {
     }
 
     private static ConditionLeaf createLeaf(final JsonObject jsonObject) {
-        if(!jsonObject.has("key") || !jsonObject.has("op") || !jsonObject.has("value")) {
+        if((!jsonObject.has("key") && !jsonObject.has("expression")) || !jsonObject.has("op") || !jsonObject.has("value")) {
             throw new IllegalArgumentException("Simple conditions must contain `key`,`op`,`value`. json: " + jsonObject);
         }
         final ConditionLeaf leaf = new ConditionLeaf();
-        leaf.setKey(jsonObject.get("key").getAsString());
         leaf.setOp(Op.of(jsonObject.get("op").getAsString()));
         leaf.setValue(jsonObject.get("value"));
+
+        if(jsonObject.has("expression")) {
+            if(!jsonObject.get("expression").isJsonPrimitive() || !jsonObject.get("expression").getAsJsonPrimitive().isString()) {
+                throw new IllegalArgumentException("useExpression must be boolean, json: " + jsonObject);
+            }
+            final String expression = jsonObject.get("expression").getAsString();
+            leaf.key = expression;
+            leaf.expression = ExpressionUtil.createDefaultExpression(expression);
+            leaf.expressionString = expression;
+        } else {
+            leaf.key = jsonObject.get("key").getAsString();
+            leaf.expression = null;
+            leaf.expressionString = null;
+        }
         return leaf;
     }
 

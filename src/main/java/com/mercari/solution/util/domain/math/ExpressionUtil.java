@@ -4,6 +4,7 @@ import net.objecthunter.exp4j.Expression;
 import net.objecthunter.exp4j.ExpressionBuilder;
 import net.objecthunter.exp4j.function.Function;
 import net.objecthunter.exp4j.operator.Operator;
+import org.apache.avro.util.Utf8;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.joda.time.Instant;
 import org.slf4j.Logger;
@@ -53,7 +54,14 @@ public class ExpressionUtil {
         return variables;
     }
 
-    public static Expression createDefaultExpression(final String expression, final Collection<String> variables) {
+    public static Expression createDefaultExpression(final String expression) {
+        return createDefaultExpression(expression, null);
+    }
+
+    public static Expression createDefaultExpression(final String expression, Collection<String> variables) {
+        if(variables == null) {
+            variables = estimateVariables(expression);
+        }
         return new ExpressionBuilder(expression)
                 .variables(new HashSet<>(variables))
                 .operator(
@@ -124,32 +132,43 @@ public class ExpressionUtil {
         return bufferSizes;
     }
 
-    public static Double getAsDouble(final Object object) {
-        if(object == null) {
-            return null;
-        }
-        if(object instanceof Double) {
-            return ((Double) object);
-        } else if(object instanceof Long) {
-            return ((Long) object).doubleValue();
-        } else if(object instanceof Float) {
-            return ((Float) object).doubleValue();
-        } else if(object instanceof Integer) {
-            return ((Integer) object).doubleValue();
-        } else if(object instanceof BigDecimal) {
-            return ((BigDecimal) object).doubleValue();
-        } else if(object instanceof Instant) {
-            return Long.valueOf(((Instant) object).getMillis()).doubleValue();
-        } else if(object instanceof LocalDate) {
-            return Long.valueOf(((LocalDate) object).toEpochDay()).doubleValue();
-        } else if(object instanceof LocalTime) {
-            return Long.valueOf(((LocalTime) object).toNanoOfDay() / 1000_000L).doubleValue();
-        } else {
-            LOG.warn("Object: " + object + " is not applicable to double value.");
-            return null;
-        }
+    public static Double getAsDouble(final Object value) {
+        return getAsDouble(value, null);
     }
 
+    public static Double getAsDouble(final Object value, final Double defaultValue) {
+        if(value == null) {
+            return defaultValue;
+        }
+        if(value instanceof Double) {
+            return ((Double)value);
+        } else if(value instanceof Float) {
+            return ((Float)value).doubleValue();
+        } else if(value instanceof Long) {
+            return ((Long)value).doubleValue();
+        } else if(value instanceof Integer) {
+            return ((Integer)value).doubleValue();
+        } else if(value instanceof BigDecimal) {
+            return ((BigDecimal)value).doubleValue();
+        } else if(value instanceof Byte) {
+            return ((Byte)value).doubleValue();
+        } else if(value instanceof Short) {
+            return ((Short)value).doubleValue();
+        } else if(value instanceof String) {
+            return Double.valueOf((String)value);
+        } else if(value instanceof Instant) {
+            return Long.valueOf(((Instant)value).getMillis()).doubleValue();
+        } else if(value instanceof LocalDate) {
+            return Long.valueOf(((LocalDate)value).toEpochDay()).doubleValue();
+        } else if(value instanceof LocalTime) {
+            return Long.valueOf(((LocalTime) value).toNanoOfDay() / 1000_000L).doubleValue();
+        } else if(value instanceof org.apache.avro.util.Utf8) {
+            return Double.valueOf(((Utf8)value).toString());
+        } else {
+            LOG.warn("Object: " + value + " is not applicable to double value.");
+            return Double.valueOf((String)value);
+        }
+    }
 
     public static class EqualOperator extends Operator {
 
