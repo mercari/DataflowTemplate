@@ -17,12 +17,18 @@ public class RowToMapConverter {
     private static final DateTimeFormatter FORMATTER_HH_MM_SS   = DateTimeFormat.forPattern("HH:mm:ss");
 
     public static Map<String, Object> convert(final Row row) {
+        return convertWithFields(row, null);
+    }
+
+    public static Map<String, Object> convertWithFields(final Row row, final Collection<String> fields) {
         final Map<String, Object> map = new HashMap<>();
         if(row == null) {
             return map;
         }
         for(final Schema.Field field : row.getSchema().getFields()) {
-            map.put(field.getName(), getValue(field.getType(), row.getValue(field.getName())));
+            if(fields == null || fields.contains(field.getName())) {
+                map.put(field.getName(), getValue(field.getType(), row.getValue(field.getName())));
+            }
         }
         return map;
     }

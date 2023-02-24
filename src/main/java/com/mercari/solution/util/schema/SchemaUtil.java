@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -65,6 +66,10 @@ public class SchemaUtil {
 
     public interface MapConverter<ElementT> extends Serializable {
         Map<String, Object> convert(ElementT element);
+    }
+
+    public interface MapFieldsConverter<ElementT> extends Serializable {
+        Map<String, Object> convert(ElementT element, Collection<String> fields);
     }
 
     public interface ValuesSetter<SchemaT, ElementT> extends Serializable {
