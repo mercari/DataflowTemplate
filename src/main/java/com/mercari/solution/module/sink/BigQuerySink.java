@@ -275,7 +275,11 @@ public class BigQuerySink implements SinkModule {
                     }
                 }
                 if(this.getNumStorageWriteApiStreams() == null) {
-                    this.setAutoSharding(true);
+                    if(!BigQueryIO.Write.Method.FILE_LOADS.equals(this.getMethod())
+                            && OptionUtil.isStreaming(input)) {
+                        LOG.warn("numStorageWriteApiStreams must be set when using storage write api");
+                        this.setAutoSharding(true);
+                    }
                 }
             }
             if(this.getAutoSharding() == null) {
