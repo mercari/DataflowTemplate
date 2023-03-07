@@ -66,6 +66,8 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
         final RuntimeSchemaT outputRuntimeSchema = schemaConverter.convert(outputSchema);
         final Coder<T> outputCoder = createOutputCoder(outputRuntimeSchema);
 
+        final List<String> sourceNames = new ArrayList<>(inputNames.values());
+
         PCollectionList<T> list = PCollectionList.empty(inputs.getPipeline());
         for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : inputs.getAll().entrySet()) {
             final TupleTag<?> tag = entry.getKey();
@@ -78,23 +80,25 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
             if(outputType.equals(inputTypes.get(tag))) {
                 input = (PCollection<T>) entry.getValue();
             } else {
-                input = (PCollection<T>) (entry.getValue().apply("ConvertType" + inputName, SchemaUtil.transform(inputSchemas.get(tag), inputTypes.get(tag), outputType)));
+                final RuntimeSchemaT runtimeSchema = schemaConverter.convert(inputSchemas.get(tag));
+                input = (PCollection<T>) (entry.getValue().apply("ConvertType" + inputName, SchemaUtil.transform(runtimeSchema, inputTypes.get(tag), outputType)));
             }
 
             final PCollection<T> unified = input
-                    .apply("Merge" + inputName, ParDo.of(new MergeDoFn<>(inputName, commonFields, outputSchema, schemaConverter, valueGetter, valueCreator)))
+                    .apply("Merge" + inputName, ParDo.of(new MergeDoFn<>(inputName, commonFields, sourceNames, outputSchema, schemaConverter, valueGetter, valueCreator)))
                     .setCoder(outputCoder);
 
             list = list.and(unified);
         }
 
-        return list.apply("Flatten", Flatten.pCollections());
+        return list.apply("Union", Flatten.pCollections());
     }
 
     private static class MergeDoFn<InputSchemaT,RuntimeSchemaT,T> extends DoFn<T, T> {
 
         private final String source;
         private final List<String> commonFields;
+        private final List<String> sourceNames;
         protected final InputSchemaT outputSchema;
         protected final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
         protected final SchemaUtil.ValueGetter<T> valueGetter;
@@ -105,6 +109,7 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
 
         MergeDoFn(final String source,
                   final List<String> commonFields,
+                  final List<String> sourceNames,
                   final InputSchemaT outputSchema,
                   final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
                   final SchemaUtil.ValueGetter<T> valueGetter,
@@ -112,6 +117,7 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
 
             this.source = source;
             this.commonFields = commonFields;
+            this.sourceNames = sourceNames;
             this.outputSchema = outputSchema;
             this.schemaConverter = schemaConverter;
             this.valueGetter = valueGetter;
@@ -133,9 +139,18 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
             for(final String commonField : commonFields) {
                 values.put(commonField, valueGetter.getValue(element, commonField));
             }
-            final List<T> elements = new ArrayList<>();
-            elements.add(element);
-            values.put(source, elements);
+
+            for(final String sourceName : sourceNames) {
+                final List<T> elements = new ArrayList<>();
+                if(source.equals(sourceName)) {
+                    elements.add(element);
+                }
+                values.put(sourceName, elements);
+            }
+
+            if(true) {
+                //throw new IllegalArgumentException("schema: " + runtimeOutputSchema.toString() + ", values: " + values);
+            }
 
             final T output = valueCreator.create(runtimeOutputSchema, values);
 
@@ -184,7 +199,7 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
         for(final Map.Entry<TupleTag<?>, InputSchemaT> entry : inputSchemas.entrySet()) {
             final Schema fieldSchema = (Schema) entry.getValue();
             final String fieldName = inputNames.get(entry.getKey());
-            builder.addField(fieldName, Schema.FieldType.array(Schema.FieldType.row(fieldSchema)).withNullable(true));
+            builder.addField(fieldName, Schema.FieldType.array(Schema.FieldType.row(fieldSchema)));
         }
         return builder.build();
     }
@@ -206,9 +221,11 @@ public class Merge<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection
         for(final Map.Entry<TupleTag<?>, InputSchemaT> entry : inputSchemas.entrySet()) {
             final String fieldName = inputNames.get(entry.getKey());
             final org.apache.avro.Schema fieldSchema = AvroSchemaUtil.convertSchema((String) entry.getValue());
+            final org.apache.avro.Schema mergedSchema = org.apache.avro.Schema
+                    .createArray(AvroSchemaUtil.rename(AvroSchemaUtil.unnestUnion(fieldSchema), fieldName));
             schemaFields
                     .name(fieldName)
-                    .type(AvroSchemaUtil.toNullable(org.apache.avro.Schema.createArray(AvroSchemaUtil.rename(fieldSchema, fieldName))))
+                    .type(mergedSchema)
                     .noDefault();
         }
         return schemaFields.endRecord();
