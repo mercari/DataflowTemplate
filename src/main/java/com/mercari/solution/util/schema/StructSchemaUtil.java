@@ -21,7 +21,6 @@ import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.*;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.KV;
-import org.apache.beam.sdk.values.Row;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -276,6 +275,13 @@ public class StructSchemaUtil {
         }
     }
 
+    public static String getAsString(final Object struct, final String field) {
+        if(struct == null) {
+            return null;
+        }
+        return getAsString((Struct) struct, field);
+    }
+
     public static String getAsString(final Struct struct, final String field) {
         if(struct.isNull(field)) {
             return null;
@@ -515,6 +521,14 @@ public class StructSchemaUtil {
             default:
                 throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         }
+    }
+
+    public static Object getAsPrimitive(Object row, Schema.FieldType fieldType, String field) {
+        return null;
+    }
+
+    public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
+        return null;
     }
 
     public static Timestamp toCloudTimestamp(final Instant instant) {

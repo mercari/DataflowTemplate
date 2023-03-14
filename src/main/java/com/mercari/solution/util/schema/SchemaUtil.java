@@ -64,6 +64,10 @@ public class SchemaUtil {
         Object getValue(ElementT element, String field);
     }
 
+    public interface PrimitiveValueGetter extends Serializable {
+        Object getValue(Object element, Schema.FieldType fieldType, String field);
+    }
+
     public interface MapConverter<ElementT> extends Serializable {
         Map<String, Object> convert(ElementT element);
     }
@@ -90,6 +94,10 @@ public class SchemaUtil {
 
     public interface ValueCreator<SchemaT, ElementT> extends Serializable {
         ElementT create(final SchemaT schema, final Map<String, Object> values);
+    }
+
+    public interface PrimitiveValueConverter extends Serializable {
+        Object convertPrimitive(final Schema.FieldType fieldType, final Object primitiveValue);
     }
 
     public static <ElementT> SerializableFunction<ElementT, String> createGroupKeysFunction(

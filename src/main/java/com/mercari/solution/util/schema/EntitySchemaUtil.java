@@ -144,6 +144,13 @@ public class EntitySchemaUtil {
         return object.toString();
     }
 
+    public static String getAsString(final Object entity, final String fieldName) {
+        if(entity == null) {
+            return null;
+        }
+        return getAsString((Entity) entity, fieldName);
+    }
+
     public static String getAsString(final Entity entity, final String fieldName) {
         final Value value = entity.getPropertiesOrDefault(fieldName, null);
         if(value == null) {
@@ -312,6 +319,14 @@ public class EntitySchemaUtil {
                 return null;
         }
         return ByteString.copyFrom(bytes);
+    }
+
+    public static Object getAsPrimitive(Object row, Schema.FieldType fieldType, String field) {
+        return null;
+    }
+
+    public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
+        return null;
     }
 
     public static Date convertDate(final Value value) {

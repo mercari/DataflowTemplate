@@ -30,6 +30,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Google Drive to Cloud Storage](drivefile-to-copyfile.json)
     * [Cloud Storage(Spanner Backup) to Spanner](import-spanner-backup.json)
   * Data Processing
+    * [Batch Aggregation (BigQuery)](bigquery-to-aggregation-to-bigquery.json)
     * [BeamSQL: Join BigQuery and Spanner table](beamsql-join-bigquery-and-spanner-to-spanner.json)
     * [AutoML(Vertex AI endpoints) batch prediction](bigquery-to-automl-to-spanner.json)
     * [Tokenize](bigquery-to-tokenize-to-bigquery.json)
@@ -44,6 +45,8 @@ Try to find and arrange a configuration file that is similar to the data process
   * Data Transfer
     * [Cloud PubSub(Avro) to BigQuery](pubsub-avro-to-bigquery.json)
     * [Cloud PubSub(Avro) to Cloud Spanner](pubsub-avro-to-spanner.json)
+  * Data Processing
+    * [Streaming Aggregation (PubSub)](pubsub-to-aggregation-to-pubsub.json)
     * [Cloud PubSub(Json) to BeamSQL to Cloud PubSub(Json)](pubsub-to-beamsql-to-pubsub.json)
   * Microbatch
     * [Spanner(Microbatch) to BigQuery](spanner-microbatch-to-bigquery.json)

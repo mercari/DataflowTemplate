@@ -510,6 +510,13 @@ public class RowSchemaUtil {
         return row.getValue(field).toString();
     }
 
+    public static String getAsString(final Object row, final String field) {
+        if(row == null) {
+            return null;
+        }
+        return getAsString((Row) row, field);
+    }
+
     public static Long getAsLong(final Row row, final String fieldName) {
         if(row == null) {
             return null;
@@ -809,6 +816,158 @@ public class RowSchemaUtil {
             default:
                 return defaultTimestamp;
         }
+    }
+
+    public static Object getAsPrimitive(final Object row, final Schema.FieldType fieldType, final String field) {
+        final Object value = ((Row) row).getValue(field);
+        if(value == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT16:
+                return ((Short) value).intValue();
+            case INT32:
+            case INT64:
+            case FLOAT:
+            case DOUBLE:
+            case STRING:
+            case BOOLEAN:
+                return value;
+            case DATETIME:
+                return ((Instant) value).getMillis() * 1000L;
+            case LOGICAL_TYPE: {
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return ((LocalTime) value).toNanoOfDay() / 1000L;
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return ((EnumerationType.Value) value).getValue();
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT16:
+                        return ((List<Short>) value).stream()
+                                .map(Short::intValue)
+                                .collect(Collectors.toList());
+                    case INT32:
+                    case INT64:
+                    case FLOAT:
+                    case DOUBLE:
+                    case STRING:
+                    case BOOLEAN:
+                        return value;
+                    case DATETIME:
+                        return ((List<Instant>) value).stream()
+                                .map(Instant::getMillis)
+                                .map(l -> l * 1000L)
+                                .collect(Collectors.toList());
+                    case LOGICAL_TYPE: {
+                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                            return ((List<LocalDate>) value).stream()
+                                    .map(LocalDate::toEpochDay)
+                                    .collect(Collectors.toList());
+                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                            return ((List<LocalTime>) value).stream()
+                                    .map(LocalTime::toNanoOfDay)
+                                    .map(n -> n / 1000L)
+                                    .collect(Collectors.toList());
+                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                            return ((List<EnumerationType.Value>) value).stream()
+                                    .map(EnumerationType.Value::getValue)
+                                    .collect(Collectors.toList());
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
+                    case ITERABLE:
+                    case ARRAY:
+                    case ROW:
+                    case BYTES:
+                    case MAP:
+                    case BYTE:
+                    case DECIMAL:
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
+    public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
+        if(primitiveValue == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT16:
+                return ((Integer) primitiveValue).shortValue();
+            case INT32:
+            case INT64:
+            case FLOAT:
+            case DOUBLE:
+            case STRING:
+            case BOOLEAN:
+                return primitiveValue;
+            case DATETIME:
+                return Instant.ofEpochMilli(((Long) primitiveValue)/1000L);
+            case LOGICAL_TYPE: {
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return LocalDate.ofEpochDay((Integer) primitiveValue);
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return LocalTime.ofNanoOfDay(1000L * (Long) primitiveValue);
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final int index = (Integer) primitiveValue;
+                    return fieldType.getLogicalType(EnumerationType.class).valueOf(index);
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT16:
+                        return ((List<Integer>) primitiveValue).stream()
+                                .map(Integer::shortValue)
+                                .collect(Collectors.toList());
+                    case INT32:
+                    case INT64:
+                    case FLOAT:
+                    case DOUBLE:
+                    case STRING:
+                    case BOOLEAN:
+                        return primitiveValue;
+                    case DATETIME:
+                        return ((List<Integer>) primitiveValue).stream()
+                                .map(l -> l / 1000L)
+                                .map(Instant::ofEpochMilli)
+                                .collect(Collectors.toList());
+                    case LOGICAL_TYPE: {
+                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(LocalDate::ofEpochDay)
+                                    .collect(Collectors.toList());
+                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                            return ((List<Long>) primitiveValue).stream()
+                                    .map(l -> l * 1000)
+                                    .map(LocalTime::ofNanoOfDay)
+                                    .collect(Collectors.toList());
+                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(index -> fieldType.getLogicalType(EnumerationType.class).valueOf(index))
+                                    .collect(Collectors.toList());
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     public static Instant toInstant(final Object value) {
