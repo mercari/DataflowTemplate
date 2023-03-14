@@ -421,11 +421,7 @@ public class PDFExtractTransform implements TransformModule {
                     collections.put(name, FCollection.of(name, output, DataType.ENTITY, outputAvroSchema));
                     break;
                 }
-                case BIGTABLE:
-                    break;
                 case MUTATION:
-                    break;
-                case TEXT:
                     break;
                 default:
                     throw new IllegalArgumentException();

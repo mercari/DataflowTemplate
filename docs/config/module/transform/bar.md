@@ -1,4 +1,6 @@
-# Bar Transform Module
+# Bar Transform Module (Deprecated)
+
+(Use [aggregation transform module](aggregation.md) with upper compatible functionality)
 
 Bar transform module generates financial bars from price movement records.
 

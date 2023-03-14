@@ -13,6 +13,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.*;
 import org.apache.avro.io.*;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.*;
 import org.joda.time.DateTimeZone;
@@ -851,6 +852,13 @@ public class AvroSchemaUtil {
         }
     }
 
+    public static String getAsString(final Object record, final String fieldName) {
+        if(record == null) {
+            return null;
+        }
+        return getAsString((GenericRecord) record, fieldName);
+    }
+
     public static String getAsString(final GenericRecord record, final String fieldName) {
         final Object value = record.get(fieldName);
         if(value == null) {
@@ -1201,6 +1209,172 @@ public class AvroSchemaUtil {
         return null;
     }
 
+    public static Object getAsPrimitive(final Object record, final org.apache.beam.sdk.schemas.Schema.FieldType fieldType, final String field) {
+        final Object value = ((GenericRecord) record).get(field);
+        if(value == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT32:
+            case INT64:
+            case FLOAT:
+            case DOUBLE:
+            case BOOLEAN:
+                return value;
+            case STRING:
+                return value.toString();
+            case DATETIME: {
+                final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
+                if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    return (Long) value * 1000L;
+                } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return value;
+                }
+                throw new IllegalStateException();
+            }
+            case LOGICAL_TYPE: {
+                final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                        return (Long) value * 1000L;
+                    } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                        return value;
+                    }
+                    throw new IllegalStateException();
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return fieldSchema.getEnumSymbols().get((Integer) value);
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT32:
+                    case INT64:
+                    case FLOAT:
+                    case DOUBLE:
+                    case BOOLEAN:
+                        return value;
+                    case STRING:
+                        return ((List<Object>) value).stream().map(Object::toString).collect(Collectors.toList());
+                    case DATETIME: {
+                        final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
+                        final long m;
+                        if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                            m = 1000L;
+                        } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                            m = 1L;
+                        } else {
+                            m = 1L;
+                        }
+                        return ((List<Long>) value).stream()
+                                .map(l -> l * m)
+                                .collect(Collectors.toList());
+                    }
+                    case LOGICAL_TYPE: {
+                        final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
+                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                            return value;
+                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                            final long m;
+                            if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                                m = 1000L;
+                            } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                                m = 1L;
+                            } else {
+                                m = 1L;
+                            }
+                            return ((List<Long>) value).stream()
+                                    .map(l -> l * m)
+                                    .collect(Collectors.toList());
+                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                            throw new IllegalStateException();
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
+                    case ITERABLE:
+                    case ARRAY:
+                    case ROW:
+                    case BYTES:
+                    case MAP:
+                    case BYTE:
+                    case DECIMAL:
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
+    public static Object convertPrimitive(org.apache.beam.sdk.schemas.Schema.FieldType fieldType, Object primitiveValue) {
+        if(primitiveValue == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT32:
+            case INT64:
+            case FLOAT:
+            case DOUBLE:
+            case STRING:
+            case BOOLEAN:
+                return primitiveValue;
+            case DATETIME: {
+                return (Long) primitiveValue;
+            }
+            case LOGICAL_TYPE: {
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return (Integer) primitiveValue;
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return (Long) primitiveValue;
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final int index = (Integer) primitiveValue;
+                    return fieldType.getLogicalType(EnumerationType.class).valueOf(index);
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT32:
+                    case INT64:
+                    case FLOAT:
+                    case DOUBLE:
+                    case STRING:
+                    case BOOLEAN:
+                        return primitiveValue;
+                    case DATETIME:
+                        return ((List<Long>) primitiveValue).stream()
+                                .map(l -> l)
+                                .collect(Collectors.toList());
+                    case LOGICAL_TYPE: {
+                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                            return primitiveValue;
+                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                            return ((List<Long>) primitiveValue).stream()
+                                    .map(l -> l)
+                                    .collect(Collectors.toList());
+                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(index -> fieldType.getLogicalType(EnumerationType.class).valueOf(index))
+                                    .collect(Collectors.toList());
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
     public static Instant toInstant(final Object value) {
         if(value == null) {
             return null;
@@ -1313,6 +1487,33 @@ public class AvroSchemaUtil {
         return AvroSchemaUtil
                 .toSchemaBuilder(schema, null, null, name)
                 .endRecord();
+    }
+
+    public static Schema getChildSchema(final Schema schema, final String fieldName) {
+        if(schema == null) {
+            return null;
+        }
+        final Schema.Field field = schema.getField(fieldName);
+        if(field == null) {
+            return null;
+        }
+
+        final Schema fieldSchema = unnestUnion(field.schema());
+        switch (fieldSchema.getType()) {
+            case RECORD:
+                return fieldSchema;
+            case ARRAY: {
+                final Schema elementSchema = unnestUnion(fieldSchema.getElementType());
+                switch (elementSchema.getType()) {
+                    case RECORD:
+                        return elementSchema;
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
     }
 
     private static Schema convertSchema(final TableFieldSchema fieldSchema) {

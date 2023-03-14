@@ -1,0 +1,89 @@
+{
+  "name": "PubSubToAggregationToPubSub",
+  "sources": [
+    {
+      "name": "PubSubInputTopicA",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "UserID", "type": "string", "mode": "required" },
+          { "name": "fieldA", "type": "double", "mode": "nullable" },
+          { "name": "fieldB", "type": "double", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscriptionA"
+      }
+    },
+    {
+      "name": "PubSubInputTopicB",
+      "module": "pubsub",
+      "schema": {
+        "fields": [
+          { "name": "UserID", "type": "string", "mode": "required" },
+          { "name": "fieldC", "type": "double", "mode": "nullable" },
+          { "name": "fieldD", "type": "double", "mode": "nullable" },
+          { "name": "fieldE", "type": "double", "mode": "nullable" }
+        ]
+      },
+      "parameters": {
+        "format": "json",
+        "subscription": "projects/myproject/subscriptions/mysubscriptionB"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "Aggregation",
+      "module": "aggregation",
+      "inputs": [
+        "PubSubInputTopicA",
+        "PubSubInputTopicB"
+      ],
+      "parameters": {
+        "groupFields": ["UserID"],
+        "window": {
+          "type": "fixed",
+          "unit": "second",
+          "size": 60
+        },
+        "aggregations": [
+          {
+            "input": "PubSubInputTopicA",
+            "fields": [
+              { "name": "countTableA", "op": "count" },
+              { "name": "firstFieldA", "op": "first", "field": "fieldA" },
+              { "name": "lastFields", "op": "last", "fields": ["fieldA", "fieldB"] },
+              { "name": "maxFieldA", "op": "max", "field": "fieldA" },
+              { "name": "minExpression", "op": "min", "expression": "1 + (fieldA / fieldB)" },
+              { "name": "sumFieldA", "op": "sum", "field": "fieldA" },
+              { "name": "avgExpression", "op": "avg", "expression": "fieldA * fieldB" },
+              { "name": "weightAvg", "op": "avg", "field": "price", "weightField": "size" }
+            ]
+          },
+          {
+            "input": "PubSubInputTopicB",
+            "fields": [
+              { "name": "countTableB", "op": "count" },
+              { "name": "firstFieldC", "op": "first", "field": "fieldC" },
+              { "name": "argmaxFields", "op": "max", "comparingField": "fieldD", "fields": ["fieldC", "fieldD", "fieldE"] },
+              { "name": "argminExpression", "op": "min", "comparingExpression": "1 + (fieldC / fieldD)", "field": "fieldE" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "PubSubOutputAggregation",
+      "module": "pubsub",
+      "input": "Aggregation",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "json"
+      }
+    }
+  ]
+}

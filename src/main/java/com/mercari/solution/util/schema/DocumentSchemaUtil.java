@@ -19,6 +19,13 @@ public class DocumentSchemaUtil {
         return document;
     }
 
+    public static String getAsString(final Object document, final String fieldName) {
+        if(document == null) {
+            return null;
+        }
+        return getAsString((Document) document, fieldName);
+    }
+
     public static String getAsString(final Document document, final String fieldName) {
         final Value value = document.getFieldsOrDefault(fieldName, null);
         if(value == null
@@ -47,5 +54,14 @@ public class DocumentSchemaUtil {
                 return null;
         }
     }
+
+    public static Object getAsPrimitive(Object row, Schema.FieldType fieldType, String field) {
+        return null;
+    }
+
+    public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
+        return null;
+    }
+
 
 }

@@ -1,0 +1,77 @@
+{
+  "name": "bigqueryToAggregationToBigQuery",
+  "sources": [
+    {
+      "name": "BigQueryInputTableA",
+      "module": "bigquery",
+      "timestampAttribute": "timestamp",
+      "parameters": {
+        "query": "SELECT UserID fieldA, fieldB, timestamp FROM temp.tableA"
+      }
+    },
+    {
+      "name": "BigQueryInputTableB",
+      "module": "bigquery",
+      "timestampAttribute": "eventtime",
+      "parameters": {
+        "query": "SELECT UserID, fieldC, fieldD, fieldE, eventtime FROM temp.tableB"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "Aggregation",
+      "module": "aggregation",
+      "inputs": [
+        "BigQueryInputTableA",
+        "BigQueryInputTableB"
+      ],
+      "parameters": {
+        "groupFields": ["UserID"],
+        "window": {
+          "type": "fixed",
+          "unit": "second",
+          "size": 60
+        },
+        "aggregations": [
+          {
+            "input": "BigQueryInputTableA",
+            "fields": [
+              { "name": "countTableA", "op": "count" },
+              { "name": "firstFieldA", "op": "first", "field": "fieldA" },
+              { "name": "lastFields", "op": "last", "fields": ["fieldA", "fieldB"] },
+              { "name": "maxFieldA", "op": "max", "field": "fieldA" },
+              { "name": "minExpression", "op": "min", "expression": "1 + (fieldA / fieldB)" },
+              { "name": "sumFieldA", "op": "sum", "field": "fieldA" },
+              { "name": "avgExpression", "op": "avg", "expression": "fieldA * fieldB" },
+              { "name": "weightAvg", "op": "avg", "field": "price", "weightField": "size" }
+            ]
+          },
+          {
+            "input": "BigQueryInputTableB",
+            "fields": [
+              { "name": "countTableB", "op": "count" },
+              { "name": "firstFieldC", "op": "first", "field": "fieldC" },
+              { "name": "argmaxFields", "op": "max", "comparingField": "fieldD", "fields": ["fieldC", "fieldD", "fieldE"] },
+              { "name": "argminExpression", "op": "min", "comparingExpression": "1 + (fieldC / fieldD)", "field": "fieldE" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "BigQueryOutputAggregation",
+      "module": "bigquery",
+      "input": "Aggregation",
+      "parameters": {
+        "table": "myproject:mydataset.aggregation_result",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE",
+        "partitioning": "DAY",
+        "partitioningField": "timestamp"
+      }
+    }
+  ]
+}
