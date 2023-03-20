@@ -3,6 +3,7 @@ package com.mercari.solution.util.converter;
 import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
+import com.google.cloud.spanner.Key;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Type;
 import com.google.cloud.spanner.Value;
@@ -24,10 +25,8 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.time.LocalTime;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class RowToMutationConverter {
@@ -57,7 +56,11 @@ public class RowToMutationConverter {
                                    final Set<String> hideFields) {
 
         if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
-            return StructSchemaUtil.createDeleteMutation(row, table, keyFields, Row::getValue);
+            if(keyFields == null) {
+                throw new IllegalArgumentException("keyFields is null. Set keyFields when using mutationOp:DELETE");
+            }
+            final Key key = createKey(row, keyFields);
+            return Mutation.delete(table, key);
         }
 
         final Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
@@ -453,6 +456,104 @@ public class RowToMutationConverter {
             default:
                 throw new IllegalArgumentException("Not supported fieldType: " + fieldType.getTypeName());
         }
+    }
+
+    public static Key createKey(final Row row, final Iterable<String> keyFields) {
+        Key.Builder keyBuilder = Key.newBuilder();
+        for(final String keyField : keyFields) {
+            final Schema.Field field = row.getSchema().getField(keyField);
+            switch (field.getType().getTypeName()) {
+                case BOOLEAN:
+                    keyBuilder = keyBuilder.append(row.getBoolean(keyField));
+                    break;
+                case STRING:
+                    keyBuilder = keyBuilder.append(row.getString(keyField));
+                    break;
+                case BYTE: {
+                    final Long longValue = Optional.ofNullable(row.getByte(keyField)).map(Byte::longValue).orElse(null);
+                    keyBuilder = keyBuilder.append(longValue);
+                    break;
+                }
+                case INT16: {
+                    final Long longValue = Optional.ofNullable(row.getInt16(keyField)).map(Short::longValue).orElse(null);
+                    keyBuilder = keyBuilder.append(longValue);
+                    break;
+                }
+                case INT32: {
+                    final Long longValue = Optional.ofNullable(row.getInt32(keyField)).map(Integer::longValue).orElse(null);
+                    keyBuilder = keyBuilder.append(longValue);
+                    break;
+                }
+                case INT64:
+                    keyBuilder = keyBuilder.append(row.getInt64(keyField));
+                    break;
+                case FLOAT: {
+                    final Double doubleValue = Optional.ofNullable(row.getFloat(keyField)).map(Float::doubleValue).orElse(null);
+                    keyBuilder = keyBuilder.append(doubleValue);
+                    break;
+                }
+                case DOUBLE:
+                    keyBuilder = keyBuilder.append(row.getDouble(keyField));
+                    break;
+                case BYTES: {
+                    final ByteArray bytes = Optional.ofNullable(row.getBytes(keyField)).map(ByteArray::copyFrom).orElse(null);
+                    keyBuilder = keyBuilder.append(bytes);
+                    break;
+                }
+                case DECIMAL:
+                    keyBuilder = keyBuilder.append(row.getDecimal(keyField));
+                    break;
+                case DATETIME: {
+                    final Timestamp timestamp = Optional.ofNullable(row.getDateTime(keyField))
+                            .map(i -> Timestamp.ofTimeMicroseconds(i.getMillis() * 1000L))
+                            .orElse(null);
+                    keyBuilder = keyBuilder.append(timestamp);
+                    break;
+
+                }
+                case LOGICAL_TYPE: {
+                    if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
+                        final Date date = Optional.ofNullable(row.getLogicalTypeValue(keyField, LocalDate.class))
+                                .map(i -> Date.fromYearMonthDay(i.getYear(), i.getMonthValue(), i.getDayOfMonth()))
+                                .orElse(null);
+                        keyBuilder = keyBuilder.append(date);
+                        break;
+                    } else if(RowSchemaUtil.isLogicalTypeTime(field.getType())) {
+                        final String time = Optional.ofNullable(row.getLogicalTypeValue(keyField, LocalTime.class))
+                                .map(LocalTime::toString)
+                                .orElse(null);
+                        keyBuilder = keyBuilder.append(time);
+                        break;
+                    } else if(RowSchemaUtil.isLogicalTypeTimestamp(field.getType())) {
+                        final Timestamp timestamp = Optional.ofNullable(row.getLogicalTypeValue(keyField, Instant.class))
+                                .map(i -> Timestamp.ofTimeMicroseconds(i.getMillis() * 1000L))
+                                .orElse(null);
+                        keyBuilder = keyBuilder.append(timestamp);
+                        break;
+                    } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
+                        final String enumValue = Optional.ofNullable(row.getLogicalTypeValue(keyField, EnumerationType.Value.class))
+                                .map(v  -> RowSchemaUtil.toString(field.getType(), v))
+                                .orElse(null);
+                        keyBuilder = keyBuilder.append(enumValue);
+                        break;
+                    } else {
+                        throw new IllegalArgumentException(
+                                "Unsupported Beam logical type: "
+                                        + keyField + "/"
+                                        + field.getType().getCollectionElementType().getLogicalType() + "/"
+                                        + field.getType().getCollectionElementType());
+                    }
+                }
+                case ROW:
+                case ARRAY:
+                case ITERABLE:
+                case MAP:
+                default: {
+                    throw new IllegalStateException();
+                }
+            }
+        }
+        return keyBuilder.build();
     }
 
 }

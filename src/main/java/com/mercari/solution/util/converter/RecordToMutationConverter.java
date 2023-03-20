@@ -40,7 +40,11 @@ public class RecordToMutationConverter {
                                    final Set<String> hideFields) {
 
         if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
-            return StructSchemaUtil.createDeleteMutation(record, table, keyFields, GenericRecord::get);
+            if(keyFields == null) {
+                throw new IllegalArgumentException("keyFields is null. Set keyFields when using mutationOp:DELETE");
+            }
+            final Key key = createKey(record, keyFields);
+            return Mutation.delete(table, key);
         }
 
         final Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
@@ -122,7 +126,7 @@ public class RecordToMutationConverter {
         return MutationGroup.create(primary, mutations);
     }
 
-    public static Key createKey(final List<String> keyFields, final GenericRecord record) {
+    public static Key createKey(final GenericRecord record, final Iterable<String> keyFields) {
         Key.Builder keyBuilder = Key.newBuilder();
         for(final String keyField : keyFields) {
             final Schema.Field field = record.getSchema().getField(keyField);

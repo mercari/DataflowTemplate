@@ -28,7 +28,6 @@ import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -1065,7 +1064,7 @@ public class StructSchemaUtil {
                 .addField(Schema.Field.of("rowType", Schema.FieldType.array(Schema.FieldType.row(rowTypeSchema))))
                 .addField(Schema.Field.of("mods", Schema.FieldType.array(Schema.FieldType.row(modSchema))))
                 .addField(Schema.Field.of("modType", Schema.FieldType.logicalType(EnumerationType.create("INSERT","UPDATE","DELETE"))))
-                .addField(Schema.Field.of("valueCaptureType", Schema.FieldType.logicalType(EnumerationType.create("OLD_AND_NEW_VALUES"))))
+                .addField(Schema.Field.of("valueCaptureType", Schema.FieldType.logicalType(EnumerationType.create("OLD_AND_NEW_VALUES", "NEW_ROW", "NEW_VALUES"))))
                 .addField(Schema.Field.of("numberOfRecordsInTransaction", Schema.FieldType.INT64))
                 .addField(Schema.Field.of("numberOfPartitionsInTransaction", Schema.FieldType.INT64))
                 .addField(Schema.Field.of("metadata", Schema.FieldType.row(metadataSchema).withNullable(true)))
@@ -1131,7 +1130,7 @@ public class StructSchemaUtil {
                 .name("modType").type(org.apache.avro.Schema
                         .createEnum("ModType", "", "com.google.cloud.teleport.v2", Arrays.asList("INSERT","UPDATE","DELETE"))).noDefault()
                 .name("valueCaptureType").type(org.apache.avro.Schema
-                        .createEnum("ValueCaptureType", "", "com.google.cloud.teleport.v2", Arrays.asList("OLD_AND_NEW_VALUES"))).noDefault()
+                        .createEnum("ValueCaptureType", "", "com.google.cloud.teleport.v2", Arrays.asList("OLD_AND_NEW_VALUES", "NEW_ROW", "NEW_VALUES"))).noDefault()
                 .name("numberOfRecordsInTransaction").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
                 .name("numberOfPartitionsInTransaction").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
                 .name("metadata").type(org.apache.avro.Schema.createUnion(
@@ -1376,21 +1375,6 @@ public class StructSchemaUtil {
             default:
                 return Mutation.newInsertOrUpdateBuilder(table);
         }
-    }
-
-    public static <InputT> Mutation createDeleteMutation(
-            final InputT element,
-            final String table, final Iterable<String> keyFields,
-            final ValueGetter<InputT> function) {
-
-        if(keyFields == null) {
-            throw new IllegalArgumentException("keyFields is null. Set keyFields when using mutationOp:DELETE");
-        }
-        Key.Builder keyBuilder = Key.newBuilder();
-        for(final String keyField : keyFields) {
-            keyBuilder = keyBuilder.appendObject(function.convert(element, keyField));
-        }
-        return Mutation.delete(table, keyBuilder.build());
     }
 
     public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
@@ -2366,10 +2350,6 @@ public class StructSchemaUtil {
         final Struct.Builder builder = Struct.newBuilder();
         properties.entrySet().forEach(e -> builder.set(e.getKey()).to(e.getValue()));
         return Arrays.asList(Collections.singletonMap(pathName, Value.struct(builder.build())));
-    }
-
-    public interface ValueGetter<InputT> extends Serializable {
-        Object convert(InputT element, String fieldName);
     }
 
 }

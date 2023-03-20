@@ -513,7 +513,7 @@ public class SpannerBackupSource implements SourceModule {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 final GenericRecord record = c.element();
-                final com.google.cloud.spanner.Key key = RecordToMutationConverter.createKey(primaryKeyFields, record);
+                final com.google.cloud.spanner.Key key = RecordToMutationConverter.createKey(record, primaryKeyFields);
                 c.output(KV.of(KV.of(tableName, key.toString()), record));
             }
 
