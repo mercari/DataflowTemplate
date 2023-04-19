@@ -1378,7 +1378,11 @@ public class StructSchemaUtil {
     }
 
     public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
-        final String table = record.getTableName();
+        return convertToMutation(type, record, new HashMap<>());
+    }
+
+    public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record, final Map<String,String> renameTables) {
+        final String table = renameTables.getOrDefault(record.getTableName(), record.getTableName());
         final ModType modType = record.getModType();
         final Map<String, TypeCode> columnTypeCodes = Optional.ofNullable(record.getRowType())
                 .orElseGet(ArrayList::new)
@@ -1631,13 +1635,13 @@ public class StructSchemaUtil {
             case PG_NUMERIC:
                 return Value.pgNumeric(isNull ? null : element.getAsString());
             case DATE:
-                return Value.date(Date.parseDate(isNull ? null : element.getAsString()));
+                return Value.date(isNull ? null : Date.parseDate(element.getAsString()));
             case TIMESTAMP:
                 return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(element.getAsString()));
             case BYTES:
                 return Value.bytes(isNull ? null : ByteArray.copyFrom(element.getAsString()));
             case STRUCT:
-                return Value.struct(isNull ? null : fieldType, convert(fieldType, element.getAsJsonObject()));
+                return Value.struct(fieldType, isNull ? null : convert(fieldType, element.getAsJsonObject()));
             case ARRAY: {
                 final List<JsonElement> elements = new ArrayList<>();
                 if(!isNull) {

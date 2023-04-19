@@ -78,6 +78,7 @@ public class SpannerSource implements SourceModule {
         private String inclusiveEndAt;
         private Boolean outputChangeRecord;
         private List<String> tables;
+        private Map<String,String> renameTables;
 
         // for microbatch
         private Integer intervalSecond;
@@ -257,6 +258,14 @@ public class SpannerSource implements SourceModule {
 
         public void setTables(List<String> tables) {
             this.tables = tables;
+        }
+
+        public Map<String, String> getRenameTables() {
+            return renameTables;
+        }
+
+        public void setRenameTables(Map<String, String> renameTables) {
+            this.renameTables = renameTables;
         }
 
         public Integer getIntervalSecond() {
@@ -454,6 +463,9 @@ public class SpannerSource implements SourceModule {
 
             if(this.getTables() == null) {
                 this.setTables(new ArrayList<>());
+            }
+            if(this.getRenameTables() == null) {
+                this.setRenameTables(new HashMap<>());
             }
 
             if(this.outputChangeRecord == null) {
@@ -1219,7 +1231,7 @@ public class SpannerSource implements SourceModule {
                             .withKeyType(TypeDescriptors.strings()))
                     .apply("GroupByTransaction", GroupByKey.create())
                     .apply("ConvertToMutationGroup", ParDo
-                            .of(new ConvertMutationGroupDoFn(tableTypes)))
+                            .of(new ConvertMutationGroupDoFn(tableTypes, parameters.getRenameTables())))
                     .setCoder(SerializableCoder.of(MutationGroup.class));
         }
 
@@ -1227,9 +1239,11 @@ public class SpannerSource implements SourceModule {
             private static final Logger LOG = LoggerFactory.getLogger(ConvertMutationGroupDoFn.class);
 
             private final Map<String, Type> tableTypes;
+            private final Map<String, String> tableNames;
 
-            private ConvertMutationGroupDoFn(final Map<String, Type> tableTypes) {
+            private ConvertMutationGroupDoFn(final Map<String, Type> tableTypes, final Map<String,String> tableNames) {
                 this.tableTypes = tableTypes;
+                this.tableNames = tableNames;
             }
 
             @Setup
@@ -1242,7 +1256,7 @@ public class SpannerSource implements SourceModule {
                 final List<Mutation> mutations = StreamSupport
                         .stream(c.element().getValue().spliterator(), false)
                         .sorted(Comparator.comparing(DataChangeRecord::getRecordSequence))
-                        .flatMap(r -> StructSchemaUtil.convertToMutation(tableTypes.get(r.getTableName()), r).stream())
+                        .flatMap(r -> StructSchemaUtil.convertToMutation(tableTypes.get(r.getTableName()), r, tableNames).stream())
                         .collect(Collectors.toList());
 
                 final MutationGroup mutationGroup;
