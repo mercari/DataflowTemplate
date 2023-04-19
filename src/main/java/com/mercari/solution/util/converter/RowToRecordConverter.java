@@ -16,7 +16,9 @@ import org.apache.beam.sdk.values.Row;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class RowToRecordConverter {
@@ -84,6 +86,7 @@ public class RowToRecordConverter {
             case DECIMAL:
                 fieldSchema = LogicalTypes.decimal(38, 9).addToSchema(Schema.create(Schema.Type.BYTES));
                 break;
+            case BYTE:
             case INT16:
             case INT32:
                 fieldSchema = Schema.create(Schema.Type.INT);
@@ -122,11 +125,10 @@ public class RowToRecordConverter {
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
             case ROW: {
-                final String namespace = (parentNamespace == null ? fieldName : parentNamespace + "." + fieldName).toLowerCase();
                 final List<Schema.Field> fields = fieldType.getRowSchema().getFields().stream()
-                        .map(f -> new Schema.Field(f.getName(), convertFieldSchema(f.getType(), f.getOptions(), f.getName(), namespace), f.getDescription(), (Object) null, Schema.Field.Order.IGNORE))
+                        .map(f -> new Schema.Field(f.getName(), convertFieldSchema(f.getType(), f.getOptions(), f.getName(), parentNamespace), f.getDescription(), (Object) null, Schema.Field.Order.IGNORE))
                         .collect(Collectors.toList());
-                fieldSchema = Schema.createRecord(fieldName, fieldType.getTypeName().name(), namespace, false, fields);
+                fieldSchema = Schema.createRecord(fieldName, fieldType.getTypeName().name(), parentNamespace, false, fields);
                 break;
             }
             case ITERABLE:
@@ -134,8 +136,11 @@ public class RowToRecordConverter {
                 fieldSchema = Schema.createArray(convertFieldSchema(fieldType.getCollectionElementType(), fieldOptions, fieldName, parentNamespace));
                 break;
             }
-            case MAP:
-            case BYTE:
+            case MAP: {
+                final Schema mapValueSchema = convertFieldSchema(fieldType.getMapValueType(), fieldOptions, fieldName, parentNamespace);
+                fieldSchema = Schema.createMap(mapValueSchema);
+                break;
+            }
             default:
                 throw new IllegalArgumentException(fieldType.getTypeName().name() + " is not supported for bigquery.");
         }
@@ -213,10 +218,17 @@ public class RowToRecordConverter {
                 return ((List<Object>)value).stream()
                         .map(v -> convertRecordValue(schema.getElementType(), v))
                         .collect(Collectors.toList());
+            case MAP: {
+                final Map<String, Object> output = new HashMap<>();
+                final Map<?,?> map = (Map) value;
+                for(Map.Entry<?,?> entry : map.entrySet()) {
+                    output.put(entry.getKey().toString(), convertRecordValue(schema.getValueType(), entry.getValue()));
+                }
+                return output;
+            }
             case UNION:
                 final Schema childSchema = AvroSchemaUtil.unnestUnion(schema);
                 return convertRecordValue(childSchema, value);
-            case MAP:
             case NULL:
             default:
                 return null;
