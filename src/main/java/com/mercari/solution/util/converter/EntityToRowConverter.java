@@ -3,15 +3,23 @@ package com.mercari.solution.util.converter;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 
 public class EntityToRowConverter {
+
+    private static final String KEY_FIELD_NAME = "__key__";
 
     private static final Schema KEY_SCHEMA = Schema.builder()
             .addField("namespace", Schema.FieldType.STRING.withNullable(false))
@@ -24,7 +32,7 @@ public class EntityToRowConverter {
 
     public static Schema addKeyToSchema(final Schema schema) {
         return RowSchemaUtil.toBuilder(schema)
-                .addField("__key__", Schema.FieldType.row(KEY_SCHEMA).withNullable(true))
+                .addField(KEY_FIELD_NAME, Schema.FieldType.row(KEY_SCHEMA).withNullable(true))
                 .build();
     }
 
@@ -36,19 +44,28 @@ public class EntityToRowConverter {
         if(schema == null) {
             throw new RuntimeException("schema must not be null! " + entity.getKey());
         }
-        final Row.Builder builder = Row.withSchema(schema);
-        if(depth == 0) {
-            builder.withFieldValue("__key__", convertKeyRecord(entity.getKey()));
+        final Map<String, Object> values = new HashMap<>();
+        if(depth == 0 ) {
+            try {
+                if (schema.hasField(KEY_FIELD_NAME)) {
+                    final Row key = convertKeyRecord(entity.getKey());
+                    values.put(KEY_FIELD_NAME, key);
+                }
+            } catch (NullPointerException e) {
+                throw new RuntimeException(convertKeyRecord(entity.getKey()).toString(), e);
+            }
         }
 
         for(final Schema.Field field : schema.getFields()) {
-            if(field.getName().equals("__key__")) {
+            if(field.getName().equals(KEY_FIELD_NAME)) {
                 continue;
             }
             final Value value = entity.getPropertiesOrDefault(field.getName(), null);
-            builder.withFieldValue(field.getName(), convertEntityValue(value, field.getType(), depth + 1));
+            values.put(field.getName(), convertEntityValue(value, field.getType(), depth + 1));
         }
-        return builder.build();
+        return Row.withSchema(schema)
+                .withFieldValues(values)
+                .build();
     }
 
     private static Object convertEntityValue(final Value value, final Schema.FieldType fieldType, final int depth) {
@@ -64,25 +81,80 @@ public class EntityToRowConverter {
                 return value.getBlobValue().toByteArray();
             case BOOLEAN:
                 return value.getBooleanValue();
-            case BYTE:
-            case INT16:
-            case INT32:
+            case BYTE: {
+                final Long longValue = value.getIntegerValue();
+                return longValue.byteValue();
+            }
+            case INT16: {
+                final Long longValue = value.getIntegerValue();
+                return longValue.shortValue();
+            }
+            case INT32: {
+                final Long longValue = value.getIntegerValue();
+                return longValue.intValue();
+            }
             case INT64:
                 return value.getIntegerValue();
-            case FLOAT:
+            case FLOAT: {
+                final Double doubleValue = value.getDoubleValue();
+                return doubleValue.floatValue();
+            }
             case DOUBLE:
                 return value.getDoubleValue();
-            case DECIMAL:
-                return value.getStringValue();
+            case DECIMAL: {
+                switch (value.getValueTypeCase()) {
+                    case STRING_VALUE:
+                        return new BigDecimal(value.getStringValue());
+                    case INTEGER_VALUE:
+                        return BigDecimal.valueOf(value.getIntegerValue());
+                    case DOUBLE_VALUE:
+                        return BigDecimal.valueOf(value.getDoubleValue());
+                    default:
+                        throw new IllegalArgumentException("Not supported decimal type for value: " + value);
+                }
+            }
             case DATETIME:
-                return value.getTimestampValue();
+                return DateTimeUtil.toJodaInstant(value.getTimestampValue());
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return EntitySchemaUtil.convertDate(value);
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE:
+                            return DateTimeUtil.toLocalDate(value.getStringValue());
+                        case INTEGER_VALUE:
+                            return LocalDate.ofEpochDay(value.getIntegerValue());
+                        case DOUBLE_VALUE:
+                            return LocalDate.ofEpochDay(Double.valueOf(value.getDoubleValue()).longValue());
+                        default:
+                            throw new IllegalStateException("Not supported date value: " + value);
+                    }
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return value.getStringValue();
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE:
+                            return DateTimeUtil.toLocalTime(value.getStringValue());
+                        case INTEGER_VALUE:
+                            return LocalTime.ofNanoOfDay(value.getIntegerValue());
+                        case DOUBLE_VALUE:
+                            return LocalTime.ofNanoOfDay(Double.valueOf(value.getDoubleValue()).longValue());
+                        default:
+                            throw new IllegalStateException("Not supported time value: " + value);
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE: {
+                            final Integer index = fieldType.getLogicalType(EnumerationType.class)
+                                    .getValuesMap()
+                                    .get(value.getStringValue());
+                            return new EnumerationType.Value(index);
+                        }
+                        case INTEGER_VALUE: {
+                            final Long longValue = value.getIntegerValue();
+                            return new EnumerationType.Value(longValue.intValue());
+                        }
+                        default:
+                            throw new IllegalArgumentException("Not supported enum value: " + value);
+                    }
                 } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-                    return value.getTimestampValue();
+                    return DateTimeUtil.toJodaInstant(value.getTimestampValue());
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType());
@@ -100,12 +172,23 @@ public class EntityToRowConverter {
         }
     }
 
-    private static String convertKeyRecord(final Key key) {
+    private static Row convertKeyRecord(final Key key) {
         if(key.getPathCount() == 0) {
-            throw new RuntimeException("PathList size must not be zero! " + key.toString() + " " + key.getPathList().size());
+            throw new RuntimeException("PathList size must not be zero! " + key + " " + key.getPathList().size());
         }
         final Key.PathElement lastPath = key.getPath(key.getPathCount() - 1);
-        return lastPath.getName() == null ? Long.toString(lastPath.getId()) : lastPath.getName();
+        final String path = key.getPathList().stream()
+                .map(e -> String.format("\"%s\", %s", e.getKind(), (e.getName() == null || e.getName().length() == 0) ?
+                        Long.toString(e.getId()) : String.format("\"%s\"", e.getName())))
+                .collect(Collectors.joining(", "));
+        return Row.withSchema(KEY_SCHEMA)
+                .withFieldValue("namespace", key.getPartitionId().getNamespaceId())
+                .withFieldValue("app", key.getPartitionId().getProjectId())
+                .withFieldValue("path", path)
+                .withFieldValue("kind", lastPath.getKind())
+                .withFieldValue("name", lastPath.getName() == null || lastPath.getName().length() == 0 ? null : lastPath.getName())
+                .withFieldValue("id", lastPath.getId() == 0 ? null : lastPath.getId())
+                .build();
     }
 
 }

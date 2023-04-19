@@ -4,30 +4,29 @@ import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
 import com.google.protobuf.Timestamp;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.*;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
-import org.joda.time.DateTime;
-import org.joda.time.DateTimeZone;
-import org.joda.time.Days;
-import org.joda.time.MutableDateTime;
-import org.joda.time.format.DateTimeFormat;
-import org.joda.time.format.DateTimeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Map;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class EntityToRecordConverter {
 
+    private static final String KEY_FIELD_NAME = "__key__";
     private static final Logger LOG = LoggerFactory.getLogger(EntityToRecordConverter.class);
 
     private static final Schema KEY_SCHEMA = SchemaBuilder
-            .record("__key__").fields()
+            .record(KEY_FIELD_NAME).fields()
             .requiredString("namespace")
             .requiredString("app")
             .requiredString("path")
@@ -35,18 +34,6 @@ public class EntityToRecordConverter {
             .optionalString("name")
             .optionalLong("id")
             .endRecord();
-
-    private static final MutableDateTime EPOCH_DATETIME = new MutableDateTime(0, DateTimeZone.UTC);
-    private static final DateTimeFormatter FORMAT_TIME1 = DateTimeFormat.forPattern("HHmm");
-    private static final DateTimeFormatter FORMAT_TIME2 = DateTimeFormat.forPattern("HH:mm");
-    private static final DateTimeFormatter FORMAT_TIME3 = DateTimeFormat.forPattern("HH:mm:ss");
-    private static final Pattern PATTERN_DATE1 = Pattern.compile("[0-9]{8}");
-    private static final Pattern PATTERN_DATE2 = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}");
-    private static final Pattern PATTERN_DATE3 = Pattern.compile("[0-9]{4}/[0-9]{2}/[0-9]{2}");
-    private static final Pattern PATTERN_TIME1 = Pattern.compile("[0-9]{4}");
-    private static final Pattern PATTERN_TIME2 = Pattern.compile("[0-9]{2}:[0-9]{2}");
-    private static final Pattern PATTERN_TIME3 = Pattern.compile("[0-9]{4}:[0-9]{2}:[0-9]{2}");
-
     private EntityToRecordConverter() {}
 
     private static Schema addKeyToSchema(final String schemaString) {
@@ -63,7 +50,7 @@ public class EntityToRecordConverter {
         final SchemaBuilder.FieldAssembler<Schema> builder = SchemaBuilder
                 .record(schema.getName())
                 .namespace(schema.getNamespace())
-                .fields().name("__key__").type(KEY_SCHEMA).noDefault();
+                .fields().name(KEY_FIELD_NAME).type(KEY_SCHEMA).noDefault();
         schema.getFields().stream().forEach(f -> {
             if(f.defaultVal() == null) {
                 builder.name(f.name()).type(f.schema()).noDefault();
@@ -92,15 +79,15 @@ public class EntityToRecordConverter {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         if(depth == 0) {
             try {
-                if (schema.getField("__key__") != null) {
-                    builder.set("__key__", convertKeyRecord(entity.getKey()));
+                if (schema.getField(KEY_FIELD_NAME) != null) {
+                    builder.set(KEY_FIELD_NAME, convertKeyRecord(entity.getKey()));
                 }
             } catch (NullPointerException e) {
                 throw new RuntimeException(convertKeyRecord(entity.getKey()).toString(), e);
             }
         }
         for(final Schema.Field field : schema.getFields()) {
-            if(field.name().equals("__key__")) {
+            if(field.name().equals(KEY_FIELD_NAME)) {
                 continue;
             }
             final Value value = getValue(field, entity);
@@ -132,47 +119,61 @@ public class EntityToRecordConverter {
             case STRING:
                 return value.getStringValue();
             case FIXED:
-            case BYTES:
+            case BYTES: {
+                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+                    final BigDecimal bigDecimal;
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE:
+                            bigDecimal = new BigDecimal(value.getStringValue());
+                            break;
+                        case INTEGER_VALUE:
+                            bigDecimal = BigDecimal.valueOf(value.getIntegerValue());
+                            break;
+                        case DOUBLE_VALUE:
+                            bigDecimal = BigDecimal.valueOf(value.getDoubleValue());
+                            break;
+                        default:
+                            throw new IllegalStateException("Not supported decimal value: " + value);
+                    }
+                    final int scale = schema.getObjectProp("scale") != null ?
+                            Integer.parseInt(schema.getObjectProp("scale").toString()) : 0;
+                    return ByteBuffer.wrap(bigDecimal.setScale(scale).unscaledValue().toByteArray());
+                }
                 return value.getBlobValue().asReadOnlyByteBuffer();
+            }
             case BOOLEAN:
                 return value.getBooleanValue();
             case INT:
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
-                    if(Value.ValueTypeCase.STRING_VALUE.equals(value.getValueTypeCase())) {
-                        final String datestr = value.getStringValue();
-                        if(PATTERN_DATE1.matcher(datestr).find()) {
-                            return Days.daysBetween(EPOCH_DATETIME, new DateTime(
-                                    Integer.valueOf(datestr.substring(0, 4)),
-                                    Integer.valueOf(datestr.substring(4, 6)),
-                                    Integer.valueOf(datestr.substring(6, 8)),
-                                    0, 0, DateTimeZone.UTC)).getDays();
-                        } else if(PATTERN_DATE2.matcher(datestr).find() || PATTERN_DATE3.matcher(datestr).find()) {
-                            return Days.daysBetween(EPOCH_DATETIME, new DateTime(
-                                    Integer.valueOf(datestr.substring(0, 4)),
-                                    Integer.valueOf(datestr.substring(5, 7)),
-                                    Integer.valueOf(datestr.substring(8, 10)),
-                                    0, 0, DateTimeZone.UTC)).getDays();
-                        } else {
-                            throw new IllegalArgumentException("Illegal date string: " + datestr);
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE: {
+                            final LocalDate localDate = DateTimeUtil.toLocalDate(value.getStringValue(), true);
+                            if(localDate == null) {
+                                throw new IllegalArgumentException("Illegal date string: " + value.getStringValue());
+                            }
+                            return Long.valueOf(localDate.toEpochDay()).intValue();
                         }
-                    } else if(Value.ValueTypeCase.INTEGER_VALUE.equals(value.getValueTypeCase())) {
-                        return value.getIntegerValue();
-                    } else {
-                        throw new IllegalArgumentException();
+                        case INTEGER_VALUE:
+                            return Long.valueOf(value.getIntegerValue()).intValue();
+                        default:
+                            throw new IllegalArgumentException();
                     }
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    final String timestr = value.getStringValue();
-                    if(PATTERN_TIME1.matcher(timestr).find()) {
-                        return FORMAT_TIME1.parseLocalTime(timestr).getMillisOfDay();
-                    } else if(PATTERN_TIME2.matcher(timestr).find()) {
-                        return FORMAT_TIME2.parseLocalTime(timestr).getMillisOfDay();
-                    } else if(PATTERN_TIME3.matcher(timestr).find()) {
-                        return FORMAT_TIME3.parseLocalTime(timestr).getMillisOfDay();
-                    } else {
-                        throw new IllegalArgumentException("Illegal time string: " + timestr);
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE: {
+                            final LocalTime localTime = DateTimeUtil.toLocalTime(value.getStringValue(), true);
+                            if(localTime == null) {
+                                throw new IllegalArgumentException("Illegal time string: " + value.getStringValue());
+                            }
+                            return Long.valueOf(localTime.toNanoOfDay()).intValue() / 1000_000;
+                        }
+                        case INTEGER_VALUE:
+                            return Long.valueOf(value.getIntegerValue()).intValue();
+                        default:
+                            throw new IllegalArgumentException();
                     }
                 } else {
-                    return value.getIntegerValue();
+                    return Long.valueOf(value.getIntegerValue()).intValue();
                 }
             case LONG:
                 if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
@@ -182,11 +183,24 @@ public class EntityToRecordConverter {
                     final Timestamp timestamp = value.getTimestampValue();
                     return timestamp.getSeconds() * 1000000;
                 } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
-                    return value.getIntegerValue();
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE: {
+                            final LocalTime localTime = DateTimeUtil.toLocalTime(value.getStringValue(), true);
+                            if(localTime == null) {
+                                throw new IllegalArgumentException("Illegal time string: " + value.getStringValue());
+                            }
+                            return localTime.toNanoOfDay() / 1000;
+                        }
+                        case INTEGER_VALUE:
+                            return value.getIntegerValue();
+                        default:
+                            throw new IllegalArgumentException();
+                    }
                 } else {
                     return value.getIntegerValue();
                 }
             case FLOAT:
+                return Double.valueOf(value.getDoubleValue()).floatValue();
             case DOUBLE:
                 return value.getDoubleValue();
             case RECORD:
