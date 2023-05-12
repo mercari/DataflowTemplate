@@ -1,0 +1,25 @@
+steps:
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ["cp", "gs://example-bucket/path/to/index.zip", "myindex.zip"]
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: "unzip"
+    args: ["myindex.zip"]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["build", "-t", "gcr.io/$PROJECT_ID/myindex", "--build-arg", "_CORE_NAME=$_CORE_NAME",  "."]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["push", "gcr.io/$PROJECT_ID/myindex"]
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ["run", "deploy", "myindex",
+           "--image", "gcr.io/$PROJECT_ID/myindex",
+           "--platform", "managed",
+           "--region", "$_REGION",
+           "--concurrency", "300",
+           "--cpu", "4",
+           "--memory", "8Gi",
+           "--port", "80",
+           "--min-instances", "1",
+           "--no-allow-unauthenticated"]
+timeout: 3600s
+substitutions:
+  _CORE_NAME: MyCore
+  _REGION: us-central1
