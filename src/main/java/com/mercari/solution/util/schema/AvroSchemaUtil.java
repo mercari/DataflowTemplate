@@ -1312,6 +1312,62 @@ public class AvroSchemaUtil {
         }
     }
 
+    public static List<Float> getAsFloatList(final GenericRecord record, final String fieldName) {
+        final Object value = record.get(fieldName);
+        if(value == null) {
+            return new ArrayList<>();
+        }
+        final Schema.Field field = record.getSchema().getField(fieldName);
+        if(field == null) {
+            return new ArrayList<>();
+        }
+        final Schema fieldSchema = unnestUnion(field.schema());
+        if(!fieldSchema.getType().equals(Schema.Type.ARRAY)) {
+            throw new IllegalStateException();
+        }
+
+        final List<?> list = (List) record.get(fieldName);
+        switch (fieldSchema.getElementType().getType()) {
+            case BOOLEAN:
+                return list.stream()
+                        .map(v -> (Boolean) v)
+                        .map(v -> v ? 1.0F : 0.0F)
+                        .collect(Collectors.toList());
+            case FLOAT:
+                return list.stream()
+                        .map(v -> (Float) v)
+                        .collect(Collectors.toList());
+            case DOUBLE:
+                return list.stream()
+                        .map(v -> (Double) v)
+                        .map(Double::floatValue)
+                        .collect(Collectors.toList());
+            case ENUM:
+            case STRING:
+                return list.stream()
+                        .map(Object::toString)
+                        .map(Float::valueOf)
+                        .collect(Collectors.toList());
+            case INT:
+                return list.stream()
+                        .map(v -> (Integer) v)
+                        .map(Integer::floatValue)
+                        .collect(Collectors.toList());
+            case LONG:
+                return list.stream()
+                        .map(v -> (Long) v)
+                        .map(Long::floatValue)
+                        .collect(Collectors.toList());
+            case RECORD:
+            case MAP:
+            case ARRAY:
+            case UNION:
+            case NULL:
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
     public static Object convertPrimitive(org.apache.beam.sdk.schemas.Schema.FieldType fieldType, Object primitiveValue) {
         if(primitiveValue == null) {
             return null;

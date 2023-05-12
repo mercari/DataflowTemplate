@@ -48,12 +48,20 @@ public class SchemaUtil {
         String getAsString(ElementT element, String field);
     }
 
+    public interface BytesGetter<ElementT> extends Serializable {
+        byte[] getAsBytes(ElementT element, String field);
+    }
+
     public interface FloatGetter<ElementT> extends Serializable {
         Float getAsFloat(ElementT element, String field);
     }
 
     public interface DoubleGetter<ElementT> extends Serializable {
         Double getAsDouble(ElementT element, String field);
+    }
+
+    public interface FloatListGetter<ElementT> extends  Serializable {
+        List<Float> getAsFloats(ElementT element, String field);
     }
 
     public interface TimestampGetter<ElementT> extends Serializable {

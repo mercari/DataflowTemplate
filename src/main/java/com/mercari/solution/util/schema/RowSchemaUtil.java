@@ -899,6 +899,66 @@ public class RowSchemaUtil {
         }
     }
 
+    public static List<Float> getAsFloatList(final Row row, final String fieldName) {
+        final Schema.Field field = row.getSchema().getField(fieldName);
+        if(field == null) {
+            return new ArrayList<>();
+        }
+        if(!row.getSchema().hasField(fieldName)) {
+            return new ArrayList<>();
+        }
+        if(!field.getType().getTypeName().equals(Schema.TypeName.ARRAY)) {
+            return new ArrayList<>();
+        }
+        final List<?> list = row.getValue(fieldName);
+        if(list == null) {
+            return new ArrayList<>();
+        }
+
+        switch (field.getType().getCollectionElementType().getTypeName()) {
+            case STRING:
+                return list.stream()
+                        .map(o -> (String)o)
+                        .map(Float::valueOf)
+                        .collect(Collectors.toList());
+            case INT16:
+                return list.stream()
+                        .map(o -> (Short)o)
+                        .map(Float::valueOf)
+                        .collect(Collectors.toList());
+            case INT32:
+                return list.stream()
+                        .map(o -> (Integer)o)
+                        .map(Float::valueOf)
+                        .collect(Collectors.toList());
+            case INT64:
+                return list.stream()
+                        .map(o -> (Long)o)
+                        .map(Float::valueOf)
+                        .collect(Collectors.toList());
+            case FLOAT:
+                return list.stream()
+                        .map(o -> (Float)o)
+                        .collect(Collectors.toList());
+            case DOUBLE:
+                return list.stream()
+                        .map(o -> (Double)o)
+                        .map(Double::floatValue)
+                        .collect(Collectors.toList());
+            case BYTES:
+            case BOOLEAN:
+            case MAP:
+            case DECIMAL:
+            case BYTE:
+            case ARRAY:
+            case ITERABLE:
+            case ROW:
+            default:
+                throw new IllegalStateException();
+        }
+
+    }
+
     public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
         if(primitiveValue == null) {
             return null;

@@ -10,15 +10,10 @@
   ],
   "transforms": [
     {
-      "name": "reshuffle",
-      "module": "reshuffle",
-      "inputs": ["bigqueryInput"]
-    },
-    {
       "name": "pdfextract",
       "module": "pdfextract",
       "inputs": [
-        "reshuffle.bigqueryInput"
+        "bigqueryInput"
       ],
       "parameters": {
         "field": "PDFFileGCSPath"
@@ -29,7 +24,7 @@
     {
       "name": "solrIndex",
       "module": "solrindex",
-      "input": "pdfextract.reshuffle.bigqueryInput",
+      "input": "pdfextract",
       "parameters": {
         "output": "gs://mybucket/index.zip",
         "coreName": "mycore",

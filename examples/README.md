@@ -33,6 +33,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Batch Aggregation (BigQuery)](bigquery-to-aggregation-to-bigquery.json)
     * [BeamSQL: Join BigQuery and Spanner table](beamsql-join-bigquery-and-spanner-to-spanner.json)
     * [AutoML(Vertex AI endpoints) batch prediction](bigquery-to-automl-to-spanner.json)
+    * [Solr index from PDF files](bigquery-pdf-to-solrindex.json)
     * [Tokenize](bigquery-to-tokenize-to-bigquery.json)
     * [Protobuf deserialize](spanner-to-protobuf-to-avro.json)
     * [Decrypt secret data](spanner-to-decrypt-to-avro.json)
