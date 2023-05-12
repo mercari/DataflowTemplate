@@ -25,7 +25,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DatumReader;
 import org.apache.avro.io.DecoderFactory;
-import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.gcp.util.BackOffAdapter;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
@@ -346,6 +346,9 @@ public class BigQuerySource implements SourceModule {
             if(timestampAttribute == null) {
                 return records;
             } else {
+                if(avroSchema.getField(timestampAttribute) == null) {
+                    throw new IllegalArgumentException("BigQuery source module: " + name + " is specified timestampAttribute: " + timestampAttribute + ", but not found in input schema: " + avroSchema.toString());
+                }
                 return records.apply("WithTimestamp", DataTypeTransform
                         .withTimestamp(DataType.AVRO, timestampAttribute, timestampDefault));
             }
