@@ -81,6 +81,10 @@ public class Settings {
 
         private DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType autoscalingAlgorithm;
         private Map<String, String> labels;
+        private Integer numWorkers;
+        private Integer maxNumWorkers;
+        private String workerMachineType;
+        private Boolean usePublicIps;
         private List<String> dataflowServiceOptions;
         private Integer numberOfWorkerHarnessThreads;
         private DataflowPipelineOptions.FlexResourceSchedulingGoal flexRSGoal;
@@ -102,6 +106,38 @@ public class Settings {
 
         public void setLabels(Map<String, String> labels) {
             this.labels = labels;
+        }
+
+        public Integer getNumWorkers() {
+            return numWorkers;
+        }
+
+        public void setNumWorkers(Integer numWorkers) {
+            this.numWorkers = numWorkers;
+        }
+
+        public Integer getMaxNumWorkers() {
+            return maxNumWorkers;
+        }
+
+        public void setMaxNumWorkers(Integer maxNumWorkers) {
+            this.maxNumWorkers = maxNumWorkers;
+        }
+
+        public String getWorkerMachineType() {
+            return workerMachineType;
+        }
+
+        public void setWorkerMachineType(String workerMachineType) {
+            this.workerMachineType = workerMachineType;
+        }
+
+        public Boolean getUsePublicIps() {
+            return usePublicIps;
+        }
+
+        public void setUsePublicIps(Boolean usePublicIps) {
+            this.usePublicIps = usePublicIps;
         }
 
         public List<String> getDataflowServiceOptions() {
