@@ -8,6 +8,7 @@ import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Key;
 import com.google.datastore.v1.Value;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.NullValue;
 import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.slf4j.Logger;
@@ -39,8 +40,12 @@ public class EntityToMutationConverter {
             throw new RuntimeException("schema must not be null! " + entity.getKey().toString());
         }
 
-        if(mutationOp != null && "DELETE".equals(mutationOp.trim().toUpperCase())) {
-            return StructSchemaUtil.createDeleteMutation(entity, table, keyFields, EntitySchemaUtil::getKeyFieldValue);
+        if(mutationOp != null && "DELETE".equalsIgnoreCase(mutationOp.trim())) {
+            if(keyFields == null) {
+                throw new IllegalArgumentException("keyFields is null. Set keyFields when using mutationOp:DELETE");
+            }
+            final com.google.cloud.spanner.Key key = createKey(entity, keyFields);
+            return Mutation.delete(table, key);
         }
 
         final Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
@@ -184,6 +189,55 @@ public class EntityToMutationConverter {
         }
     }
 
-
+    public static com.google.cloud.spanner.Key createKey(final Entity entity, final Iterable<String> keyFields) {
+        com.google.cloud.spanner.Key.Builder keyBuilder = com.google.cloud.spanner.Key.newBuilder();
+        for(final String keyField : keyFields) {
+            final Value value = entity.getPropertiesOrDefault(keyField, Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+            switch (value.getValueTypeCase()) {
+                case BOOLEAN_VALUE:
+                    keyBuilder = keyBuilder.append(value.getBooleanValue());
+                    break;
+                case STRING_VALUE:
+                    keyBuilder = keyBuilder.append(value.getStringValue());
+                    break;
+                case INTEGER_VALUE:
+                    keyBuilder = keyBuilder.append(value.getIntegerValue());
+                    break;
+                case DOUBLE_VALUE:
+                    keyBuilder = keyBuilder.append(value.getDoubleValue());
+                    break;
+                case BLOB_VALUE:
+                    keyBuilder = keyBuilder.append(ByteArray.copyFrom(value.getBlobValue().toByteArray()));
+                    break;
+                case TIMESTAMP_VALUE: {
+                    Timestamp timestamp = Timestamp.ofTimeSecondsAndNanos(value.getTimestampValue().getSeconds(), value.getTimestampValue().getNanos());
+                    keyBuilder = keyBuilder.append(timestamp);
+                    break;
+                }
+                case KEY_VALUE: {
+                    for(final Key.PathElement pathElement : value.getKeyValue().getPathList()) {
+                        if(pathElement.hasId()) {
+                            keyBuilder = keyBuilder.append(pathElement.getId());
+                        } else if(pathElement.hasName()) {
+                            keyBuilder = keyBuilder.append(pathElement.getName());
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
+                    break;
+                }
+                case ENTITY_VALUE:
+                case ARRAY_VALUE:
+                case GEO_POINT_VALUE:
+                case NULL_VALUE:
+                case VALUETYPE_NOT_SET:
+                    keyBuilder = keyBuilder.appendObject(null);
+                    break;
+                default:
+                    throw new IllegalStateException();
+            }
+        }
+        return keyBuilder.build();
+    }
 
 }

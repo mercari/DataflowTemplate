@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "name": "BigQueryInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT id, vector, tag, allowColor, denyColor FROM `myproject.mydataset.mytable`",
+        "queryLocation": "US",
+        "queryTempDataset": "temp"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "MatchingEngineOutput",
+      "module": "matchingEngine",
+      "input": "BigQueryInput",
+      "parameters": {
+        "projectId": "myproject",
+        "region": "us-central1",
+        "indexId": "9876543210123456789",
+        "method": "upsert",
+        "idField": "id",
+        "vectorField": "vector",
+        "crowdingTagField": "tag",
+        "restricts": [
+          { "namespace": "color", "allowField": "allowColor", "denyField": "denyColor" }
+        ],
+        "bufferSize": 200
+      }
+    }
+  ]
+}

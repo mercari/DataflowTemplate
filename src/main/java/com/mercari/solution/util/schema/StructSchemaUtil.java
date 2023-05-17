@@ -28,7 +28,6 @@ import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -482,6 +481,54 @@ public class StructSchemaUtil {
                 return Base64.getDecoder().decode(struct.getJson(fieldName));
             default:
                 return null;
+        }
+    }
+
+    public static List<Float> getAsFloatList(final Struct struct, final String fieldName) {
+        if(struct == null || fieldName == null) {
+            return new ArrayList<>();
+        }
+        if(!StructSchemaUtil.hasField(struct, fieldName)) {
+            return new ArrayList<>();
+        }
+        final Type.StructField field = struct.getType().getStructFields().stream()
+                .filter(f -> f.getName().equals(fieldName))
+                .findAny()
+                .get();
+        if(!Type.Code.ARRAY.equals(field.getType().getCode())) {
+            return new ArrayList<>();
+        }
+
+        switch (field.getType().getArrayElementType().getCode()) {
+            case BOOL:
+                return struct.getBooleanList(fieldName).stream()
+                        .map(b -> Optional.ofNullable(b).orElse(false) ? 1F : 0F)
+                        .collect(Collectors.toList());
+            case STRING:
+            case PG_NUMERIC:
+                return struct.getStringList(fieldName).stream()
+                        .map(s -> Float.valueOf(Optional.ofNullable(s).orElse("0")))
+                        .collect(Collectors.toList());
+            case INT64:
+                return struct.getLongList(fieldName).stream()
+                        .map(s -> Float.valueOf(Optional.ofNullable(s).orElse(0L)))
+                        .collect(Collectors.toList());
+            case FLOAT64:
+                return struct.getDoubleList(fieldName).stream()
+                        .map(s -> Optional.ofNullable(s).orElse(0D).floatValue())
+                        .collect(Collectors.toList());
+            case NUMERIC:
+                return struct.getBigDecimalList(fieldName).stream()
+                        .map(s -> Optional.ofNullable(s).orElse(BigDecimal.ZERO).floatValue())
+                        .collect(Collectors.toList());
+            case DATE:
+            case TIMESTAMP:
+            case JSON:
+            case BYTES:
+            case STRUCT:
+            case ARRAY:
+            default:
+                return new ArrayList<>();
         }
     }
 
@@ -1065,7 +1112,7 @@ public class StructSchemaUtil {
                 .addField(Schema.Field.of("rowType", Schema.FieldType.array(Schema.FieldType.row(rowTypeSchema))))
                 .addField(Schema.Field.of("mods", Schema.FieldType.array(Schema.FieldType.row(modSchema))))
                 .addField(Schema.Field.of("modType", Schema.FieldType.logicalType(EnumerationType.create("INSERT","UPDATE","DELETE"))))
-                .addField(Schema.Field.of("valueCaptureType", Schema.FieldType.logicalType(EnumerationType.create("OLD_AND_NEW_VALUES"))))
+                .addField(Schema.Field.of("valueCaptureType", Schema.FieldType.logicalType(EnumerationType.create("OLD_AND_NEW_VALUES", "NEW_ROW", "NEW_VALUES"))))
                 .addField(Schema.Field.of("numberOfRecordsInTransaction", Schema.FieldType.INT64))
                 .addField(Schema.Field.of("numberOfPartitionsInTransaction", Schema.FieldType.INT64))
                 .addField(Schema.Field.of("metadata", Schema.FieldType.row(metadataSchema).withNullable(true)))
@@ -1131,7 +1178,7 @@ public class StructSchemaUtil {
                 .name("modType").type(org.apache.avro.Schema
                         .createEnum("ModType", "", "com.google.cloud.teleport.v2", Arrays.asList("INSERT","UPDATE","DELETE"))).noDefault()
                 .name("valueCaptureType").type(org.apache.avro.Schema
-                        .createEnum("ValueCaptureType", "", "com.google.cloud.teleport.v2", Arrays.asList("OLD_AND_NEW_VALUES"))).noDefault()
+                        .createEnum("ValueCaptureType", "", "com.google.cloud.teleport.v2", Arrays.asList("OLD_AND_NEW_VALUES", "NEW_ROW", "NEW_VALUES"))).noDefault()
                 .name("numberOfRecordsInTransaction").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
                 .name("numberOfPartitionsInTransaction").type(AvroSchemaUtil.REQUIRED_LONG).noDefault()
                 .name("metadata").type(org.apache.avro.Schema.createUnion(
@@ -1378,23 +1425,12 @@ public class StructSchemaUtil {
         }
     }
 
-    public static <InputT> Mutation createDeleteMutation(
-            final InputT element,
-            final String table, final Iterable<String> keyFields,
-            final ValueGetter<InputT> function) {
-
-        if(keyFields == null) {
-            throw new IllegalArgumentException("keyFields is null. Set keyFields when using mutationOp:DELETE");
-        }
-        Key.Builder keyBuilder = Key.newBuilder();
-        for(final String keyField : keyFields) {
-            keyBuilder = keyBuilder.appendObject(function.convert(element, keyField));
-        }
-        return Mutation.delete(table, keyBuilder.build());
+    public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
+        return convertToMutation(type, record, new HashMap<>());
     }
 
-    public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
-        final String table = record.getTableName();
+    public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record, final Map<String,String> renameTables) {
+        final String table = renameTables.getOrDefault(record.getTableName(), record.getTableName());
         final ModType modType = record.getModType();
         final Map<String, TypeCode> columnTypeCodes = Optional.ofNullable(record.getRowType())
                 .orElseGet(ArrayList::new)
@@ -1647,13 +1683,13 @@ public class StructSchemaUtil {
             case PG_NUMERIC:
                 return Value.pgNumeric(isNull ? null : element.getAsString());
             case DATE:
-                return Value.date(Date.parseDate(isNull ? null : element.getAsString()));
+                return Value.date(isNull ? null : Date.parseDate(element.getAsString()));
             case TIMESTAMP:
                 return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(element.getAsString()));
             case BYTES:
                 return Value.bytes(isNull ? null : ByteArray.copyFrom(element.getAsString()));
             case STRUCT:
-                return Value.struct(isNull ? null : fieldType, convert(fieldType, element.getAsJsonObject()));
+                return Value.struct(fieldType, isNull ? null : convert(fieldType, element.getAsJsonObject()));
             case ARRAY: {
                 final List<JsonElement> elements = new ArrayList<>();
                 if(!isNull) {
@@ -2366,10 +2402,6 @@ public class StructSchemaUtil {
         final Struct.Builder builder = Struct.newBuilder();
         properties.entrySet().forEach(e -> builder.set(e.getKey()).to(e.getValue()));
         return Arrays.asList(Collections.singletonMap(pathName, Value.struct(builder.build())));
-    }
-
-    public interface ValueGetter<InputT> extends Serializable {
-        Object convert(InputT element, String fieldName);
     }
 
 }

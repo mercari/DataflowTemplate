@@ -244,7 +244,7 @@ public class DataTypeTransform {
                     final PCollection<Entity> inputEntity = (PCollection<Entity>) input;
                     switch (outputType) {
                         case AVRO: {
-                            final org.apache.avro.Schema withKeySchema = EntityToRecordConverter.addKeyToSchema(inputCollection.getAvroSchema());
+                            final org.apache.avro.Schema withKeySchema = inputCollection.getAvroSchema();
                             output = (PCollection<OutputT>) inputEntity
                                     .apply("EntityToRecord", ParDo
                                             .of(new TransformDoFn<>(withKeySchema.toString(),
@@ -255,7 +255,7 @@ public class DataTypeTransform {
                             return output;
                         }
                         case ROW: {
-                            final Schema withKeySchema = EntityToRowConverter.addKeyToSchema(inputCollection.getSchema());
+                            final Schema withKeySchema = inputCollection.getSchema();
                             output = (PCollection<OutputT>) inputEntity
                                     .apply("EntityToRow", ParDo
                                             .of(new TransformDoFn<>(withKeySchema,
@@ -310,7 +310,8 @@ public class DataTypeTransform {
 
         @ProcessElement
         public void processElement(ProcessContext c) {
-            c.output(this.dataConverter.convert(runtimeSchema, c.element()));
+            OutputT output = this.dataConverter.convert(runtimeSchema, c.element());
+            c.output(output);
         }
     }
 

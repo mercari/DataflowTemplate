@@ -7,6 +7,7 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
+import org.joda.time.ReadableDateTime;
 import org.joda.time.ReadableInstant;
 
 import java.math.BigDecimal;
@@ -14,6 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class RowToJsonConverter {
@@ -105,25 +107,29 @@ public class RowToJsonConverter {
                 }
                 break;
             }
+            case MAP: {
+                final JsonObject mapObj = convertMap(field.getType(), row.getMap(fieldName));
+                obj.add(field.getName(), mapObj);
+                break;
+            }
             case ROW:
                 obj.add(fieldName, isNullField ? null : convertObject(row.getRow(fieldName)));
                 break;
             case ITERABLE:
             case ARRAY:
-                obj.add(field.getName(), convertArray(field, row.getArray(fieldName)));
+                obj.add(field.getName(), convertArray(field.getType(), row.getArray(fieldName)));
                 break;
-            case MAP:
             default:
                 break;
         }
     }
 
-    private static JsonArray convertArray(final Schema.Field field, final Collection<?> arrayValue) {
+    private static JsonArray convertArray(final Schema.FieldType fieldType, final Collection<?> arrayValue) {
         final JsonArray array = new JsonArray();
         if(arrayValue == null || arrayValue.size() == 0) {
             return array;
         }
-        switch (field.getType().getCollectionElementType().getTypeName()) {
+        switch (fieldType.getCollectionElementType().getTypeName()) {
             case BOOLEAN:
                 arrayValue.stream()
                         .filter(Objects::nonNull)
@@ -213,6 +219,12 @@ public class RowToJsonConverter {
                         .forEach(array::add);
                 break;
             }
+            case MAP:
+                arrayValue.stream()
+                        .map(o -> (Map)o)
+                        .map(m -> convertMap(fieldType.getCollectionElementType(), m))
+                        .forEach(array::add);
+                break;
             case ROW:
                 arrayValue.stream()
                         .map(o -> (Row)o)
@@ -221,11 +233,67 @@ public class RowToJsonConverter {
                 break;
             case ITERABLE:
             case ARRAY:
-            case MAP:
             default:
                 break;
         }
         return array;
+    }
+
+    private static JsonObject convertMap(final Schema.FieldType fieldType, final Map<?,?> map) {
+        final JsonObject mapObject = new JsonObject();
+        for(Map.Entry<?,?> entry : map.entrySet()) {
+            if(entry.getValue() == null) {
+                mapObject.addProperty(entry.getKey().toString(), (String) null);
+                continue;
+            }
+            final String name = entry.getKey().toString();
+            switch (fieldType.getMapValueType().getTypeName()) {
+                case BYTE:
+                    mapObject.addProperty(name, (Byte)entry.getValue());
+                    break;
+                case INT16:
+                    mapObject.addProperty(name, (Short)entry.getValue());
+                    break;
+                case INT32:
+                    mapObject.addProperty(name, (Integer)entry.getValue());
+                    break;
+                case INT64:
+                    mapObject.addProperty(name, (Long)entry.getValue());
+                    break;
+                case FLOAT:
+                    mapObject.addProperty(name, (Float)entry.getValue());
+                    break;
+                case DOUBLE:
+                    mapObject.addProperty(name, (Double)entry.getValue());
+                    break;
+                case BOOLEAN:
+                    mapObject.addProperty(name, (Boolean) entry.getValue());
+                    break;
+                case STRING:
+                    mapObject.addProperty(name, (String)entry.getValue());
+                    break;
+                case DATETIME:
+                    mapObject.addProperty(name, (entry.getValue()).toString());
+                    break;
+                case ROW: {
+                    final JsonObject childObject = convertObject((Row) entry.getValue());
+                    mapObject.add(name, childObject);
+                    break;
+                }
+                case MAP: {
+                    final JsonObject childObject = convertMap(fieldType.getMapValueType(),(Map) entry.getValue());
+                    mapObject.add(name, childObject);
+                    break;
+                }
+                case ITERABLE:
+                case ARRAY: {
+                    final JsonArray jsonArray = convertArray(fieldType.getCollectionElementType(), (Collection<?>) entry.getValue());
+                    mapObject.add(name, jsonArray);
+                    break;
+                }
+            }
+        }
+        return mapObject;
     }
 
 }

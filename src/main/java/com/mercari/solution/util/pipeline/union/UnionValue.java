@@ -2,15 +2,14 @@ package com.mercari.solution.util.pipeline.union;
 
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.mercari.solution.module.DataType;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.values.Row;
 
-import java.util.Objects;
+import java.util.*;
 
 public class UnionValue {
 
@@ -98,6 +97,14 @@ public class UnionValue {
         return getAsDouble(this, field);
     }
 
+    public Map<String, Object> toMap(final Collection<String> fields) {
+        return toMap(this, fields);
+    }
+
+    public Map<String, Double> toDoubleMap(final Collection<String> fields) {
+        return toDoubleMap(this, fields);
+    }
+
     public static Double getAsDouble(final UnionValue unionValue, final String field) {
         if(unionValue.value == null) {
             return null;
@@ -123,6 +130,77 @@ public class UnionValue {
                 throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
 
+    }
+
+    public static Map<String, Object> toMap(final UnionValue unionValue,  final Collection<String> fields) {
+        if(unionValue.value == null) {
+            return new HashMap<>();
+        }
+        switch (unionValue.type) {
+            case ROW: {
+                final Row row = (Row) unionValue.value;
+                return RowToMapConverter.convertWithFields(row, fields);
+            }
+            case AVRO: {
+                final GenericRecord record = (GenericRecord) unionValue.value;
+                return RecordToMapConverter.convert(record);
+            }
+            case STRUCT: {
+                final Struct struct = (Struct) unionValue.value;
+                return StructToMapConverter.convert(struct);
+            }
+            case DOCUMENT: {
+                final Document document = (Document) unionValue.value;
+                return DocumentToMapConverter.convert(document);
+            }
+            case ENTITY: {
+                final Entity entity = (Entity) unionValue.value;
+                return EntityToMapConverter.convert(entity);
+            }
+            default:
+                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+        }
+    }
+
+    public static Map<String, Double> toDoubleMap(final UnionValue unionValue, final Collection<String> fields) {
+        final Map<String, Double> doubles = new HashMap<>();
+        if(unionValue.value == null) {
+            return doubles;
+        }
+        switch (unionValue.type) {
+            case ROW: {
+                final Row row = (Row) unionValue.value;
+                for(final String field : fields) {
+                    doubles.put(field, RowSchemaUtil.getAsDouble(row, field));
+                }
+                break;
+            }
+            case AVRO: {
+                final GenericRecord record = (GenericRecord) unionValue.value;
+                for(final String field : fields) {
+                    doubles.put(field, AvroSchemaUtil.getAsDouble(record, field));
+                }
+                break;
+            }
+            case STRUCT: {
+                final Struct struct = (Struct) unionValue.value;
+                for(final String field : fields) {
+                    doubles.put(field, StructSchemaUtil.getAsDouble(struct, field));
+                }
+                break;
+            }
+            case ENTITY: {
+                final Entity entity = (Entity) unionValue.value;
+                for(final String field : fields) {
+                    doubles.put(field, EntitySchemaUtil.getAsDouble(entity, field));
+                }
+                break;
+            }
+            default:
+                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+        }
+
+        return doubles;
     }
 
 }

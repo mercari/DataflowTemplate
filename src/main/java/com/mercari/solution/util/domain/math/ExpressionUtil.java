@@ -16,6 +16,7 @@ import java.time.LocalTime;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 
 public class ExpressionUtil {
@@ -24,7 +25,7 @@ public class ExpressionUtil {
 
     private static final String DEFAULT_SEPARATOR = "_";
     public static final Pattern DELIMITER_PATTERN = Pattern.compile("[()+\\-*/%^<>=!&|#§$~:,]");
-    public static final Pattern FIELD_NO_PATTERN = Pattern.compile("[a-zA-Z_]\\w*_([1-9]\\d*)$");
+    public static final Pattern FIELD_NO_PATTERN = Pattern.compile("[a-zA-Z_]\\w*_([0-9]\\d*)$");
 
     private static final String[] RESERVED_NAMES = {
             "pi","π","e","φ",
@@ -106,6 +107,11 @@ public class ExpressionUtil {
             final Integer offset,
             final String separator) {
 
+        final Map<String, Integer> bufferSizes = new HashMap<>();
+        if(variables == null || variables.size() == 0) {
+            return bufferSizes;
+        }
+
         final Pattern indexPattern;
         if(DEFAULT_SEPARATOR.equals(separator)) {
             indexPattern = FIELD_NO_PATTERN;
@@ -114,7 +120,6 @@ public class ExpressionUtil {
             indexPattern = Pattern.compile(indexFieldPatternText);
         }
 
-        final Map<String, Integer> bufferSizes = new HashMap<>();
         for(final String variable : variables) {
             final Matcher matcher = indexPattern.matcher(variable);
             if(matcher.find()) {
@@ -130,6 +135,38 @@ public class ExpressionUtil {
             }
         }
         return bufferSizes;
+    }
+
+    public static Set<String> extractInputs(final Set<String> variables, final String separator) {
+        final Set<String> inputs = new HashSet<>();
+        if(variables == null || variables.size() == 0) {
+            return inputs;
+        }
+
+        final Pattern indexPattern;
+        if(DEFAULT_SEPARATOR.equals(separator)) {
+            indexPattern = FIELD_NO_PATTERN;
+        } else {
+            final String indexFieldPatternText = String.format("[a-zA-Z_]\\w*%s([0-9]\\d*)$", separator);
+            indexPattern = Pattern.compile(indexFieldPatternText);
+        }
+
+        for(final String variable : variables) {
+            final Matcher matcher = indexPattern.matcher(variable);
+            if(matcher.find()) {
+                final String var = matcher.group();
+                final String[] fieldAndArg = var.split(separator);
+                final String input = String.join(separator, Arrays.copyOfRange(fieldAndArg, 0, fieldAndArg.length-1));
+                inputs.add(input);
+            } else {
+                inputs.add(variable);
+            }
+        }
+        return inputs;
+    }
+
+    public static Set<String> extractInputs(final List<Set<String>> variablesList, final String separator) {
+        return variablesList.stream().flatMap(v -> extractInputs(v, separator).stream()).collect(Collectors.toSet());
     }
 
     public static Double getAsDouble(final Object value) {

@@ -6,32 +6,29 @@
 
   <groupId>com.mercari</groupId>
   <artifactId>solution</artifactId>
-  <version>0.9.0</version>
+  <version>0.10.0</version>
   <name>Mercari Dataflow Template</name>
 
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.43.0</beam.version>
+    <beam.version>2.47.0</beam.version>
 
-    <freemarker.version>2.3.31</freemarker.version>
-    <hadoop.version>3.3.4</hadoop.version>
-    <hbase.version>2.5.2</hbase.version>
+    <freemarker.version>2.3.32</freemarker.version>
+    <hadoop.version>3.3.5</hadoop.version>
+    <hbase.version>2.5.4</hbase.version>
     <onnxruntime.version>1.14.0</onnxruntime.version>
     <onnx.version>1.12.0-1.5.8</onnx.version>
-    <openblas.version>0.3.21-1.5.8</openblas.version>
-    <arpack-ng.version>3.8.0-1.5.8</arpack-ng.version>
-    <smile.version>3.0.0</smile.version>
-    <solr.version>9.0.0</solr.version>
-    <lucene.version>9.0.0</lucene.version>
-    <pdfbox.version>2.0.27</pdfbox.version>
+    <solr.version>9.2.1</solr.version>
+    <lucene.version>9.4.2</lucene.version>
+    <pdfbox.version>2.0.28</pdfbox.version>
     <jts.version>1.19.0</jts.version>
-    <mysql-connector.version>8.0.32</mysql-connector.version>
-    <postgresql-connector.version>42.5.3</postgresql-connector.version>
+    <mysql-connector.version>8.0.33</mysql-connector.version>
+    <postgresql-connector.version>42.6.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.10.0</jdbc-socket-factory.version>
-    <secretmanager.version>2.10.0</secretmanager.version>
-    <iamcredentials.version>2.10.0</iamcredentials.version>
+    <jdbc-socket-factory.version>1.11.1</jdbc-socket-factory.version>
+    <secretmanager.version>2.16.0</secretmanager.version>
+    <iamcredentials.version>2.16.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
     <junit.version>4.13.1</junit.version>
@@ -41,7 +38,7 @@
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
     <slf4j.version>1.7.36</slf4j.version>
-    <log4j.version>2.19.0</log4j.version>
+    <log4j.version>2.20.0</log4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
 
@@ -267,6 +264,12 @@
       <groupId>org.apache.beam</groupId>
       <artifactId>beam-sdks-java-extensions-sql-zetasql</artifactId>
       <version>${beam.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.google.protobuf</groupId>
+          <artifactId>protobuf-javalite</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-jdbc -->
@@ -289,6 +292,20 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-mapreduce-client-core</artifactId>
       <version>${hadoop.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-yarn-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-yarn-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-hdfs-client</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.hbase/hbase-client -->
@@ -311,27 +328,6 @@
       <groupId>org.bytedeco</groupId>
       <artifactId>onnx-platform</artifactId>
       <version>${onnx.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.bytedeco/openblas-platform -->
-    <dependency>
-      <groupId>org.bytedeco</groupId>
-      <artifactId>openblas-platform</artifactId>
-      <version>${openblas.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.bytedeco/arpack-ng-platform -->
-    <dependency>
-      <groupId>org.bytedeco</groupId>
-      <artifactId>arpack-ng-platform</artifactId>
-      <version>${arpack-ng.version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/com.github.haifengl/smile-core -->
-    <dependency>
-      <groupId>com.github.haifengl</groupId>
-      <artifactId>smile-core</artifactId>
-      <version>${smile.version}</version>
     </dependency>
 
     <!-- Search Engine -->

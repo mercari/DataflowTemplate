@@ -1,0 +1,7 @@
+FROM solr:9.2.1
+USER solr
+ARG _CORE_NAME
+COPY --chown=solr:solr ${_CORE_NAME}/data/ /var/solr/data/${_CORE_NAME}/data/
+COPY --chown=solr:solr ${_CORE_NAME}/conf/ /var/solr/data/${_CORE_NAME}/conf/
+ADD --chown=solr:solr ${_CORE_NAME}/core.properties /var/solr/data/${_CORE_NAME}/
+ENV SOLR_PORT=80

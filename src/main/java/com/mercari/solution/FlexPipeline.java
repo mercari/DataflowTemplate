@@ -131,6 +131,18 @@ public class FlexPipeline {
                 if(dataflow.getLabels() != null && dataflow.getLabels().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setLabels(dataflow.getLabels());
                 }
+                if(dataflow.getNumWorkers() != null && dataflow.getNumWorkers() > 0) {
+                    options.as(DataflowPipelineOptions.class).setNumWorkers(dataflow.getNumWorkers());
+                }
+                if(dataflow.getMaxNumWorkers() != null && dataflow.getMaxNumWorkers() > 0) {
+                    options.as(DataflowPipelineOptions.class).setMaxNumWorkers(dataflow.getMaxNumWorkers());
+                }
+                if(dataflow.getWorkerMachineType() != null) {
+                    options.as(DataflowPipelineOptions.class).setWorkerMachineType(dataflow.getWorkerMachineType());
+                }
+                if(dataflow.getUsePublicIps() != null) {
+                    options.as(DataflowPipelineOptions.class).setUsePublicIps(dataflow.getUsePublicIps());
+                }
                 if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
                 }
