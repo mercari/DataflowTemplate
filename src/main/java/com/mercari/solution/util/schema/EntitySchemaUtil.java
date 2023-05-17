@@ -321,6 +321,42 @@ public class EntitySchemaUtil {
         return ByteString.copyFrom(bytes);
     }
 
+    public static List<Float> getAsFloatList(final Entity entity, final String fieldName) {
+        if(entity == null || fieldName == null) {
+            return new ArrayList<>();
+        }
+
+        if(!entity.getPropertiesMap().containsKey(fieldName)) {
+            return new ArrayList<>();
+        }
+
+        final Value value = entity.getPropertiesOrThrow(fieldName);
+        switch (value.getValueTypeCase()) {
+            case ARRAY_VALUE: {
+                final List<Value> arrayList = value.getArrayValue().getValuesList();
+                if(arrayList.size() == 0) {
+                    return new ArrayList<>();
+                }
+                arrayList.stream().map(v -> {
+                    switch (v.getValueTypeCase()) {
+                        case DOUBLE_VALUE:
+                            return Double.valueOf(v.getDoubleValue()).floatValue();
+                        case INTEGER_VALUE:
+                            return Long.valueOf(v.getIntegerValue()).floatValue();
+                        case STRING_VALUE:
+                            return Float.valueOf(v.getStringValue());
+                        case BOOLEAN_VALUE:
+                            return v.getBooleanValue() ? 1F :  0F;
+                        default:
+                            return null;
+                    }
+                }).collect(Collectors.toList());
+            }
+            default:
+                return new ArrayList<>();
+        }
+    }
+
     public static Object getAsPrimitive(Object row, Schema.FieldType fieldType, String field) {
         return null;
     }

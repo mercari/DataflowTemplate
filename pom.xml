@@ -388,13 +388,6 @@
       <version>${iamcredentials.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloud-aiplatform -->
-    <dependency>
-      <groupId>com.google.cloud</groupId>
-      <artifactId>google-cloud-aiplatform</artifactId>
-      <version>3.16.0</version>
-    </dependency>
-
     <!-- https://mvnrepository.com/artifact/com.google.apis/google-api-services-drive -->
     <dependency>
       <groupId>com.google.apis</groupId>

@@ -1,0 +1,44 @@
+{
+  "sources": [
+    {
+      "name": "PubSubInput",
+      "module": "pubsub",
+      "parameters": {
+        "subscription": "projects/myproject/subscriptions/mysubscription",
+        "format": "json"
+      },
+      "schema": {
+        "fields": [
+          { "name": "id", "type": "string", "mode": "required" },
+          { "name": "vector", "type": "double", "mode": "repeated" },
+          { "name": "tag", "type": "string", "mode": "repeated" },
+          { "name": "color", "type": "string", "mode": "nullable" },
+          { "name": "notMatchedColors", "type": "string", "mode": "repeated" },
+          { "name": "sizeType", "type": "string", "mode": "nullable" }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "MatchingEngineOutput",
+      "module": "matchingEngine",
+      "input": "PubSubInput",
+      "parameters": {
+        "projectId": "myproject",
+        "region": "us-central1",
+        "indexId": "9876543210123456789",
+        "method": "upsert",
+        "idField": "id",
+        "vectorField": "vector",
+        "crowdingTagField": "tag",
+        "restricts": [
+          { "namespace": "color", "allowField": "color", "denyField": "notMatchedColors" },
+          { "namespace": "size", "allowField": "sizeType" }
+        ],
+        "bufferSize": 200,
+        "maxBufferFlushIntervalSeconds": 10
+      }
+    }
+  ]
+}

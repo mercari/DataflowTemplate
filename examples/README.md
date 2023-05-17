@@ -13,6 +13,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [BigQuery to Cloud Bigtable](bigquery-to-bigtable.json)
     * [BigQuery to Cloud SQL](bigquery-to-jdbc.json)
     * [BigQuery to AWS S3(Avro)](bigquery-to-aws-avro.json)
+    * [BigQuery to Vertex AI Matching Engine](bigquery-to-matchingengine.json)
     * [Cloud Spanner to BigQuery](spanner-to-bigquery.json)
     * [Cloud Spanner to Cloud Storage(Avro)](spanner-to-avro.json)
     * [Cloud Spanner to Cloud Datastore](spanner-to-datastore.json)
@@ -46,6 +47,7 @@ Try to find and arrange a configuration file that is similar to the data process
   * Data Transfer
     * [Cloud PubSub(Avro) to BigQuery](pubsub-avro-to-bigquery.json)
     * [Cloud PubSub(Avro) to Cloud Spanner](pubsub-avro-to-spanner.json)
+    * [Cloud PubSub(Json) to Vertex AI Matching Engine](pubsub-to-matchingengine.json)
   * Data Processing
     * [Streaming Aggregation (PubSub)](pubsub-to-aggregation-to-pubsub.json)
     * [Cloud PubSub(Json) to BeamSQL to Cloud PubSub(Json)](pubsub-to-beamsql-to-pubsub.json)

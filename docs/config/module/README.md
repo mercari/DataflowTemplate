@@ -35,16 +35,17 @@
 
 ## Sink Modules
 
-| module                         | batch | streaming | description                                                |
-|--------------------------------|-------|-----------|------------------------------------------------------------|
-| [bigquery](sink/bigquery.md)   | ○     | ○         | Inserting Data into BigQuery Table                         |
-| [spanner](sink/spanner.md)     | ○     | ○         | Inserting Data into Cloud Spanner Table                    |
-| [storage](sink/storage.md)     | ○     | ○(TODO)   | Write file to Cloud Storage                                |
-| [datastore](sink/datastore.md) | ○     | ○         | Inserting Data into Cloud Datastore kind                   |
-| [bigtable](sink/bigtable.md)   | ○     | ○         | Inserting Data into Cloud Bigtable table                   |
-| [jdbc](sink/jdbc.md)           | ○     | ○(TODO)   | Inserting Data into RDB table using JDBC connector         |
-| [pubsub](sink/pubsub.md)       | ○     | ○         | Publish data to specified PubSub topic                     |
-| [text](sink/text.md)           | ○     | ○(TODO)   | Create text files with the template specified for each row |
-| [copyfile](sink/copyfile.md)   | ○     | ○(TODO)   | Copy files between storage services                        |
-| [solrindex](sink/solrindex.md) | ○     | -         | Create solr index file to Cloud Storage                    |
-| [debug](sink/debug.md)         | ○     | ○         | Outputting data to the log                                 |
+| module                                   | batch | streaming | description                                                |
+|------------------------------------------|-------|-----------|------------------------------------------------------------|
+| [bigquery](sink/bigquery.md)             | ○     | ○         | Inserting Data into BigQuery Table                         |
+| [spanner](sink/spanner.md)               | ○     | ○         | Inserting Data into Cloud Spanner Table                    |
+| [storage](sink/storage.md)               | ○     | ○(TODO)   | Write file to Cloud Storage                                |
+| [datastore](sink/datastore.md)           | ○     | ○         | Inserting Data into Cloud Datastore kind                   |
+| [bigtable](sink/bigtable.md)             | ○     | ○         | Inserting Data into Cloud Bigtable table                   |
+| [jdbc](sink/jdbc.md)                     | ○     | ○(TODO)   | Inserting Data into RDB table using JDBC connector         |
+| [pubsub](sink/pubsub.md)                 | ○     | ○         | Publish data to specified PubSub topic                     |
+| [text](sink/text.md)                     | ○     | ○(TODO)   | Create text files with the template specified for each row |
+| [copyfile](sink/copyfile.md)             | ○     | ○(TODO)   | Copy files between storage services                        |
+| [solrindex](sink/solrindex.md)           | ○     | -         | Create solr index file to Cloud Storage                    |
+| [matchingEngine](sink/matchingengine.md) | ○     | ○         | Inserting vector data into VertexAI Matching Engine Index  |
+| [debug](sink/debug.md)                   | ○     | ○         | Outputting data to the log                                 |

@@ -484,6 +484,54 @@ public class StructSchemaUtil {
         }
     }
 
+    public static List<Float> getAsFloatList(final Struct struct, final String fieldName) {
+        if(struct == null || fieldName == null) {
+            return new ArrayList<>();
+        }
+        if(!StructSchemaUtil.hasField(struct, fieldName)) {
+            return new ArrayList<>();
+        }
+        final Type.StructField field = struct.getType().getStructFields().stream()
+                .filter(f -> f.getName().equals(fieldName))
+                .findAny()
+                .get();
+        if(!Type.Code.ARRAY.equals(field.getType().getCode())) {
+            return new ArrayList<>();
+        }
+
+        switch (field.getType().getArrayElementType().getCode()) {
+            case BOOL:
+                return struct.getBooleanList(fieldName).stream()
+                        .map(b -> Optional.ofNullable(b).orElse(false) ? 1F : 0F)
+                        .collect(Collectors.toList());
+            case STRING:
+            case PG_NUMERIC:
+                return struct.getStringList(fieldName).stream()
+                        .map(s -> Float.valueOf(Optional.ofNullable(s).orElse("0")))
+                        .collect(Collectors.toList());
+            case INT64:
+                return struct.getLongList(fieldName).stream()
+                        .map(s -> Float.valueOf(Optional.ofNullable(s).orElse(0L)))
+                        .collect(Collectors.toList());
+            case FLOAT64:
+                return struct.getDoubleList(fieldName).stream()
+                        .map(s -> Optional.ofNullable(s).orElse(0D).floatValue())
+                        .collect(Collectors.toList());
+            case NUMERIC:
+                return struct.getBigDecimalList(fieldName).stream()
+                        .map(s -> Optional.ofNullable(s).orElse(BigDecimal.ZERO).floatValue())
+                        .collect(Collectors.toList());
+            case DATE:
+            case TIMESTAMP:
+            case JSON:
+            case BYTES:
+            case STRUCT:
+            case ARRAY:
+            default:
+                return new ArrayList<>();
+        }
+    }
+
     public static long getEpochDay(final Date date) {
         return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()).toEpochDay();
     }

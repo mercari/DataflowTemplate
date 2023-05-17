@@ -1,4 +1,6 @@
-# JavaScript Transform Module
+# JavaScript Transform Module (Deprecated)
+
+#### This module is deprecated due to the scheduled removal of the Nashorn Script Engine with the upcoming Java17 migration.
 
 JavaScript transform module processes input records with JavaScript functions.
 In the function, it is possible to refer to the values of past records and processed values as states.
