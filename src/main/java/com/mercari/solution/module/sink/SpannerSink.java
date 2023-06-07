@@ -1122,11 +1122,72 @@ public class SpannerSink implements SinkModule {
                 }
                 case normal:
                 default: {
-                    final SpannerWriteResult writeResult = input
-                            .apply("WriteMutationGroup", write.grouped());
+                    final SpannerWriteResult writeResult;
+                    if(parameters.getCommitTimestampFields() != null && parameters.getCommitTimestampFields().size() > 0)  {
+                        writeResult = input
+                                .apply("WithCommitTimestampFields", ParDo.of(new WithCommitTimestampDoFn(parameters.getCommitTimestampFields())))
+                                .apply("WriteMutationGroup", write.grouped());
+                    } else {
+                        writeResult = input
+                                .apply("WriteMutationGroup", write.grouped());
+                    }
                     return writeResult.getOutput();
                 }
             }
+        }
+
+        private class WithCommitTimestampDoFn extends DoFn<MutationGroup, MutationGroup> {
+
+            private final List<String> commitTimestampFields;
+
+            public WithCommitTimestampDoFn(final List<String> commitTimestampFields) {
+                this.commitTimestampFields = commitTimestampFields;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final MutationGroup input = c.element();
+                if(Mutation.Op.DELETE.equals(input.primary().getOperation())) {
+                    c.output(input);
+                    return;
+                }
+                final Mutation withCommitTimestampPrimary = addCommitTimestampFields(input.primary());
+                final List<Mutation> withCommitTimestampAttachedList = new ArrayList<>();
+                for(final Mutation attached : input.attached()) {
+                    final Mutation withCommitTimestampAttached = addCommitTimestampFields(attached);
+                    withCommitTimestampAttachedList.add(withCommitTimestampAttached);
+                }
+                final MutationGroup output = MutationGroup.create(withCommitTimestampPrimary, withCommitTimestampAttachedList);
+                c.output(output);
+            }
+
+            private Mutation addCommitTimestampFields(final Mutation input) {
+                final Mutation.WriteBuilder builder;
+                switch (input.getOperation()) {
+                    case UPDATE:
+                        builder = Mutation.newUpdateBuilder(input.getTable());
+                        break;
+                    case INSERT:
+                        builder = Mutation.newInsertBuilder(input.getTable());
+                        break;
+                    case INSERT_OR_UPDATE:
+                        builder = Mutation.newInsertOrUpdateBuilder(input.getTable());
+                        break;
+                    case REPLACE:
+                        builder = Mutation.newReplaceBuilder(input.getTable());
+                        break;
+                    case DELETE:
+                    default:
+                        return input;
+                }
+                for(final Map.Entry<String, Value> entry : input.asMap().entrySet()) {
+                    builder.set(entry.getKey()).to(entry.getValue());
+                }
+                for(final String commitTimestampField : commitTimestampFields) {
+                    builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);                }
+                return builder.build();
+            }
+
         }
 
     }
