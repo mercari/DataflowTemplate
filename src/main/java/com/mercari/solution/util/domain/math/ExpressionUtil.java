@@ -203,7 +203,7 @@ public class ExpressionUtil {
             return Double.valueOf(((Utf8)value).toString());
         } else {
             LOG.warn("Object: " + value + " is not applicable to double value.");
-            return Double.valueOf((String)value);
+            return Double.NaN;
         }
     }
 

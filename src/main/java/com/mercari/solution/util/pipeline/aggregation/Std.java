@@ -20,11 +20,14 @@ public class Std implements Aggregator {
     private String expression;
     private String weightField;
     private String weightExpression;
+    private Integer ddof; // Delta Degree of Freedom
     private String condition;
 
     private Boolean ignore;
 
-    private String weightKeyName;
+    private String accumKeyAvgName;
+    private String accumKeyCountName;
+    private String accumKeyWeightName;
 
 
     private transient Expression exp;
@@ -43,30 +46,38 @@ public class Std implements Aggregator {
                          final Boolean ignore,
                          final JsonObject params) {
 
-        final Std avg = new Std();
-        avg.name = name;
-        avg.field = field;
-        avg.expression = expression;
-        avg.condition = condition;
-        avg.ignore = ignore;
+        final Std std = new Std();
+        std.name = name;
+        std.field = field;
+        std.expression = expression;
+        std.condition = condition;
+        std.ignore = ignore;
 
-        avg.outputFields = new ArrayList<>();
-        avg.outputFields.add(Schema.Field.of(name, Schema.FieldType.DOUBLE.withNullable(true)));
+        std.outputFields = new ArrayList<>();
+        std.outputFields.add(Schema.Field.of(name, Schema.FieldType.DOUBLE.withNullable(true)));
 
         if(params.has("weightField")) {
-            avg.weightField = params.get("weightField").getAsString();
+            std.weightField = params.get("weightField").getAsString();
         } else if(params.has("weightExpression")) {
-            avg.weightExpression = params.get("weightExpression").getAsString();
+            std.weightExpression = params.get("weightExpression").getAsString();
         }
 
-        avg.weightKeyName = name + ".weight";
+        if(params.has("ddof") && params.get("ddof").isJsonPrimitive()) {
+            std.ddof = params.get("ddof").getAsInt();
+        } else {
+            std.ddof = 1;
+        }
 
-        return avg;
+        std.accumKeyAvgName = name + ".avg";
+        std.accumKeyCountName = name + ".count";
+        std.accumKeyWeightName = name + ".weight";
+
+        return std;
     }
 
     @Override
     public Op getOp() {
-        return Op.avg;
+        return Op.std;
     }
 
     @Override
@@ -114,15 +125,16 @@ public class Std implements Aggregator {
 
     @Override
     public Accumulator addInput(final Accumulator accumulator, final UnionValue input, final SchemaUtil.PrimitiveValueGetter valueGetter) {
-        final Double prevAvg = accumulator.getDouble(name);
-        final Double prevWeight = Optional.ofNullable(accumulator.getDouble(weightKeyName)).orElse(0D);
         final Double inputValue;
         if(field != null) {
             inputValue = input.getAsDouble(field);
         } else {
             inputValue = Aggregator.eval(this.exp, variables, input);
         }
-        final Double inputWeight;
+        if(inputValue == null || Double.isNaN(inputValue)) {
+            return accumulator;
+        }
+        Double inputWeight;
         if(weightField != null) {
             inputWeight = input.getAsDouble(weightField);
         } else if(weightExpression != null) {
@@ -130,27 +142,50 @@ public class Std implements Aggregator {
         } else {
             inputWeight = 1D;
         }
-
-        final Double avgNext = avg(prevAvg, prevWeight, inputValue, inputWeight);
-        accumulator.putDouble(name, avgNext);
-        if(inputValue != null) {
-            accumulator.putDouble(weightKeyName, prevWeight + inputWeight);
-        } else {
-            accumulator.putDouble(weightKeyName, prevWeight);
+        if(inputWeight != null && !Double.isNaN(inputWeight) && inputWeight < 0) {
+            inputWeight = Math.abs(inputWeight);
         }
-        return accumulator;
+
+        return add(accumulator, inputValue, inputWeight);
     }
 
     @Override
     public Accumulator mergeAccumulator(final Accumulator base, final Accumulator input) {
-        final Double baseAvg = base.getDouble(name);
-        final Double baseWeight = base.getDouble(weightKeyName);
-        final Double inputAvg = input.getDouble(name);
-        final Double inputWeight = input.getDouble(weightKeyName);
-        final Double avg = avg(baseAvg, baseWeight, inputAvg, inputWeight);
+        final Double baseCount = Optional.ofNullable(base.getDouble(accumKeyCountName)).orElse(0D);
+        final Double inputCount = Optional.ofNullable(input.getDouble(accumKeyCountName)).orElse(0D);
+        if(baseCount == 0) {
+            return input;
+        } else if(inputCount == 0) {
+            return base;
+        } else if(baseCount == 1 || inputCount == 1) {
+            final Double inputValue;
+            final Double inputWeight;
+            if(inputCount == 1) {
+                inputValue = input.getDouble(accumKeyAvgName);
+                inputWeight = input.getDouble(accumKeyWeightName);
+                return add(base, inputValue, inputWeight);
+            } else {
+                inputValue = base.getDouble(accumKeyAvgName);
+                inputWeight = base.getDouble(accumKeyWeightName);
+                return add(input, inputValue, inputWeight);
+            }
+        }
+
+        final Double baseAvg = base.getDouble(accumKeyAvgName);
+        final Double baseWeight = base.getDouble(accumKeyWeightName);
+        final Double inputAvg = input.getDouble(accumKeyAvgName);
+        final Double inputWeight = input.getDouble(accumKeyWeightName);
+        final Double avg = Aggregator.avg(baseAvg, baseWeight, inputAvg, inputWeight);
+        final Double count = baseCount + inputCount;
         final Double weight = Optional.ofNullable(baseWeight).orElse(0D) + Optional.ofNullable(inputWeight).orElse(0D);
-        base.putDouble(name, avg);
-        base.putDouble(weightKeyName, weight);
+        base.putDouble(accumKeyAvgName, avg);
+        base.putDouble(accumKeyCountName, count);
+        base.putDouble(accumKeyWeightName, weight);
+
+        final Double baseVar = Optional.ofNullable(base.getDouble(name)).orElse(0D);
+        final Double inputVar = Optional.ofNullable(input.getDouble(name)).orElse(0D);
+        base.putDouble(name, baseVar + inputVar);
+
         return base;
     }
 
@@ -159,26 +194,37 @@ public class Std implements Aggregator {
                                             final Map<String, Object> values,
                                             final SchemaUtil.PrimitiveValueConverter converter) {
 
-        final Double avg = accumulator.getDouble(name);
-        values.put(name, avg);
+        final Double var = accumulator.getDouble(name);
+        final Double weight = Optional.ofNullable(accumulator.getDouble(accumKeyWeightName)).orElse(0D);
+        if(var != null && weight != 0 && weight - ddof > 0) {
+            values.put(name, Math.sqrt(var / (weight - ddof)));
+        } else {
+            values.put(name, null);
+        }
         return values;
     }
 
-    private Double avg(final Double avg1, final Double count1, final Double avg2, final Double count2) {
-        if(avg1 == null) {
-            return avg2;
-        } else if(avg2 == null) {
-            return avg1;
+    private Accumulator add(final Accumulator accumulator, final Double inputValue, final Double inputWeight) {
+        if(inputValue == null || Double.isNaN(inputValue)) {
+            return accumulator;
         }
 
-        if(count1 == null || count1 == 0) {
-            return avg2;
-        } else if(count2 == null || count2 == 0) {
-            return avg1;
-        }
+        final Double prevAvg = accumulator.getDouble(accumKeyAvgName);
+        final Double prevWeight = Optional.ofNullable(accumulator.getDouble(accumKeyWeightName)).orElse(0D);
+        final Double nextAvg = Aggregator.avg(prevAvg, prevWeight, inputValue, inputWeight);
+        final Double nextWeight = prevWeight + Optional.ofNullable(inputWeight).orElse(0D);
+        accumulator.putDouble(accumKeyAvgName, nextAvg);
+        accumulator.putDouble(accumKeyCountName, Optional.ofNullable(accumulator.getDouble(accumKeyCountName)).orElse(0D) + 1D);
+        accumulator.putDouble(accumKeyWeightName, nextWeight);
 
-        return (count1 * avg1 + count2 * avg2) / (count1 + count2);
+        double deltaPrev = inputValue - Optional.ofNullable(prevAvg).orElse(0D);
+        double deltaNext = inputValue - Optional.ofNullable(nextAvg).orElse(0D);
+        final Double prevVar = Optional.ofNullable(accumulator.getDouble(name)).orElse(0D);
+        final Double nextVar = prevVar + (deltaPrev * deltaNext);
 
+        accumulator.putDouble(name, nextVar);
+
+        return accumulator;
     }
 
 }

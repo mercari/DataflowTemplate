@@ -143,19 +143,19 @@ public class UnionValue {
             }
             case AVRO: {
                 final GenericRecord record = (GenericRecord) unionValue.value;
-                return RecordToMapConverter.convert(record);
+                return RecordToMapConverter.convertWithFields(record, fields);
             }
             case STRUCT: {
                 final Struct struct = (Struct) unionValue.value;
-                return StructToMapConverter.convert(struct);
+                return StructToMapConverter.convertWithFields(struct, fields);
             }
             case DOCUMENT: {
                 final Document document = (Document) unionValue.value;
-                return DocumentToMapConverter.convert(document);
+                return DocumentToMapConverter.convertWithFields(document, fields);
             }
             case ENTITY: {
                 final Entity entity = (Entity) unionValue.value;
-                return EntityToMapConverter.convert(entity);
+                return EntityToMapConverter.convertWithFields(entity, fields);
             }
             default:
                 throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());

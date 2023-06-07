@@ -9,6 +9,7 @@ import org.joda.time.Instant;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -16,12 +17,18 @@ import java.util.stream.Collectors;
 public class StructToMapConverter {
 
     public static Map<String, Object> convert(final Struct struct) {
+        return convertWithFields(struct, null);
+    }
+
+    public static Map<String, Object> convertWithFields(final Struct struct, final Collection<String> fields) {
         final Map<String, Object> map = new HashMap<>();
         if(struct == null) {
             return map;
         }
         for(final Type.StructField field : struct.getType().getStructFields()) {
-            map.put(field.getName(), getValue(field, struct));
+            if(fields == null || fields.contains(field.getName())) {
+                map.put(field.getName(), getValue(field, struct));
+            }
         }
         return map;
     }
