@@ -50,7 +50,7 @@
             "filters": [
               {
                 "type": "PatternTypingFilter",
-                "rules": [
+                "patternTypingRules": [
                   { "pattern": "<title(?: .+?)?>(.*?)<\\/title>", "typeTemplate": "title" },
                   { "pattern": "<a .*?>(.*?)<\\/a>", "typeTemplate": "anchor:$1" },
                   { "pattern": "[\\w\\-\\._]+@[\\w\\-\\._]+\\.[A-Za-z]+", "typeTemplate": "mail" },
