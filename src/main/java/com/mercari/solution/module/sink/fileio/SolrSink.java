@@ -117,9 +117,8 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         this.fieldNames = SolrSchemaUtil.getFieldNames(schemaString);
 
         final boolean create;
-        if (container.getAllCoreNames().size() > 0) {
-            // Index dir must be one you specified.
-            this.core = container.getCores().iterator().next();
+        if (container.getAllCoreNames().contains(coreName)) {
+            this.core = container.getCore(coreName);
             create = false;
         } else {
             // For retrying
@@ -127,7 +126,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
             create = true;
         }
 
-        this.writer = SolrUtil.createWriter(core, "Shops", create);
+        this.writer = SolrUtil.createWriter(core, coreName, create);
         this.outputStream = Channels.newOutputStream(channel);
     }
 
