@@ -150,7 +150,7 @@ public interface Aggregator extends Serializable {
     static Double eval(final Expression expression, final Set<String> variables, final UnionValue unionValue) {
         final Map<String, Double> values = new HashMap<>();
         for(final String variable : variables) {
-            final Double value = unionValue.getAsDouble(variable);
+            final Double value = unionValue.getDouble(variable);
             values.put(variable, Optional.ofNullable(value).orElse(Double.NaN));
         }
         double expResult = expression.setVariables(values).evaluate();

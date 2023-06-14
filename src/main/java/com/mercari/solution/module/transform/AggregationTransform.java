@@ -12,6 +12,8 @@ import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.RowToMutationConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
+import com.mercari.solution.util.pipeline.TriggerUtil;
+import com.mercari.solution.util.pipeline.WindowUtil;
 import com.mercari.solution.util.pipeline.aggregation.Accumulator;
 import com.mercari.solution.util.pipeline.aggregation.Aggregator;
 import com.mercari.solution.util.pipeline.aggregation.Aggregators;
@@ -24,12 +26,10 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.*;
 import org.apache.beam.sdk.values.*;
-import org.joda.time.DateTimeZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
-import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,9 +42,9 @@ public class AggregationTransform implements TransformModule {
 
         private List<String> groupFields;
 
-        private WindowParameters window;
-        private TriggerParameters trigger;
-        private AccumulationMode accumulationMode;
+        private WindowUtil.WindowParameters window;
+        private TriggerUtil.TriggerParameters trigger;
+        private WindowUtil.AccumulationMode accumulationMode;
 
         private List<AggregationDefinition> aggregations;
 
@@ -61,27 +61,27 @@ public class AggregationTransform implements TransformModule {
             this.groupFields = groupFields;
         }
 
-        public WindowParameters getWindow() {
+        public WindowUtil.WindowParameters getWindow() {
             return window;
         }
 
-        public void setWindow(WindowParameters window) {
+        public void setWindow(WindowUtil.WindowParameters window) {
             this.window = window;
         }
 
-        public TriggerParameters getTrigger() {
+        public TriggerUtil.TriggerParameters getTrigger() {
             return trigger;
         }
 
-        public void setTrigger(TriggerParameters trigger) {
+        public void setTrigger(TriggerUtil.TriggerParameters trigger) {
             this.trigger = trigger;
         }
 
-        public AccumulationMode getAccumulationMode() {
+        public WindowUtil.AccumulationMode getAccumulationMode() {
             return accumulationMode;
         }
 
-        public void setAccumulationMode(AccumulationMode accumulationMode) {
+        public void setAccumulationMode(WindowUtil.AccumulationMode accumulationMode) {
             this.accumulationMode = accumulationMode;
         }
 
@@ -131,7 +131,7 @@ public class AggregationTransform implements TransformModule {
 
         public void setDefaults() {
             if(this.window == null) {
-                this.window = new WindowParameters();
+                this.window = new WindowUtil.WindowParameters();
             }
             this.window.setDefaults();
 
@@ -140,7 +140,7 @@ public class AggregationTransform implements TransformModule {
             }
 
             if(this.accumulationMode == null) {
-                this.accumulationMode = AccumulationMode.discarding;
+                this.accumulationMode = WindowUtil.AccumulationMode.discarding;
             }
 
             if(this.outputEmpty == null) {
@@ -150,249 +150,6 @@ public class AggregationTransform implements TransformModule {
                 this.outputPaneInfo = false;
             }
         }
-    }
-
-    public class WindowParameters implements Serializable {
-
-        private WindowType type;
-        private DateTimeUtil.TimeUnit unit;
-        private Long size;
-        private Long period;
-        private Long gap;
-        private Long offset;
-        private String timezone;
-        private String startDate;
-        private Long allowedLateness;
-        private TimestampCombiner timestampCombiner;
-
-
-        public WindowType getType() {
-            return type;
-        }
-
-        public void setType(WindowType type) {
-            this.type = type;
-        }
-
-        public DateTimeUtil.TimeUnit getUnit() {
-            return unit;
-        }
-
-        public void setUnit(DateTimeUtil.TimeUnit unit) {
-            this.unit = unit;
-        }
-
-        public Long getSize() {
-            return size;
-        }
-
-        public void setSize(Long size) {
-            this.size = size;
-        }
-
-        public Long getPeriod() {
-            return period;
-        }
-
-        public void setPeriod(Long period) {
-            this.period = period;
-        }
-
-        public Long getGap() {
-            return gap;
-        }
-
-        public void setGap(Long gap) {
-            this.gap = gap;
-        }
-
-        public Long getOffset() {
-            return offset;
-        }
-
-        public void setOffset(Long offset) {
-            this.offset = offset;
-        }
-
-        public String getTimezone() {
-            return timezone;
-        }
-
-        public void setTimezone(String timezone) {
-            this.timezone = timezone;
-        }
-
-        public String getStartDate() {
-            return startDate;
-        }
-
-        public void setStartDate(String startDate) {
-            this.startDate = startDate;
-        }
-
-        public Long getAllowedLateness() {
-            return allowedLateness;
-        }
-
-        public void setAllowedLateness(Long allowedLateness) {
-            this.allowedLateness = allowedLateness;
-        }
-
-        public TimestampCombiner getTimestampCombiner() {
-            return timestampCombiner;
-        }
-
-        public void setTimestampCombiner(TimestampCombiner timestampCombiner) {
-            this.timestampCombiner = timestampCombiner;
-        }
-
-        private List<String> validate() {
-            final List<String> errorMessages = new ArrayList<>();
-            if(!WindowType.global.equals(this.type)) {
-                if(this.size == null) {
-                    if(WindowType.fixed.equals(this.type) || WindowType.sliding.equals(this.type)) {
-                        errorMessages.add("Aggregation module.window requires size for fixed or sliding window");
-                    }
-                }
-                if(this.period == null) {
-                    if(WindowType.sliding.equals(this.type)) {
-                        errorMessages.add("Aggregation module.window requires period for sliding window");
-                    }
-                }
-                if(WindowType.session.equals(this.type)) {
-                    if(this.gap == null) {
-                        errorMessages.add("Aggregation module.window requires gap for session window");
-                    }
-                }
-            }
-            return errorMessages;
-        }
-
-        private void setDefaults() {
-            if(this.type == null) {
-                this.type = WindowType.global;
-            }
-            if(this.unit == null) {
-                this.unit = DateTimeUtil.TimeUnit.second;
-            }
-            if(this.timezone == null) {
-                this.timezone = "UTC";
-            }
-            if(this.startDate == null) {
-                this.startDate = "1970-01-01";
-            }
-            if(this.offset == null) {
-                this.offset = 0L;
-            }
-            if(this.allowedLateness == null) {
-                this.allowedLateness = 0L;
-            }
-        }
-    }
-
-    public class TriggerParameters implements Serializable {
-
-        private TriggerType type;
-
-        // for watermark
-        private TriggerParameters earlyFiringTrigger;
-        private TriggerParameters lateFiringTrigger;
-
-        // for composite triggers
-        private List<TriggerParameters> childrenTriggers;
-
-        // for repeatedly
-        private TriggerParameters foreverTrigger;
-
-        // for afterProcessingTime
-        private Long pastFirstElementDelay;
-        private DateTimeUtil.TimeUnit pastFirstElementDelayUnit;
-
-        // for afterPane
-        private Integer elementCountAtLeast;
-
-        // final trigger
-        private TriggerParameters finalTrigger;
-
-
-        public TriggerType getType() {
-            return type;
-        }
-
-        public void setType(TriggerType type) {
-            this.type = type;
-        }
-
-        public TriggerParameters getEarlyFiringTrigger() {
-            return earlyFiringTrigger;
-        }
-
-        public void setEarlyFiringTrigger(TriggerParameters earlyFiringTrigger) {
-            this.earlyFiringTrigger = earlyFiringTrigger;
-        }
-
-        public TriggerParameters getLateFiringTrigger() {
-            return lateFiringTrigger;
-        }
-
-        public void setLateFiringTrigger(TriggerParameters lateFiringTrigger) {
-            this.lateFiringTrigger = lateFiringTrigger;
-        }
-
-        public List<TriggerParameters> getChildrenTriggers() {
-            return childrenTriggers;
-        }
-
-        public void setChildrenTriggers(List<TriggerParameters> childrenTriggers) {
-            this.childrenTriggers = childrenTriggers;
-        }
-
-        public TriggerParameters getForeverTrigger() {
-            return foreverTrigger;
-        }
-
-        public void setForeverTrigger(TriggerParameters foreverTrigger) {
-            this.foreverTrigger = foreverTrigger;
-        }
-
-        public Long getPastFirstElementDelay() {
-            return pastFirstElementDelay;
-        }
-
-        public void setPastFirstElementDelay(Long pastFirstElementDelay) {
-            this.pastFirstElementDelay = pastFirstElementDelay;
-        }
-
-        public DateTimeUtil.TimeUnit getPastFirstElementDelayUnit() {
-            return pastFirstElementDelayUnit;
-        }
-
-        public void setPastFirstElementDelayUnit(DateTimeUtil.TimeUnit pastFirstElementDelayUnit) {
-            this.pastFirstElementDelayUnit = pastFirstElementDelayUnit;
-        }
-
-        public Integer getElementCountAtLeast() {
-            return elementCountAtLeast;
-        }
-
-        public void setElementCountAtLeast(Integer elementCountAtLeast) {
-            this.elementCountAtLeast = elementCountAtLeast;
-        }
-
-        public TriggerParameters getFinalTrigger() {
-            return finalTrigger;
-        }
-
-        public void setFinalTrigger(TriggerParameters finalTrigger) {
-            this.finalTrigger = finalTrigger;
-        }
-
-        private void setDefaults() {
-            if(this.type == null) {
-                this.type = TriggerType.afterWatermark;
-            }
-        }
-
     }
 
     private class AggregationDefinition implements Serializable {
@@ -449,29 +206,6 @@ public class AggregationTransform implements TransformModule {
         }
     }
 
-    private enum WindowType implements Serializable {
-        global,
-        fixed,
-        sliding,
-        session,
-        calendar
-    }
-
-    public enum TriggerType {
-        afterWatermark,
-        afterProcessingTime,
-        afterPane,
-        repeatedly,
-        afterEach,
-        afterFirst,
-        afterAll
-    }
-
-    public enum AccumulationMode {
-        discarding,
-        accumulating
-    }
-
 
     @Override
     public String getName() {
@@ -512,7 +246,6 @@ public class AggregationTransform implements TransformModule {
         final List<TupleTag<?>> tags = new ArrayList<>();
         final List<String> inputNames = new ArrayList<>();
         final List<DataType> inputTypes = new ArrayList<>();
-        final List<SchemaUtil.StringGetter<Object>> stringGetters = new ArrayList<>();
 
         final DataType outputType = outputType(parameters.getOutputType(), inputs, OptionUtil.isStreaming(inputs.get(0).getCollection()));
 
@@ -522,28 +255,6 @@ public class AggregationTransform implements TransformModule {
             tags.add(tag);
             inputNames.add(input.getName());
             inputTypes.add(input.getDataType());
-
-            final SchemaUtil.StringGetter<Object> stringGetter;
-            switch (input.getDataType()) {
-                case ROW:
-                    stringGetter = RowSchemaUtil::getAsString;
-                    break;
-                case AVRO:
-                    stringGetter = AvroSchemaUtil::getAsString;
-                    break;
-                case STRUCT:
-                    stringGetter = StructSchemaUtil::getAsString;
-                    break;
-                case DOCUMENT:
-                    stringGetter = DocumentSchemaUtil::getAsString;
-                    break;
-                case ENTITY:
-                    stringGetter = EntitySchemaUtil::getAsString;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Not supported input type: " + input.getDataType());
-            }
-            stringGetters.add(stringGetter);
 
             tuple = tuple.and(tag, input.getCollection());
         }
@@ -579,8 +290,7 @@ public class AggregationTransform implements TransformModule {
                         aggregators,
                         tags,
                         inputNames,
-                        inputTypes,
-                        stringGetters);
+                        inputTypes);
 
                 final PCollection<Row> output = tuple.apply(config.getName(), transform);
                 return FCollection.of(config.getName(), output.setCoder(RowCoder.of(outputSchema)), DataType.ROW, outputSchema);
@@ -597,8 +307,7 @@ public class AggregationTransform implements TransformModule {
                         aggregators,
                         tags,
                         inputNames,
-                        inputTypes,
-                        stringGetters);
+                        inputTypes);
 
                 final PCollection<GenericRecord> output = tuple.apply(config.getName(), transform);
                 return FCollection.of(config.getName(), output.setCoder(AvroCoder.of(outputAvroSchema)), DataType.AVRO, outputSchema);
@@ -615,8 +324,7 @@ public class AggregationTransform implements TransformModule {
                         aggregators,
                         tags,
                         inputNames,
-                        inputTypes,
-                        stringGetters);
+                        inputTypes);
 
                 final PCollection<Struct> output = tuple.apply(config.getName(), transform);
                 return FCollection.of(config.getName(), output.setCoder(SerializableCoder.of(Struct.class)), DataType.STRUCT, outputSpannerType);
@@ -665,9 +373,9 @@ public class AggregationTransform implements TransformModule {
         private final InputSchemaT inputOutputSchema;
 
         private final List<Schema.Field> groupFields;
-        private final WindowParameters windowParameters;
-        private final TriggerParameters triggerParameters;
-        private final AccumulationMode accumulationMode;
+        private final WindowUtil.WindowParameters windowParameters;
+        private final TriggerUtil.TriggerParameters triggerParameters;
+        private final WindowUtil.AccumulationMode accumulationMode;
 
         private final Boolean outputEmpty;
         private final Boolean outputPaneInfo;
@@ -675,7 +383,6 @@ public class AggregationTransform implements TransformModule {
         private final List<TupleTag<?>> tags;
         private final List<String> inputNames;
         private final List<DataType> inputTypes;
-        private final List<SchemaUtil.StringGetter<Object>> stringGetters;
 
         Transform(final AggregateTransformParameters parameters,
                   final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
@@ -686,8 +393,7 @@ public class AggregationTransform implements TransformModule {
                   final Map<String, Aggregators> aggregatorsMap,
                   final List<TupleTag<?>> tags,
                   final List<String> inputNames,
-                  final List<DataType> inputTypes,
-                  final List<SchemaUtil.StringGetter<Object>> stringGetters) {
+                  final List<DataType> inputTypes) {
 
             this.schemaConverter = schemaConverter;
             this.valueConverter = valueConverter;
@@ -706,83 +412,15 @@ public class AggregationTransform implements TransformModule {
             this.tags = tags;
             this.inputNames = inputNames;
             this.inputTypes = inputTypes;
-            this.stringGetters = stringGetters;
         }
 
         @Override
         public PCollection<T> expand(PCollectionTuple inputs) {
 
-            //
-            Window<KV<String,UnionValue>> window;
-            switch (windowParameters.getType()) {
-                case global: {
-                    window = Window.into(new GlobalWindows());
-                    break;
-                }
-                case fixed: {
-                    window = Window.into(FixedWindows
-                            .of(DateTimeUtil.getDuration(windowParameters.getUnit(), windowParameters.getSize()))
-                            .withOffset(DateTimeUtil.getDuration(windowParameters.getUnit(), windowParameters.getOffset())));
-                    break;
-                }
-                case sliding: {
-                    window = Window.into(SlidingWindows
-                            .of(DateTimeUtil.getDuration(windowParameters.getUnit(), windowParameters.getSize()))
-                            .every(DateTimeUtil.getDuration(windowParameters.getUnit(), windowParameters.getPeriod()))
-                            .withOffset(DateTimeUtil.getDuration(windowParameters.getUnit(), windowParameters.getOffset())));
-                    break;
-                }
-                case session: {
-                    window = Window.into(Sessions
-                            .withGapDuration(DateTimeUtil.getDuration(windowParameters.getUnit(), windowParameters.getGap())));
-                    break;
-                }
-                case calendar: {
-                    final LocalDate startDate = parseStartDate(windowParameters.getStartDate());
-                    switch (windowParameters.getUnit()) {
-                        case day: {
-                            window = Window.into(CalendarWindows
-                                    .days(windowParameters.getSize().intValue())
-                                    .withTimeZone(DateTimeZone.forID(windowParameters.getTimezone()))
-                                    .withStartingDay(startDate.getYear(), startDate.getMonthValue(), startDate.getDayOfMonth()));
-                            break;
-                        }
-                        case week: {
-                            window = Window.into(CalendarWindows
-                                    .weeks(windowParameters.getSize().intValue(), windowParameters.getOffset().intValue())
-                                    .withTimeZone(DateTimeZone.forID(windowParameters.getTimezone()))
-                                    .withStartingDay(startDate.getYear(), startDate.getMonthValue(), startDate.getDayOfMonth()));
-                            break;
-                        }
-                        case month: {
-                            window = Window.into(CalendarWindows
-                                    .months(windowParameters.getSize().intValue())
-                                    .withTimeZone(DateTimeZone.forID(windowParameters.getTimezone()))
-                                    .withStartingMonth(startDate.getYear(), startDate.getMonthValue()));
-                            break;
-                        }
-                        case year: {
-                            window = Window.into(CalendarWindows
-                                    .years(windowParameters.getSize().intValue())
-                                    .withTimeZone(DateTimeZone.forID(windowParameters.getTimezone()))
-                                    .withStartingYear(startDate.getYear()));
-                            break;
-                        }
-                        case second:
-                        case minute:
-                        case hour:
-                        default:
-                            throw new IllegalArgumentException("Not supported calendar timeunit type: " + windowParameters.getType());
-                    }
-                    break;
-                }
-                default:
-                    throw new IllegalArgumentException("Not supported window type: " + windowParameters.getType());
-            }
-
+            Window<KV<String,UnionValue>> window = WindowUtil.createWindow(windowParameters);
             if(triggerParameters != null) {
-                window = window.triggering(createTrigger(triggerParameters));
-                if(AccumulationMode.accumulating.equals(accumulationMode)) {
+                window = window.triggering(TriggerUtil.createTrigger(triggerParameters));
+                if(WindowUtil.AccumulationMode.accumulating.equals(accumulationMode)) {
                     window = window.accumulatingFiredPanes();
                 } else {
                     window = window.discardingFiredPanes();
@@ -802,7 +440,7 @@ public class AggregationTransform implements TransformModule {
                     .collect(Collectors.toList());
 
             return inputs
-                    .apply("Union", Union.withKey(tags, inputTypes, stringGetters, groupFieldNames, inputNames))
+                    .apply("Union", Union.withKey(tags, inputTypes, groupFieldNames, inputNames))
                     .apply("WithWindow", window)
                     .apply("Aggregate", Combine.perKey(new AggregationCombineFn(inputNames, aggregatorsMap)))
                     .apply("Values", ParDo.of(new AggregationOutputDoFn(
@@ -980,109 +618,6 @@ public class AggregationTransform implements TransformModule {
         } else {
             return DataType.AVRO;
         }
-    }
-
-    private static Trigger createTrigger(final TriggerParameters parameter) {
-        final Trigger trigger;
-        switch (parameter.getType()) {
-            case afterWatermark: {
-                if(parameter.getEarlyFiringTrigger() != null && parameter.getLateFiringTrigger() != null) {
-                    trigger = AfterWatermark.pastEndOfWindow()
-                            .withEarlyFirings((Trigger.OnceTrigger) createTrigger(parameter.getEarlyFiringTrigger()))
-                            .withLateFirings((Trigger.OnceTrigger) createTrigger(parameter.getLateFiringTrigger()));
-                } else if(parameter.getEarlyFiringTrigger() != null) {
-                    trigger = AfterWatermark.pastEndOfWindow()
-                            .withEarlyFirings((Trigger.OnceTrigger) createTrigger(parameter.getEarlyFiringTrigger()));
-                } else if(parameter.getLateFiringTrigger() != null) {
-                    trigger = AfterWatermark.pastEndOfWindow()
-                            .withLateFirings((Trigger.OnceTrigger) createTrigger(parameter.getLateFiringTrigger()));
-                } else {
-                    trigger = AfterWatermark.pastEndOfWindow();
-                }
-                break;
-            }
-            case afterProcessingTime: {
-                final AfterProcessingTime afterProcessingTime = AfterProcessingTime.pastFirstElementInPane();
-                trigger = afterProcessingTime.plusDelayOf(
-                        DateTimeUtil.getDuration(parameter.getPastFirstElementDelayUnit(), parameter.getPastFirstElementDelay()));
-                break;
-            }
-            case afterPane: {
-                trigger = AfterPane.elementCountAtLeast(parameter.getElementCountAtLeast());
-                break;
-            }
-            case afterFirst:
-            case afterEach:
-            case afterAll: {
-                final List<Trigger> triggers = new ArrayList<>();
-                for(final TriggerParameters child : parameter.getChildrenTriggers()) {
-                    triggers.add(createTrigger(child));
-                }
-                switch (parameter.getType()) {
-                    case afterFirst: {
-                        trigger = AfterFirst.of(triggers);
-                        break;
-                    }
-                    case afterEach: {
-                        trigger = AfterEach.inOrder(triggers);
-                        break;
-                    }
-                    case afterAll: {
-                        trigger = AfterAll.of(triggers);
-                        break;
-                    }
-                    default: {
-                        throw new IllegalArgumentException("Not supported window trigger: " + parameter.getType());
-                    }
-                }
-                break;
-            }
-            case repeatedly: {
-                trigger = Repeatedly.forever(createTrigger(parameter.getForeverTrigger()));
-                break;
-            }
-            default: {
-                throw new IllegalArgumentException("Not supported window trigger: " + parameter.getType());
-            }
-        }
-
-        if(parameter.getFinalTrigger() != null) {
-            return trigger.orFinally((Trigger.OnceTrigger) createTrigger(parameter.getFinalTrigger()));
-        }
-
-        return trigger;
-    }
-
-    private static LocalDate parseStartDate(final String startDate) {
-        final Integer year;
-        final Integer month;
-        final Integer day;
-        if(startDate != null) {
-            final String[] s = startDate.split("-");
-            if(s.length == 1) {
-                year = Integer.valueOf(s[0]);
-                month = 1;
-                day = 1;
-            } else if(s.length == 2) {
-                year = Integer.valueOf(s[0]);
-                month = Integer.valueOf(s[1]);
-                day = 1;
-            } else if(s.length == 3) {
-                year = Integer.valueOf(s[0]);
-                month = Integer.valueOf(s[1]);
-                day = Integer.valueOf(s[2]);
-            } else {
-                year = 1970;
-                month = 1;
-                day = 1;
-            }
-        } else {
-            year = 1970;
-            month = 1;
-            day = 1;
-        }
-
-        return LocalDate.of(year, month, day);
     }
 
 }

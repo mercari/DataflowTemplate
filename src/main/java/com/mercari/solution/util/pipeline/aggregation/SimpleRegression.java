@@ -176,13 +176,13 @@ public class SimpleRegression implements Aggregator {
 
         final Double y;
         if(field != null) {
-            y = input.getAsDouble(field);
+            y = input.getDouble(field);
         } else {
             y = Aggregator.eval(this.exp, variables, input);
         }
         final Double x;
         if(xField != null) {
-            x = input.getAsDouble(xField);
+            x = input.getDouble(xField);
         } else {
             x = Long.valueOf(input.getEpochMillis()).doubleValue();
         }
@@ -193,7 +193,7 @@ public class SimpleRegression implements Aggregator {
 
         final double inputWeight;
         if(weightField != null) {
-            inputWeight = Optional.ofNullable(input.getAsDouble(weightField)).orElse(0D);
+            inputWeight = Optional.ofNullable(input.getDouble(weightField)).orElse(0D);
         } else if(weightExpression != null) {
             inputWeight = Optional.ofNullable(Aggregator.eval(this.weightExp, weightVariables, input)).orElse(0D);
         } else {

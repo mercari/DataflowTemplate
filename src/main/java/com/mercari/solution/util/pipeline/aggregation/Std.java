@@ -127,7 +127,7 @@ public class Std implements Aggregator {
     public Accumulator addInput(final Accumulator accumulator, final UnionValue input, final SchemaUtil.PrimitiveValueGetter valueGetter) {
         final Double inputValue;
         if(field != null) {
-            inputValue = input.getAsDouble(field);
+            inputValue = input.getDouble(field);
         } else {
             inputValue = Aggregator.eval(this.exp, variables, input);
         }
@@ -136,7 +136,7 @@ public class Std implements Aggregator {
         }
         Double inputWeight;
         if(weightField != null) {
-            inputWeight = input.getAsDouble(weightField);
+            inputWeight = input.getDouble(weightField);
         } else if(weightExpression != null) {
             inputWeight = Aggregator.eval(this.weightExp, weightVariables, input);
         } else {

@@ -93,16 +93,49 @@ public class UnionValue {
         }
     }
 
-    public Double getAsDouble(final String field) {
+    public String getString(final String field) {
+        return getAsString(this, field);
+    }
+    public Double getDouble(final String field) {
         return getAsDouble(this, field);
     }
 
-    public Map<String, Object> toMap(final Collection<String> fields) {
-        return toMap(this, fields);
+    public Map<String, Object> getMap(final Collection<String> fields) {
+        return getAsMap(this, fields);
     }
 
-    public Map<String, Double> toDoubleMap(final Collection<String> fields) {
-        return toDoubleMap(this, fields);
+    public Map<String, Double> getDoubleMap(final Collection<String> fields) {
+        return getAsDoubleMap(this, fields);
+    }
+
+    public static String getAsString(final UnionValue unionValue, final String field) {
+        if(unionValue.value == null) {
+            return null;
+        }
+        switch (unionValue.type) {
+            case ROW: {
+                final Row row = (Row) unionValue.value;
+                return RowSchemaUtil.getAsString(row, field);
+            }
+            case AVRO: {
+                final GenericRecord record = (GenericRecord) unionValue.value;
+                return AvroSchemaUtil.getAsString(record, field);
+            }
+            case STRUCT: {
+                final Struct struct = (Struct) unionValue.value;
+                return StructSchemaUtil.getAsString(struct, field);
+            }
+            case DOCUMENT: {
+                final Document document = (Document) unionValue.value;
+                return DocumentSchemaUtil.getAsString(document, field);
+            }
+            case ENTITY: {
+                final Entity entity = (Entity) unionValue.value;
+                return EntitySchemaUtil.getAsString(entity, field);
+            }
+            default:
+                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+        }
     }
 
     public static Double getAsDouble(final UnionValue unionValue, final String field) {
@@ -132,7 +165,7 @@ public class UnionValue {
 
     }
 
-    public static Map<String, Object> toMap(final UnionValue unionValue,  final Collection<String> fields) {
+    public static Map<String, Object> getAsMap(final UnionValue unionValue, final Collection<String> fields) {
         if(unionValue.value == null) {
             return new HashMap<>();
         }
@@ -162,7 +195,7 @@ public class UnionValue {
         }
     }
 
-    public static Map<String, Double> toDoubleMap(final UnionValue unionValue, final Collection<String> fields) {
+    public static Map<String, Double> getAsDoubleMap(final UnionValue unionValue, final Collection<String> fields) {
         final Map<String, Double> doubles = new HashMap<>();
         if(unionValue.value == null) {
             return doubles;

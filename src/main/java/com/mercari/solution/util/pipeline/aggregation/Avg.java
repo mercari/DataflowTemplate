@@ -118,13 +118,13 @@ public class Avg implements Aggregator {
         final Double prevWeight = Optional.ofNullable(accumulator.getDouble(weightKeyName)).orElse(0D);
         final Double inputValue;
         if(field != null) {
-            inputValue = input.getAsDouble(field);
+            inputValue = input.getDouble(field);
         } else {
             inputValue = Aggregator.eval(this.exp, variables, input);
         }
         final Double inputWeight;
         if(weightField != null) {
-            inputWeight = input.getAsDouble(weightField);
+            inputWeight = input.getDouble(weightField);
         } else if(weightExpression != null) {
             inputWeight = Aggregator.eval(this.weightExp, weightVariables, input);
         } else {
