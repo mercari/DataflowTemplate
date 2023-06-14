@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
 
 public class TextSink implements SinkModule {
 
-    private static final Logger LOG = LoggerFactory.getLogger(StorageSink.class);
+    private static final Logger LOG = LoggerFactory.getLogger(TextSink.class);
 
     private class TextSinkParameters implements Serializable {
 
@@ -153,15 +153,20 @@ public class TextSink implements SinkModule {
 
     public String getName() { return "text"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), TextSink.write(input, config, waits, sideInputs));
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("text sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), TextSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null, null);
+        return write(collection, config, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final TextSinkParameters parameters = new Gson().fromJson(config.getParameters(), TextSinkParameters.class);
         final TextWrite write = new TextWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);

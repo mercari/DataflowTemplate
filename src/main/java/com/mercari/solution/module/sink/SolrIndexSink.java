@@ -112,7 +112,7 @@ public class SolrIndexSink implements SinkModule {
         public void validate() {
             final List<String> errorMessages = new ArrayList<>();
             if(this.coreName == null) {
-                errorMessages.add("Solrindex source module requires `coreName` parameter.");
+                errorMessages.add("solrIndex sink module requires `coreName` parameter.");
             }
             if(this.solrconfig != null) {
                 errorMessages.addAll(this.solrconfig.validate());
@@ -191,19 +191,23 @@ public class SolrIndexSink implements SinkModule {
     public String getName() { return "solrindex"; }
 
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), SolrIndexSink.write(input, config, waits, sideInputs));
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("solrindex sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), SolrIndexSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(
             final FCollection<?> collection,
             final SinkConfig config,
-            final List<FCollection<?>> waits,
-            final List<FCollection<?>> sideInputs) {
+            final List<FCollection<?>> waits) {
 
         final SolrIndexSinkParameters parameters = new Gson().fromJson(config.getParameters(), SolrIndexSinkParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("SolrIndexSink parameters must not be empty!");
+            throw new IllegalArgumentException("solrIndex sink parameters must not be empty!");
         }
         parameters.setDefaults();
 

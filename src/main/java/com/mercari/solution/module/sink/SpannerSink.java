@@ -409,18 +409,23 @@ public class SpannerSink implements SinkModule {
 
     public String getName() { return "spanner"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), write(input, config, waits, sideInputs));
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("spanner sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null, null);
+        return write(collection, config, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final SpannerSinkParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSinkParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+            throw new IllegalArgumentException("spanner sink parameter must not be empty!");
         }
         parameters.setDefaults(collection.getCollection());
         parameters.validate(collection.getCollection(), collection.getDataType(), collection.getIsTuple());
@@ -428,17 +433,16 @@ public class SpannerSink implements SinkModule {
         if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
             return writeMutationGroup((FCollection<MutationGroup>) collection, config, parameters);
         } else if(collection.getIsTuple()) {
-            return writeMulti(collection, config, parameters, waits, sideInputs);
+            return writeMulti(collection, config, parameters, waits);
         } else {
-            return writeSingle(collection, config, parameters, waits, sideInputs);
+            return writeSingle(collection, config, parameters, waits);
         }
     }
 
     public static FCollection<?> writeSingle(final FCollection<?> collection,
                                              final SinkConfig config,
                                              final SpannerSinkParameters parameters,
-                                             final List<FCollection<?>> waits,
-                                             final List<FCollection<?>> sideInputs) {
+                                             final List<FCollection<?>> waits) {
 
         try {
             config.outputAvroSchema(collection.getAvroSchema());
@@ -519,8 +523,7 @@ public class SpannerSink implements SinkModule {
     public static FCollection<?> writeMulti(final FCollection<?> collection,
                                             final SinkConfig config,
                                             final SpannerSinkParameters parameters,
-                                            final List<FCollection<?>> waits,
-                                            final List<FCollection<?>> sideInputs) {
+                                            final List<FCollection<?>> waits) {
 
         final SpannerWriteMulti write = new SpannerWriteMulti(collection, parameters, waits);
         final PCollection<?> output = collection.getTuple().apply(config.getName(), write);

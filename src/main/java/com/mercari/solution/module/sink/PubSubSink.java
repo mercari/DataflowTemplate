@@ -34,7 +34,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
+
 
 public class PubSubSink implements SinkModule {
 
@@ -139,18 +139,18 @@ public class PubSubSink implements SinkModule {
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
             if(this.getTopic() == null) {
-                errorMessages.add("PubSub sink module " + name + " parameter must contain topic");
+                errorMessages.add("pubsub sink module " + name + " parameter must contain topic");
             }
             if(this.getFormat() == null) {
-                errorMessages.add("PubSub sink module " + name + " parameter must contain format");
+                errorMessages.add("pubsub sink module " + name + " parameter must contain format");
             }
             if(this.getFormat() != null) {
                 if(this.getFormat().equals(Format.protobuf)) {
                     if(this.getProtobufDescriptor() == null) {
-                        errorMessages.add("PubSub sink module " + name + " parameter must contain protobufDescriptor when set format `protobuf`");
+                        errorMessages.add("pubsub sink module " + name + " parameter must contain protobufDescriptor when set format `protobuf`");
                     }
                     if(this.getProtobufMessageName() == null) {
-                        errorMessages.add("PubSub sink module " + name + " parameter must contain protobufMessageName when set format `protobuf`");
+                        errorMessages.add("pubsub sink module " + name + " parameter must contain protobufMessageName when set format `protobuf`");
                     }
                 }
             }
@@ -170,7 +170,7 @@ public class PubSubSink implements SinkModule {
             if(this.orderingKeyFields == null) {
                 this.orderingKeyFields = new ArrayList<>();
             } else if(this.orderingKeyFields.size() > 0 && (this.maxBatchSize == null || this.maxBatchSize != 1)) {
-                LOG.warn("pubsub source module maxBatchSize must be 1 when using orderingKeyFields. ref: https://issues.apache.org/jira/browse/BEAM-13148");
+                LOG.warn("pubsub sink module maxBatchSize must be 1 when using orderingKeyFields. ref: https://issues.apache.org/jira/browse/BEAM-13148");
                 this.maxBatchSize = 1;
             }
         }
@@ -184,19 +184,25 @@ public class PubSubSink implements SinkModule {
         protobuf
     }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        write(input, config, waits, sideInputs);
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("pubsub sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+
+        write(input, config, waits);
         return new HashMap<>();
     }
 
     private static void write(final FCollection<?> collection, final SinkConfig config) {
-        write(collection, config, null, null);
+        write(collection, config, null);
     }
 
-    private static void write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
+    private static void write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final PubSubSinkParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSinkParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("PubSub source module parameters must not be empty!");
+            throw new IllegalArgumentException("pubsub sink module parameters must not be empty!");
         }
         parameters.validate(config.getName());
         parameters.setDefaults();
