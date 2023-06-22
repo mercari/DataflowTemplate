@@ -32,6 +32,7 @@
 | [crypto](transform/crypto.md)           | ○     | ○         | Encrypts or decrypts the value of a specified field.(Currently, only decryption is supported)                                                              |
 | [tokenize](transform/tokenize.md)       | ○     | ○         | Tokenizes and processes input text                                                                                                                         |
 | [pdfextract](transform/pdfextract.md)   | ○     | ○         | Extract text and metadata from PDF files                                                                                                                   |
+| [localNeo4j](transform/localneo4j.md)   | ○     | ○         | Inserts input data into a prepared graph database or generates and executes a query from input data to obtain results.                                     |
 
 ## Sink Modules
 

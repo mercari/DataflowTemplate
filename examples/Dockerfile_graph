@@ -1,0 +1,5 @@
+FROM neo4j:4.4.21
+USER neo4j
+COPY --chown=neo4j:neo4j data/ /data/
+COPY --chown=neo4j:neo4j logs/ /logs/
+ENV NEO4J_AUTH=neo4j/password
