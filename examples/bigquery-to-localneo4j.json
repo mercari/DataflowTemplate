@@ -1,0 +1,54 @@
+{
+  "settings": {
+    "dataflow": {
+      "autoscalingAlgorithm": "NONE",
+      "workerMachineType": "e2-highmem-4",
+      "numWorkers": 1,
+      "diskSizeGb": 256,
+      "workerDiskType": "compute.googleapis.com/projects//zones//diskTypes/pd-ssd"
+    }
+  },
+  "sources": [
+    {
+      "name": "BigQueryInputTransactions",
+      "module": "bigquery",
+      "parameters": {
+        "table": "myproject:mydataset.Transactions",
+        "fields": ["UserID", "ShopID", "Pay"]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "LocalNeo4j",
+      "module": "localNeo4j",
+      "inputs": [
+        "BigQueryInputTransactions"
+      ],
+      "parameters": {
+        "output": "gs://example-bucket/neo4j/transactions.zip",
+        "bufferSize": 1000,
+        "setupCyphers": [
+          "CREATE CONSTRAINT UserUniqueConstraint IF NOT EXISTS FOR (u:User) REQUIRE (u.UserID) IS UNIQUE",
+          "CREATE CONSTRAINT ShopUniqueConstraint IF NOT EXISTS FOR (s:Shop) REQUIRE (s.ShopID) IS UNIQUE"
+        ],
+        "nodes": [],
+        "relationships": [
+          {
+            "input": "BigQueryInputTransactions",
+            "type": "BUY",
+            "source": {
+              "label": "User",
+              "keyFields": ["UserID"]
+            },
+            "target": {
+              "label": "Shop",
+              "keyFields": ["ShopID"]
+            },
+            "propertyFields": ["Pay"]
+          }
+        ]
+      }
+    }
+  ]
+}

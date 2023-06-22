@@ -17,7 +17,7 @@ import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
-import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.transforms.*;
@@ -795,7 +795,8 @@ public class JdbcSource implements SourceModule {
 
                     try (final ResultSet resultSet = statement.executeQuery()) {
                         if(!resultSet.next()) {
-                            final Schema schema = ResultSetToRecordConverter.convertSchema(resultSet.getMetaData());
+                            final ResultSetMetaData metaData = resultSet.getMetaData();
+                            final Schema schema = ResultSetToRecordConverter.convertSchema(metaData);
                             final Schema.Field field = Optional.ofNullable(schema.getField(firstFieldName))
                                     .orElseGet(() -> schema.getField(firstFieldName.toLowerCase()));
                             if(field == null) {
@@ -803,8 +804,9 @@ public class JdbcSource implements SourceModule {
                             }
                             final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
                             final String logicalType = Optional.ofNullable(fieldSchema.getLogicalType()).map(ss -> ss.getName().toLowerCase()).orElse(null);
+                            final Boolean isCaseSensitive = Boolean.valueOf(field.getProp("isCaseSensitive"));
                             indexStartOffsets.add(JdbcUtil.IndexOffset.of(
-                                    field.name(), AvroSchemaUtil.unnestUnion(field.schema()).getType(), true, null, logicalType, true));
+                                    field.name(), AvroSchemaUtil.unnestUnion(field.schema()).getType(), true, null, logicalType, isCaseSensitive));
                             return JdbcUtil.IndexRange.of(
                                     JdbcUtil.IndexPosition.of(indexStartOffsets, true),
                                     JdbcUtil.IndexPosition.of(indexStartOffsets, false));

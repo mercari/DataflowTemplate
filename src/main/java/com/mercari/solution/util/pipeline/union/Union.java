@@ -24,11 +24,10 @@ public class Union {
 
     public static UnionWithKey withKey(final List<TupleTag<?>> tags,
                                        final List<DataType> dataTypes,
-                                       final List<SchemaUtil.StringGetter<Object>> stringGetters,
                                        final List<String> commonFields,
                                        final List<String> inputNames) {
 
-        final UnionWithKey unionWithKey = new UnionWithKey(tags, dataTypes, stringGetters, commonFields, inputNames);
+        final UnionWithKey unionWithKey = new UnionWithKey(tags, dataTypes, commonFields, inputNames);
         return unionWithKey;
     }
 
@@ -50,12 +49,7 @@ public class Union {
         @Override
         public PCollection<UnionValue> expand(PCollectionTuple inputs) {
 
-            final List<Coder<?>> coders = new ArrayList<>();
-            for(final TupleTag<?> tag : tags) {
-                coders.add(inputs.get(tag).getCoder());
-            }
-            final Coder<UnionValue> unionCoder = UnionCoder.of(coders);
-
+            final Coder<UnionValue> unionCoder = createUnionCoder(inputs, tags);
 
             PCollectionList<UnionValue> list = PCollectionList.empty(inputs.getPipeline());
             for(int index=0; index<tags.size(); index++) {
@@ -94,19 +88,16 @@ public class Union {
 
         private final List<TupleTag<?>> tags;
         private final List<DataType> dataTypes;
-        private final List<SchemaUtil.StringGetter<Object>> stringGetters;
         private final List<String> commonFields;
         private final List<String> inputNames;
 
         public UnionWithKey(final List<TupleTag<?>> tags,
                             final List<DataType> dataTypes,
-                            final List<SchemaUtil.StringGetter<Object>> stringGetters,
                             final List<String> commonFields,
                             final List<String> inputNames) {
 
             this.tags = tags;
             this.dataTypes = dataTypes;
-            this.stringGetters = stringGetters;
             this.commonFields = commonFields;
             this.inputNames = inputNames;
         }
@@ -114,19 +105,14 @@ public class Union {
         @Override
         public PCollection<KV<String, UnionValue>> expand(PCollectionTuple inputs) {
 
-            final List<Coder<?>> coders = new ArrayList<>();
-            for(final TupleTag<?> tag : tags) {
-                coders.add(inputs.get(tag).getCoder());
-            }
-            final UnionCoder unionCoder = UnionCoder.of(coders);
+            final Coder<UnionValue> unionCoder = createUnionCoder(inputs, tags);
             final KvCoder<String, UnionValue> outputCoder = KvCoder.of(StringUtf8Coder.of(), unionCoder);
-
 
             PCollectionList<KV<String, UnionValue>> list = PCollectionList.empty(inputs.getPipeline());
             for(int index=0; index<tags.size(); index++) {
                 final TupleTag<?> tag = tags.get(index);
                 final DataType dataType = dataTypes.get(index);
-                final SerializableFunction<Object, String> groupKeysFunction = SchemaUtil.createGroupKeysFunction(stringGetters.get(index), commonFields);
+                final SerializableFunction<UnionValue, String> groupKeysFunction = SchemaUtil.createGroupKeysFunction(UnionValue::getAsString, commonFields);
                 final PCollection<KV<String, UnionValue>> unified = inputs.get(tag)
                         .apply("Union" + inputNames.get(index), ParDo
                                 .of(new UnionDoFn<>(index, dataType, groupKeysFunction)))
@@ -141,9 +127,9 @@ public class Union {
 
             private final int index;
             private final DataType dataType;
-            private final SerializableFunction<Object, String> groupKeysFunction;
+            private final SerializableFunction<UnionValue, String> groupKeysFunction;
 
-            UnionDoFn(final int index, final DataType dataType, final SerializableFunction<Object, String> groupKeysFunction) {
+            UnionDoFn(final int index, final DataType dataType, final SerializableFunction<UnionValue, String> groupKeysFunction) {
                 this.index = index;
                 this.dataType = dataType;
                 this.groupKeysFunction = groupKeysFunction;
@@ -151,11 +137,20 @@ public class Union {
 
             @ProcessElement
             public void processElement(ProcessContext c) {
-                final String key = groupKeysFunction.apply(c.element());
-                c.output(KV.of(key, new UnionValue(index, dataType, c.timestamp().getMillis(), c.element())));
+                final UnionValue unionValue = new UnionValue(index, dataType, c.timestamp().getMillis(), c.element());
+                final String key = groupKeysFunction.apply(unionValue);
+                c.output(KV.of(key, unionValue));
             }
 
         }
+    }
+
+    public static UnionCoder createUnionCoder(final PCollectionTuple inputs, final List<TupleTag<?>> tags) {
+        final List<Coder<?>> coders = new ArrayList<>();
+        for(final TupleTag<?> tag : tags) {
+            coders.add(inputs.get(tag).getCoder());
+        }
+        return UnionCoder.of(coders);
     }
 
 }

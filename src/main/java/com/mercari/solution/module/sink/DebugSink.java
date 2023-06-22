@@ -65,11 +65,15 @@ public class DebugSink  implements SinkModule {
     public String getName() { return "debug"; }
 
     @Override
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), write(input, config, waits, sideInputs));
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("debug sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), write(input, config, waits));
     }
 
-    private FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
+    private FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waits) {
         final DebugSinkParameters parameters = new Gson().fromJson(config.getParameters(), DebugSinkParameters.class);
         setDefaultParameters(parameters);
 

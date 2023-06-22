@@ -1,0 +1,77 @@
+{
+  "settings": {
+    "dataflow": {
+      "autoscalingAlgorithm": "NONE",
+      "workerMachineType": "e2-highmem-4",
+      "numWorkers": 1,
+      "diskSizeGb": 256,
+      "workerDiskType": "compute.googleapis.com/projects//zones//diskTypes/pd-ssd"
+    }
+  },
+  "sources": [
+    {
+      "name": "BigQueryInputTransaction",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT UserID, ShopID, Pay, CreatedAt FROM `myproject:mydataset.Transactions`"
+      },
+      "timestampAttribute": "CreatedAt"
+    }
+  ],
+  "transforms": [
+    {
+      "name": "LocalNeo4j",
+      "module": "localNeo4j",
+      "inputs": ["BigQueryInputTransaction"],
+      "parameters": {
+        "index": {
+          "setupCyphers": [
+            "CREATE CONSTRAINT UserUniqueConst FOR (u:User) REQUIRE (u.UserID) IS UNIQUE",
+            "CREATE CONSTRAINT ShopUniqueConst FOR (s:Shop) REQUIRE (s.ShopID) IS UNIQUE"
+          ],
+          "nodes": [],
+          "relationships": [
+            {
+              "input": "BigQueryInputTransaction",
+              "type": "BUY",
+              "source": {
+                "label": "User",
+                "keyFields": ["UserID"]
+              },
+              "target": {
+                "label": "Shop",
+                "keyFields": ["ShopID"]
+              },
+              "propertyFields": ["Pay"]
+            }
+          ]
+        },
+        "queries": [
+          {
+            "name": "SimilarUserCount",
+            "input": "BigQueryInputTransaction",
+            "cypher": "MATCH (u1:User {UserID: ${UserID}})-[r:BUY]->(s:Shop)<-[:BUY]-(u2:User) WITH u1.UserID AS UserID, u2.UserID AS TUserID, COUNT(DISTINCT s.ShopID) AS ShopCount WHERE ShopCount > 4 RETURN UserID, COUNT(DISTINCT TUserID) AS SimilarUserCount",
+            "schema": {
+              "fields": [
+                { "name": "UserID", "type": "long" },
+                { "name": "SimilarUserCount", "type": "long" }
+              ]
+            }
+          }
+        ],
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "BigQueryOutput",
+      "module": "bigquery",
+      "input": "LocalNeo4j",
+      "parameters": {
+        "table": "myproject:mydataset.results",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    }
+  ]
+}

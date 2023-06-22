@@ -6,6 +6,7 @@ import org.apache.avro.Schema;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
 
 public class SinkConfig implements Serializable {
@@ -13,8 +14,8 @@ public class SinkConfig implements Serializable {
     private String name;
     private String module;
     private String input;
+    private List<String> inputs;
     private List<String> wait;
-    private List<String> sideInputs;
     private String outputAvroSchema;
     private JsonObject parameters;
     private Boolean skip;
@@ -53,12 +54,20 @@ public class SinkConfig implements Serializable {
         this.wait = wait;
     }
 
-    public List<String> getSideInputs() {
-        return sideInputs;
+    public List<String> getInputs() {
+        if(inputs != null && inputs.size() > 0) {
+            return inputs;
+        } else if(input != null) {
+            final List<String> list = new ArrayList<>();
+            list.add(input);
+            return list;
+        } else {
+            throw new IllegalArgumentException("Sink module: " + name + " has not input");
+        }
     }
 
-    public void setSideInputs(List<String> sideInputs) {
-        this.sideInputs = sideInputs;
+    public void setInputs(List<String> inputs) {
+        this.inputs = inputs;
     }
 
     public String getOutputAvroSchema() {

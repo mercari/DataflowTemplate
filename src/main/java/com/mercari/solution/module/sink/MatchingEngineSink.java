@@ -189,7 +189,13 @@ public class MatchingEngineSink implements SinkModule {
         return "matchingEngine";
     }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("matchingEngine sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+
         final MatchingEngineSinkParameters parameters = new Gson().fromJson(config.getParameters(), MatchingEngineSinkParameters.class);
         parameters.validate();
         final String defaultProject = OptionUtil.getProject(input.getCollection());

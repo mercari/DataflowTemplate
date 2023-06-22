@@ -409,18 +409,23 @@ public class SpannerSink implements SinkModule {
 
     public String getName() { return "spanner"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), write(input, config, waits, sideInputs));
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("spanner sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null, null);
+        return write(collection, config, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final SpannerSinkParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSinkParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+            throw new IllegalArgumentException("spanner sink parameter must not be empty!");
         }
         parameters.setDefaults(collection.getCollection());
         parameters.validate(collection.getCollection(), collection.getDataType(), collection.getIsTuple());
@@ -428,17 +433,16 @@ public class SpannerSink implements SinkModule {
         if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
             return writeMutationGroup((FCollection<MutationGroup>) collection, config, parameters);
         } else if(collection.getIsTuple()) {
-            return writeMulti(collection, config, parameters, waits, sideInputs);
+            return writeMulti(collection, config, parameters, waits);
         } else {
-            return writeSingle(collection, config, parameters, waits, sideInputs);
+            return writeSingle(collection, config, parameters, waits);
         }
     }
 
     public static FCollection<?> writeSingle(final FCollection<?> collection,
                                              final SinkConfig config,
                                              final SpannerSinkParameters parameters,
-                                             final List<FCollection<?>> waits,
-                                             final List<FCollection<?>> sideInputs) {
+                                             final List<FCollection<?>> waits) {
 
         try {
             config.outputAvroSchema(collection.getAvroSchema());
@@ -519,8 +523,7 @@ public class SpannerSink implements SinkModule {
     public static FCollection<?> writeMulti(final FCollection<?> collection,
                                             final SinkConfig config,
                                             final SpannerSinkParameters parameters,
-                                            final List<FCollection<?>> waits,
-                                            final List<FCollection<?>> sideInputs) {
+                                            final List<FCollection<?>> waits) {
 
         final SpannerWriteMulti write = new SpannerWriteMulti(collection, parameters, waits);
         final PCollection<?> output = collection.getTuple().apply(config.getName(), write);
@@ -1122,11 +1125,72 @@ public class SpannerSink implements SinkModule {
                 }
                 case normal:
                 default: {
-                    final SpannerWriteResult writeResult = input
-                            .apply("WriteMutationGroup", write.grouped());
+                    final SpannerWriteResult writeResult;
+                    if(parameters.getCommitTimestampFields() != null && parameters.getCommitTimestampFields().size() > 0)  {
+                        writeResult = input
+                                .apply("WithCommitTimestampFields", ParDo.of(new WithCommitTimestampDoFn(parameters.getCommitTimestampFields())))
+                                .apply("WriteMutationGroup", write.grouped());
+                    } else {
+                        writeResult = input
+                                .apply("WriteMutationGroup", write.grouped());
+                    }
                     return writeResult.getOutput();
                 }
             }
+        }
+
+        private class WithCommitTimestampDoFn extends DoFn<MutationGroup, MutationGroup> {
+
+            private final List<String> commitTimestampFields;
+
+            public WithCommitTimestampDoFn(final List<String> commitTimestampFields) {
+                this.commitTimestampFields = commitTimestampFields;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final MutationGroup input = c.element();
+                if(Mutation.Op.DELETE.equals(input.primary().getOperation())) {
+                    c.output(input);
+                    return;
+                }
+                final Mutation withCommitTimestampPrimary = addCommitTimestampFields(input.primary());
+                final List<Mutation> withCommitTimestampAttachedList = new ArrayList<>();
+                for(final Mutation attached : input.attached()) {
+                    final Mutation withCommitTimestampAttached = addCommitTimestampFields(attached);
+                    withCommitTimestampAttachedList.add(withCommitTimestampAttached);
+                }
+                final MutationGroup output = MutationGroup.create(withCommitTimestampPrimary, withCommitTimestampAttachedList);
+                c.output(output);
+            }
+
+            private Mutation addCommitTimestampFields(final Mutation input) {
+                final Mutation.WriteBuilder builder;
+                switch (input.getOperation()) {
+                    case UPDATE:
+                        builder = Mutation.newUpdateBuilder(input.getTable());
+                        break;
+                    case INSERT:
+                        builder = Mutation.newInsertBuilder(input.getTable());
+                        break;
+                    case INSERT_OR_UPDATE:
+                        builder = Mutation.newInsertOrUpdateBuilder(input.getTable());
+                        break;
+                    case REPLACE:
+                        builder = Mutation.newReplaceBuilder(input.getTable());
+                        break;
+                    case DELETE:
+                    default:
+                        return input;
+                }
+                for(final Map.Entry<String, Value> entry : input.asMap().entrySet()) {
+                    builder.set(entry.getKey()).to(entry.getValue());
+                }
+                for(final String commitTimestampField : commitTimestampFields) {
+                    builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);                }
+                return builder.build();
+            }
+
         }
 
     }

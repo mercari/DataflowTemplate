@@ -118,20 +118,20 @@ public class Avg implements Aggregator {
         final Double prevWeight = Optional.ofNullable(accumulator.getDouble(weightKeyName)).orElse(0D);
         final Double inputValue;
         if(field != null) {
-            inputValue = input.getAsDouble(field);
+            inputValue = input.getDouble(field);
         } else {
             inputValue = Aggregator.eval(this.exp, variables, input);
         }
         final Double inputWeight;
         if(weightField != null) {
-            inputWeight = input.getAsDouble(weightField);
+            inputWeight = input.getDouble(weightField);
         } else if(weightExpression != null) {
             inputWeight = Aggregator.eval(this.weightExp, weightVariables, input);
         } else {
             inputWeight = 1D;
         }
 
-        final Double avgNext = avg(prevAvg, prevWeight, inputValue, inputWeight);
+        final Double avgNext = Aggregator.avg(prevAvg, prevWeight, inputValue, inputWeight);
         accumulator.putDouble(name, avgNext);
         if(inputValue != null) {
             accumulator.putDouble(weightKeyName, prevWeight + inputWeight);
@@ -147,7 +147,7 @@ public class Avg implements Aggregator {
         final Double baseWeight = base.getDouble(weightKeyName);
         final Double inputAvg = input.getDouble(name);
         final Double inputWeight = input.getDouble(weightKeyName);
-        final Double avg = avg(baseAvg, baseWeight, inputAvg, inputWeight);
+        final Double avg = Aggregator.avg(baseAvg, baseWeight, inputAvg, inputWeight);
         final Double weight = Optional.ofNullable(baseWeight).orElse(0D) + Optional.ofNullable(inputWeight).orElse(0D);
         base.putDouble(name, avg);
         base.putDouble(weightKeyName, weight);
@@ -162,23 +162,6 @@ public class Avg implements Aggregator {
         final Double avg = accumulator.getDouble(name);
         values.put(name, avg);
         return values;
-    }
-
-    private Double avg(final Double avg1, final Double count1, final Double avg2, final Double count2) {
-        if(avg1 == null) {
-            return avg2;
-        } else if(avg2 == null) {
-            return avg1;
-        }
-
-        if(count1 == null || count1 == 0) {
-            return avg2;
-        } else if(count2 == null || count2 == 0) {
-            return avg1;
-        }
-
-        return (count1 * avg1 + count2 * avg2) / (count1 + count2);
-
     }
 
 }

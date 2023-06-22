@@ -20,6 +20,7 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.Row;
 import org.apache.lucene.analysis.Analyzer;
@@ -349,6 +350,7 @@ public class TokenizeTransform implements TransformModule {
         @Override
         public PCollection<T> expand(final PCollection<T> input) {
             return input
+                    .apply("Reshuffle", Reshuffle.viaRandomKey())
                     .apply("Tokenize", ParDo.of(new TokenizeDoFn(
                             parameters.getFields(), stringGetter, valuesSetter, valueCreator, schemaConverter,
                             inputSchema, inputFieldSchemas)));

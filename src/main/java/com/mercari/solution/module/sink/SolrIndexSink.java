@@ -8,21 +8,15 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.module.sink.fileio.SolrSink;
-import com.mercari.solution.util.TemplateFileNaming;
 import com.mercari.solution.util.XmlUtil;
+import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.domain.search.ZipFileUtil;
 import com.mercari.solution.util.schema.*;
-import com.mercari.solution.util.converter.EntityToSolrDocumentConverter;
-import com.mercari.solution.util.converter.RecordToSolrDocumentConverter;
-import com.mercari.solution.util.converter.RowToSolrDocumentConverter;
-import com.mercari.solution.util.converter.StructToSolrDocumentConverter;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.WriteFilesResult;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -112,7 +106,7 @@ public class SolrIndexSink implements SinkModule {
         public void validate() {
             final List<String> errorMessages = new ArrayList<>();
             if(this.coreName == null) {
-                errorMessages.add("Solrindex source module requires `coreName` parameter.");
+                errorMessages.add("solrIndex sink module requires `coreName` parameter.");
             }
             if(this.solrconfig != null) {
                 errorMessages.addAll(this.solrconfig.validate());
@@ -187,23 +181,27 @@ public class SolrIndexSink implements SinkModule {
         }
     }
 
-
+    @Override
     public String getName() { return "solrindex"; }
 
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), SolrIndexSink.write(input, config, waits, sideInputs));
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("solrindex sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), SolrIndexSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(
             final FCollection<?> collection,
             final SinkConfig config,
-            final List<FCollection<?>> waits,
-            final List<FCollection<?>> sideInputs) {
+            final List<FCollection<?>> waits) {
 
         final SolrIndexSinkParameters parameters = new Gson().fromJson(config.getParameters(), SolrIndexSinkParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("SolrIndexSink parameters must not be empty!");
+            throw new IllegalArgumentException("solrindex sink parameters must not be empty!");
         }
         parameters.setDefaults();
 
@@ -275,7 +273,7 @@ public class SolrIndexSink implements SinkModule {
                 }
                 input = inputs.get(collection.getName())
                         .apply("Wait", Wait.on(wait))
-                        .setCoder((Coder)(inputs.get(collection.getName()).getCoder()));
+                        .setCoder(inputs.get(collection.getName()).getCoder());
             }
 
             final String name = "WriteIndexFile";
@@ -283,75 +281,65 @@ public class SolrIndexSink implements SinkModule {
             WriteFilesResult writeResult;
             switch (collection.getDataType()) {
                 case AVRO: {
-                    final FileIO.Write<String, GenericRecord> write = createWrite(
-                            parameters, SchemaUtil.createGroupKeysFunction(AvroSchemaUtil::getAsString, groupFields));
+                    final FileIO.Write<String, GenericRecord> write = ZipFileUtil.createSingleFileWrite(
+                            parameters.getOutput(),
+                            parameters.getGroupFields(),
+                            parameters.getTempDirectory(),
+                            SchemaUtil.createGroupKeysFunction(AvroSchemaUtil::getAsString, groupFields));
                     writeResult = ((PCollection<GenericRecord>)input)
                             .apply(name, write.via(SolrSink
                                     .of(parameters.getCoreName(), schemaXml, solrconfigXml, customConfigFilePaths, RecordToSolrDocumentConverter::convert)));
                     break;
                 }
                 case ROW: {
-                    final FileIO.Write<String, Row> write = createWrite(
-                            parameters, SchemaUtil.createGroupKeysFunction(RowSchemaUtil::getAsString, groupFields));
+                    final FileIO.Write<String, Row> write = ZipFileUtil.createSingleFileWrite(
+                            parameters.getOutput(),
+                            parameters.getGroupFields(),
+                            parameters.getTempDirectory(),
+                            SchemaUtil.createGroupKeysFunction(RowSchemaUtil::getAsString, groupFields));
                     writeResult = ((PCollection<Row>)input)
                             .apply(name, write.via(SolrSink
                                     .of(parameters.getCoreName(), schemaXml, solrconfigXml, customConfigFilePaths, RowToSolrDocumentConverter::convert)));
                     break;
                 }
                 case STRUCT: {
-                    final FileIO.Write<String, Struct> write = createWrite(
-                            parameters, SchemaUtil.createGroupKeysFunction(StructSchemaUtil::getAsString, groupFields));
+                    final FileIO.Write<String, Struct> write = ZipFileUtil.createSingleFileWrite(
+                            parameters.getOutput(),
+                            parameters.getGroupFields(),
+                            parameters.getTempDirectory(),
+                            SchemaUtil.createGroupKeysFunction(StructSchemaUtil::getAsString, groupFields));
                     writeResult = ((PCollection<Struct>)input)
                             .apply(name, write.via(SolrSink
                                     .of(parameters.getCoreName(), schemaXml, solrconfigXml, customConfigFilePaths, StructToSolrDocumentConverter::convert)));
                     break;
                 }
+                case DOCUMENT: {
+                    final FileIO.Write<String, com.google.firestore.v1.Document> write = ZipFileUtil.createSingleFileWrite(
+                            parameters.getOutput(),
+                            parameters.getGroupFields(),
+                            parameters.getTempDirectory(),
+                            SchemaUtil.createGroupKeysFunction(DocumentSchemaUtil::getAsString, groupFields));
+                    writeResult = ((PCollection<com.google.firestore.v1.Document>)input)
+                            .apply(name, write.via(SolrSink
+                                    .of(parameters.getCoreName(), schemaXml, solrconfigXml, customConfigFilePaths, DocumentToSolrDocumentConverter::convert)));
+                    break;
+                }
                 case ENTITY: {
-                    final FileIO.Write<String, Entity> write = createWrite(
-                            parameters, SchemaUtil.createGroupKeysFunction(EntitySchemaUtil::getAsString, groupFields));
+                    final FileIO.Write<String, Entity> write = ZipFileUtil.createSingleFileWrite(
+                            parameters.getOutput(),
+                            parameters.getGroupFields(),
+                            parameters.getTempDirectory(),
+                            SchemaUtil.createGroupKeysFunction(EntitySchemaUtil::getAsString, groupFields));
                     writeResult = ((PCollection<Entity>)input)
                             .apply(name, write.via(SolrSink
                                     .of(parameters.getCoreName(), schemaXml, solrconfigXml, customConfigFilePaths, EntityToSolrDocumentConverter::convert)));
                     break;
                 }
                 default:
-                    throw new IllegalArgumentException("Solr not supported input type: " + collection.getDataType());
+                    throw new IllegalArgumentException("solrindex sink module does not support input type: " + collection.getDataType());
             }
 
             return writeResult.getPerDestinationOutputFilenames();
-        }
-
-        private <InputT> FileIO.Write<String, InputT> createWrite(
-                final SolrIndexSinkParameters parameters,
-                final SerializableFunction<InputT, String> destinationFunction) {
-
-            final String output = parameters.getOutput();
-
-            FileIO.Write<String, InputT> write;
-            if(parameters.getGroupFields().size() > 0) {
-                write = FileIO.<String, InputT>writeDynamic()
-                        .to(output)
-                        .by(d -> Optional.ofNullable(destinationFunction.apply(d)).orElse(""))
-                        .withDestinationCoder(StringUtf8Coder.of());
-            } else {
-                final String outdir = StorageUtil.removeDirSuffix(output);
-                write = FileIO.<String, InputT>writeDynamic()
-                        .to(outdir)
-                        .by(d -> "")
-                        .withDestinationCoder(StringUtf8Coder.of());
-            }
-
-            final String filename = StorageUtil.addFilePrefix(output, "");
-            write = write
-                    .withNumShards(1)
-                    .withNoSpilling()
-                    .withNaming(key -> TemplateFileNaming.of(filename, key));
-
-            if(parameters.getTempDirectory() != null) {
-                write = write.withTempDirectory(parameters.getTempDirectory());
-            }
-
-            return write;
         }
 
     }

@@ -237,7 +237,12 @@ public class CopyFileSink implements SinkModule {
         }
     }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("copyFile sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
 
         final CopyFileSinkParameters parameters = new Gson().fromJson(config.getParameters(), CopyFileSinkParameters.class);
         validateParameters(parameters);

@@ -6,6 +6,7 @@ import com.google.datastore.v1.Value;
 import com.google.protobuf.Timestamp;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,12 +15,18 @@ import java.util.stream.Collectors;
 public class EntityToMapConverter {
 
     public static Map<String, Object> convert(final Entity entity) {
+        return convertWithFields(entity, null);
+    }
+
+    public static Map<String, Object> convertWithFields(final Entity entity, final Collection<String> fields) {
         final Map<String, Object> map = new HashMap<>();
         if(entity == null) {
             return map;
         }
         for(final Map.Entry<String, Value> entry : entity.getPropertiesMap().entrySet()) {
-            map.put(entry.getKey(), getValue(entry.getValue()));
+            if(fields == null || fields.contains(entry.getKey())) {
+                map.put(entry.getKey(), getValue(entry.getValue()));
+            }
         }
         return map;
     }

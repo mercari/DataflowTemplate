@@ -14,12 +14,18 @@ import java.util.stream.Collectors;
 public class RecordToMapConverter {
 
     public static Map<String, Object> convert(final GenericRecord record) {
+        return convertWithFields(record, null);
+    }
+
+    public static Map<String, Object> convertWithFields(final GenericRecord record, final Collection<String> fields) {
         final Map<String, Object> map = new HashMap<>();
         if(record == null) {
             return map;
         }
         for(final Schema.Field field : record.getSchema().getFields()) {
-            map.put(field.name(), getValue(field.schema(), record.get(field.name())));
+            if(fields == null || fields.contains(field.name())) {
+                map.put(field.name(), getValue(field.schema(), record.get(field.name())));
+            }
         }
         return map;
     }

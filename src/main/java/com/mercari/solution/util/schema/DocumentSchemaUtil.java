@@ -1,5 +1,6 @@
 package com.mercari.solution.util.schema;
 
+import com.google.cloud.Date;
 import com.google.firestore.v1.MapValue;
 import com.google.firestore.v1.Value;
 import com.google.firestore.v1.Document;
@@ -11,6 +12,7 @@ import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.schemas.Schema;
 import org.joda.time.Instant;
 
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -186,8 +188,86 @@ public class DocumentSchemaUtil {
         }
     }
 
-    public static Object getAsPrimitive(Object row, Schema.FieldType fieldType, String field) {
-        return null;
+    public static Object getAsPrimitive(Object object, Schema.FieldType fieldType, String field) {
+        if(object == null) {
+            return null;
+        }
+        if(!(object instanceof Document)) {
+            return null;
+        }
+        final Document document = (Document) object;
+        final Value value = document.getFieldsOrDefault(field, Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+        switch (fieldType.getTypeName()) {
+            case INT32:
+                return Long.valueOf(value.getIntegerValue()).intValue();
+            case INT64:
+                return value.getIntegerValue();
+            case FLOAT:
+                return Double.valueOf(value.getDoubleValue()).floatValue();
+            case DOUBLE:
+                return value.getDoubleValue();
+            case BOOLEAN:
+                return value.getBooleanValue();
+            case STRING:
+                return value.getStringValue();
+            case DATETIME:
+                return DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+            case LOGICAL_TYPE: {
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE:
+                            return Long.valueOf(DateTimeUtil.toLocalDate(value.getStringValue()).toEpochDay()).intValue();
+                        case INTEGER_VALUE:
+                            return Long.valueOf(value.getIntegerValue()).intValue();
+                        case NULL_VALUE:
+                        case VALUETYPE_NOT_SET:
+                            return null;
+                        default:
+                            throw new IllegalStateException();
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    switch (value.getValueTypeCase()) {
+                        case STRING_VALUE:
+                            return Long.valueOf(DateTimeUtil.toLocalTime(value.getStringValue()).toSecondOfDay()).intValue();
+                        case INTEGER_VALUE:
+                            return Long.valueOf(value.getIntegerValue()).intValue();
+                        case NULL_VALUE:
+                        case VALUETYPE_NOT_SET:
+                            return null;
+                        default:
+                            throw new IllegalStateException();
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return value.getStringValue();
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT32:
+                    case INT64:
+                    case FLOAT:
+                    case DOUBLE:
+                    case BOOLEAN:
+                    case STRING:
+                    case DATETIME:
+                    case LOGICAL_TYPE:
+                    case ITERABLE:
+                    case ARRAY:
+                    case ROW:
+                    case BYTES:
+                    case MAP:
+                    case BYTE:
+                    case DECIMAL:
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
     }
 
     public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
@@ -261,6 +341,20 @@ public class DocumentSchemaUtil {
                 throw new IllegalArgumentException("Not supported type: " + fieldType + ", value: " + object);
             }
         }
+    }
+
+    public static Date convertDate(final Value value) {
+        if(Value.ValueTypeCase.STRING_VALUE.equals(value.getValueTypeCase())) {
+            final String datestr = value.getStringValue();
+            final LocalDate localDate = DateTimeUtil.toLocalDate(datestr);
+            return Date.fromYearMonthDay(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
+        } else if(Value.ValueTypeCase.INTEGER_VALUE.equals(value.getValueTypeCase())) {
+            final LocalDate localDate = LocalDate.ofEpochDay(value.getIntegerValue());
+            return Date.fromYearMonthDay(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
+        } else {
+            throw new IllegalArgumentException();
+        }
+
     }
 
 }

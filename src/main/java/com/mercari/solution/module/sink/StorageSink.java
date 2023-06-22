@@ -20,8 +20,12 @@ import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.sdk.coders.*;
-import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.DefaultCoder;
+import org.apache.beam.sdk.coders.NullableCoder;
+import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
+import org.apache.beam.sdk.extensions.avro.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.WriteFilesResult;
@@ -196,15 +200,20 @@ public class StorageSink implements SinkModule {
 
     public String getName() { return "storage"; }
 
-    public Map<String, FCollection<?>> expand(FCollection<?> input, SinkConfig config, List<FCollection<?>> waits, List<FCollection<?>> sideInputs) {
-        return Collections.singletonMap(config.getName(), StorageSink.write(input, config, waits, sideInputs));
+    @Override
+    public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
+        if(inputs == null || inputs.size() != 1) {
+            throw new IllegalArgumentException("storage sink module requires input parameter");
+        }
+        final FCollection<?> input = inputs.get(0);
+        return Collections.singletonMap(config.getName(), StorageSink.write(input, config, waits));
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null, null);
+        return write(collection, config, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits, final List<FCollection<?>> sideInputs) {
+    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final StorageSinkParameters parameters = new Gson().fromJson(config.getParameters(), StorageSinkParameters.class);
         final StorageWrite write = new StorageWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);
@@ -245,7 +254,7 @@ public class StorageSink implements SinkModule {
                         .collect(Collectors.toList());
                 input = inputP
                         .apply("Wait", Wait.on(wait))
-                        .setCoder((Coder)inputP.getCoder());
+                        .setCoder((Coder) inputP.getCoder());
             }
 
             final String format = this.parameters.getFormat();
@@ -364,9 +373,9 @@ public class StorageSink implements SinkModule {
                             parameters, e -> e.get(destinationField).toString());
                     final org.apache.avro.Schema avroSchema = transform.getOutputCollection().getAvroSchema();
 
-                    if ("avro".equals(format.trim().toLowerCase())) {
+                    if ("avro".equalsIgnoreCase(format.trim())) {
                         writeResult = records.apply("WriteAvro", write.via(AvroIO.sink(avroSchema)));
-                    } else if("parquet".equals(format.trim().toLowerCase())) {
+                    } else if("parquet".equalsIgnoreCase(format.trim())) {
                         writeResult = records.apply("WriteParquet", write.via(ParquetIO.sink(avroSchema)));
                     } else {
                         throw new IllegalArgumentException("Not supported format: " + format);

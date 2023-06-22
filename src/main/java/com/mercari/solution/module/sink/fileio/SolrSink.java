@@ -2,6 +2,7 @@ package com.mercari.solution.module.sink.fileio;
 
 import com.google.api.services.storage.Storage;
 import com.mercari.solution.util.domain.search.SolrUtil;
+import com.mercari.solution.util.domain.search.ZipFileUtil;
 import com.mercari.solution.util.schema.SolrSchemaUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.sdk.io.FileIO;
@@ -23,11 +24,10 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
 
+    private static final String SOLR_HOME = "/solr/";
     private static final String SOLR_XML_DEFAULT = "<solr></solr>";
 
     private static final Logger LOG = LoggerFactory.getLogger(SolrSink.class);
@@ -72,22 +72,22 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
     @Override
     public void open(WritableByteChannel channel) throws IOException {
 
-        final Path solrPath = Paths.get("/solr");
+        final Path solrPath = Paths.get(SOLR_HOME);
         solrPath.toFile().mkdir();
 
         // Write solr.xml
-        try (final FileWriter filewriter = new FileWriter("/solr/solr.xml")) {
+        try (final FileWriter filewriter = new FileWriter(SOLR_HOME + "solr.xml")) {
             filewriter.write(SOLR_XML_DEFAULT);
         }
 
         final CoreContainer container = CoreContainer.createAndLoad(solrPath);
-        final Path corePath = Paths.get("/solr/" + coreName);
-        final Path confPath = Paths.get("/solr/" + coreName + "/conf");
+        final Path corePath = Paths.get(SOLR_HOME + coreName);
+        final Path confPath = Paths.get(SOLR_HOME + coreName + "/conf");
         corePath.toFile().mkdir();
         confPath.toFile().mkdir();
 
         // Write solrconfig.xml
-        try (final FileWriter filewriter = new FileWriter("/solr/" + this.coreName + "/conf/solrconfig.xml")) {
+        try (final FileWriter filewriter = new FileWriter(SOLR_HOME + this.coreName + "/conf/solrconfig.xml")) {
             filewriter.write(solrConfigXml);
         }
 
@@ -98,7 +98,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         } else {
             schemaString = this.solrSchema;
         }
-        try (final FileWriter filewriter = new FileWriter("/solr/" + this.coreName + "/conf/schema.xml")) {
+        try (final FileWriter filewriter = new FileWriter(SOLR_HOME + this.coreName + "/conf/schema.xml")) {
             filewriter.write(schemaString);
         }
 
@@ -108,7 +108,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
             for(final KV<String,String> confFilePath : customConfFiles) {
                 final String fileName = confFilePath.getKey();
                 final String fileContent = StorageUtil.readString(storage, confFilePath.getValue());
-                try (final FileWriter filewriter = new FileWriter("/solr/" + this.coreName + "/conf/" + fileName)) {
+                try (final FileWriter filewriter = new FileWriter(SOLR_HOME + this.coreName + "/conf/" + fileName)) {
                     filewriter.write(fileContent);
                 }
             }
@@ -117,9 +117,8 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         this.fieldNames = SolrSchemaUtil.getFieldNames(schemaString);
 
         final boolean create;
-        if (container.getAllCoreNames().size() > 0) {
-            // Index dir must be one you specified.
-            this.core = container.getCores().iterator().next();
+        if (container.getAllCoreNames().contains(coreName)) {
+            this.core = container.getCore(coreName);
             create = false;
         } else {
             // For retrying
@@ -127,7 +126,7 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
             create = true;
         }
 
-        this.writer = SolrUtil.createWriter(core, "Shops", create);
+        this.writer = SolrUtil.createWriter(core, coreName, create);
         this.outputStream = Channels.newOutputStream(channel);
     }
 
@@ -149,33 +148,14 @@ public class SolrSink<ElementT> implements FileIO.Sink<ElementT> {
         this.writer.commit();
         this.writer.forceMerge(1, true);
         this.writer.close();
-
-        final Path indexDirPath = Paths.get("/solr/" + this.coreName);
         final long millisec = Instant.now().toEpochMilli() - start;
-        LOG.info(String.format("Core: %s Finished to create index at [%s], took %d ms.", this.coreName, indexDirPath.toFile().getAbsolutePath(), millisec));
-        try (final ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(outputStream))) {
-            writeFile(zos, indexDirPath.toFile());
-            zos.flush();
-        }
-        LOG.info("Finished to upload documents!");
-    }
 
-    private void writeFile(final ZipOutputStream zos, final File file) throws IOException {
-        if (file.isDirectory()) {
-            for (final File childFile : file.listFiles()) {
-                writeFile(zos, childFile);
-            }
-            return;
-        }
-        zos.putNextEntry(new ZipEntry(file.getAbsolutePath().replaceFirst("/solr/", "")));
-        try (final InputStream is = new BufferedInputStream(new FileInputStream(file))) {
-            LOG.info(file.getAbsolutePath() + " ");
-            int len;
-            byte[] buf = new byte[1024 * 1024];
-            while ((len = is.read(buf)) != -1) {
-                zos.write(buf, 0, len);
-            }
-        }
+        final String indexDir = SOLR_HOME + this.coreName;
+        final Path indexDirPath = Paths.get(indexDir);
+        LOG.info(String.format("Core: %s Finished to create index at [%s], took %d ms.", this.coreName, indexDirPath.toFile().getAbsolutePath(), millisec));
+
+        ZipFileUtil.writeZipFile(outputStream, SOLR_HOME, indexDir);
+        LOG.info("Finished to upload documents!");
     }
 
     public interface RecordFormatter<ElementT> extends Serializable {

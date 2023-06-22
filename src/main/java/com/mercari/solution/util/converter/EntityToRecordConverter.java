@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -109,8 +110,13 @@ public class EntityToRecordConverter {
     }
 
     private static Object convertEntityValue(final Value value, final Schema schema, final int depth) {
-        if (value == null || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
+        if (value == null
+                || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
+
+            if(Schema.Type.ARRAY.equals(AvroSchemaUtil.unnestUnion(schema).getType())) {
+                return new ArrayList<>();
+            }
             return null;
         }
 

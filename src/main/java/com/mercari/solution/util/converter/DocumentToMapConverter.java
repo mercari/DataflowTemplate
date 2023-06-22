@@ -5,6 +5,7 @@ import com.google.firestore.v1.Document;
 import com.google.protobuf.Timestamp;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,15 +20,29 @@ public class DocumentToMapConverter {
     }
 
     public static Map<String, Object> convert(final Map<String, Value> values) {
+        return convertWithFields(values, null);
+    }
+
+    public static Map<String, Object> convertWithFields(final Document document, final Collection<String> fields) {
+        if(document == null) {
+            return new HashMap<>();
+        }
+        return convertWithFields(document.getFieldsMap(), fields);
+    }
+
+    public static Map<String, Object> convertWithFields(final Map<String, Value> values, final Collection<String> fields) {
         final Map<String, Object> map = new HashMap<>();
         if(values == null) {
             return map;
         }
         for(final Map.Entry<String, Value> entry : values.entrySet()) {
-            map.put(entry.getKey(), getValue(entry.getValue()));
+            if(fields == null || fields.contains(entry.getKey())) {
+                map.put(entry.getKey(), getValue(entry.getValue()));
+            }
         }
         return map;
     }
+
 
     private static Object getValue(final Value value) {
         if(value == null) {

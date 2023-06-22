@@ -32,6 +32,7 @@ public interface Aggregator extends Serializable {
         sum,
         avg,
         std,
+        regression,
         any
     }
 
@@ -126,6 +127,9 @@ public interface Aggregator extends Serializable {
             case avg:
                 return Avg.of(name, field, expression, condition, ignore, params);
             case std:
+                return Std.of(name, field, expression, condition, ignore, params);
+            case regression:
+                return SimpleRegression.of(name, field, expression, condition, ignore, separator, params);
             case any:
             default:
                 throw new IllegalArgumentException("Not supported op: " + op);
@@ -146,7 +150,7 @@ public interface Aggregator extends Serializable {
     static Double eval(final Expression expression, final Set<String> variables, final UnionValue unionValue) {
         final Map<String, Double> values = new HashMap<>();
         for(final String variable : variables) {
-            final Double value = unionValue.getAsDouble(variable);
+            final Double value = unionValue.getDouble(variable);
             values.put(variable, Optional.ofNullable(value).orElse(Double.NaN));
         }
         double expResult = expression.setVariables(values).evaluate();
@@ -223,6 +227,23 @@ public interface Aggregator extends Serializable {
         }
 
         throw new IllegalArgumentException("Sum not supported type object: " + v1);
+    }
+
+    static Double avg(final Double avg1, final Double weight1, final Double avg2, final Double weight2) {
+        if(avg1 == null) {
+            return avg2;
+        } else if(avg2 == null) {
+            return avg1;
+        }
+
+        if(weight1 == null || weight1 == 0) {
+            return avg2;
+        } else if(weight2 == null || weight2 == 0) {
+            return avg1;
+        }
+
+        return (weight1 * avg1 + weight2 * avg2) / (weight1 + weight2);
+
     }
 
     static String getFieldOptionAccumulatorKey(final Schema.Field field) {

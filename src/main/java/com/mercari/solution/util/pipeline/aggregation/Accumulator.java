@@ -1,7 +1,7 @@
 package com.mercari.solution.util.pipeline.aggregation;
 
 import com.mercari.solution.util.schema.RowSchemaUtil;
-import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.schemas.Schema;
 
