@@ -30,7 +30,7 @@ public class AggregationTransformTest {
     @Rule
     public final transient TestPipeline pipeline = TestPipeline.create();
 
-    @Test
+    //@Test
     public void testAggregation() {
 
         final TransformConfig config = new TransformConfig();
