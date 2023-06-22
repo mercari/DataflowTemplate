@@ -25,7 +25,7 @@ import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
-import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.extensions.avro.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.WriteFilesResult;
@@ -373,9 +373,9 @@ public class StorageSink implements SinkModule {
                             parameters, e -> e.get(destinationField).toString());
                     final org.apache.avro.Schema avroSchema = transform.getOutputCollection().getAvroSchema();
 
-                    if ("avro".equals(format.trim().toLowerCase())) {
+                    if ("avro".equalsIgnoreCase(format.trim())) {
                         writeResult = records.apply("WriteAvro", write.via(AvroIO.sink(avroSchema)));
-                    } else if("parquet".equals(format.trim().toLowerCase())) {
+                    } else if("parquet".equalsIgnoreCase(format.trim())) {
                         writeResult = records.apply("WriteParquet", write.via(ParquetIO.sink(avroSchema)));
                     } else {
                         throw new IllegalArgumentException("Not supported format: " + format);

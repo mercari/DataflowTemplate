@@ -49,12 +49,7 @@ public class Union {
         @Override
         public PCollection<UnionValue> expand(PCollectionTuple inputs) {
 
-            final List<Coder<?>> coders = new ArrayList<>();
-            for(final TupleTag<?> tag : tags) {
-                coders.add(inputs.get(tag).getCoder());
-            }
-            final Coder<UnionValue> unionCoder = UnionCoder.of(coders);
-
+            final Coder<UnionValue> unionCoder = createUnionCoder(inputs, tags);
 
             PCollectionList<UnionValue> list = PCollectionList.empty(inputs.getPipeline());
             for(int index=0; index<tags.size(); index++) {
@@ -110,11 +105,7 @@ public class Union {
         @Override
         public PCollection<KV<String, UnionValue>> expand(PCollectionTuple inputs) {
 
-            final List<Coder<?>> coders = new ArrayList<>();
-            for(final TupleTag<?> tag : tags) {
-                coders.add(inputs.get(tag).getCoder());
-            }
-            final UnionCoder unionCoder = UnionCoder.of(coders);
+            final Coder<UnionValue> unionCoder = createUnionCoder(inputs, tags);
             final KvCoder<String, UnionValue> outputCoder = KvCoder.of(StringUtf8Coder.of(), unionCoder);
 
             PCollectionList<KV<String, UnionValue>> list = PCollectionList.empty(inputs.getPipeline());
@@ -152,6 +143,14 @@ public class Union {
             }
 
         }
+    }
+
+    public static UnionCoder createUnionCoder(final PCollectionTuple inputs, final List<TupleTag<?>> tags) {
+        final List<Coder<?>> coders = new ArrayList<>();
+        for(final TupleTag<?> tag : tags) {
+            coders.add(inputs.get(tag).getCoder());
+        }
+        return UnionCoder.of(coders);
     }
 
 }
