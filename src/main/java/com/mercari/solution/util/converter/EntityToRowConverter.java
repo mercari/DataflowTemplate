@@ -12,6 +12,7 @@ import org.apache.beam.sdk.values.Row;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -69,8 +70,13 @@ public class EntityToRowConverter {
     }
 
     private static Object convertEntityValue(final Value value, final Schema.FieldType fieldType, final int depth) {
-        if (value == null || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
+        if (value == null
+                || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
+
+            if(fieldType.getTypeName().isCollectionType()) {
+                return new ArrayList<>();
+            }
             return null;
         }
 

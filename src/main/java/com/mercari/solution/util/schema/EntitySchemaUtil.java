@@ -22,11 +22,6 @@ import java.util.stream.Collectors;
 
 public class EntitySchemaUtil {
 
-    private static final Pattern PATTERN_DATE1 = Pattern.compile("[0-9]{8}");
-    private static final Pattern PATTERN_DATE2 = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}");
-    private static final Pattern PATTERN_DATE3 = Pattern.compile("[0-9]{4}/[0-9]{2}/[0-9]{2}");
-
-
     public static Object getFieldValue(Entity entity, String fieldName) {
         return entity.getPropertiesMap().entrySet().stream()
                 .filter(entry -> entry.getKey().equals(fieldName))
@@ -368,21 +363,8 @@ public class EntitySchemaUtil {
     public static Date convertDate(final Value value) {
         if(Value.ValueTypeCase.STRING_VALUE.equals(value.getValueTypeCase())) {
             final String datestr = value.getStringValue();
-            if(PATTERN_DATE1.matcher(datestr).find()) {
-                return Date.fromYearMonthDay(
-                        Integer.valueOf(datestr.substring(0, 4)),
-                        Integer.valueOf(datestr.substring(4, 6)),
-                        Integer.valueOf(datestr.substring(6, 8))
-                );
-            } else if(PATTERN_DATE2.matcher(datestr).find() || PATTERN_DATE3.matcher(datestr).find()) {
-                return Date.fromYearMonthDay(
-                        Integer.valueOf(datestr.substring(0, 4)),
-                        Integer.valueOf(datestr.substring(5, 7)),
-                        Integer.valueOf(datestr.substring(8, 10))
-                );
-            } else {
-                throw new IllegalArgumentException("Illegal date string: " + datestr);
-            }
+            final LocalDate localDate = DateTimeUtil.toLocalDate(datestr);
+            return Date.fromYearMonthDay(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
         } else if(Value.ValueTypeCase.INTEGER_VALUE.equals(value.getValueTypeCase())) {
             final LocalDate localDate = LocalDate.ofEpochDay(value.getIntegerValue());
             return Date.fromYearMonthDay(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());

@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -78,8 +79,53 @@ public class EntityToMutationConverter {
     }
 
     private static void setEntityValue(final Mutation.WriteBuilder builder, final String fieldName, final Value value, final Type type, final boolean isCommitTimestampField) {
-        if (value == null || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
+        if (value == null
+                || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
+
+            if(Type.Code.ARRAY.equals(type.getCode())) {
+                switch (type.getArrayElementType().getCode()) {
+                    case BOOL:
+                        builder.set(fieldName).toBoolArray(new ArrayList<>());
+                        break;
+                    case STRING:
+                        builder.set(fieldName).toStringArray(new ArrayList<>());
+                        break;
+                    case BYTES:
+                        builder.set(fieldName).toBytesArray(new ArrayList<>());
+                        break;
+                    case INT64:
+                        builder.set(fieldName).toInt64Array(new ArrayList<>());
+                        break;
+                    case FLOAT64:
+                        builder.set(fieldName).toFloat64Array(new ArrayList<>());
+                        break;
+                    case NUMERIC:
+                        builder.set(fieldName).toNumericArray(new ArrayList<>());
+                        break;
+                    case PG_NUMERIC:
+                        builder.set(fieldName).toPgNumericArray(new ArrayList<>());
+                        break;
+                    case JSON:
+                        builder.set(fieldName).toJsonArray(new ArrayList<>());
+                        break;
+                    case PG_JSONB:
+                        builder.set(fieldName).toPgJsonbArray(new ArrayList<>());
+                        break;
+                    case DATE:
+                        builder.set(fieldName).toDateArray(new ArrayList<>());
+                        break;
+                    case TIMESTAMP:
+                        builder.set(fieldName).toTimestampArray(new ArrayList<>());
+                        break;
+                    case STRUCT:
+                        builder.set(fieldName).toStructArray(type.getArrayElementType(), new ArrayList<>());
+                        break;
+                    case ARRAY:
+                    case UNRECOGNIZED:
+                        throw new IllegalStateException();
+                }
+            }
             return;
         }
 
