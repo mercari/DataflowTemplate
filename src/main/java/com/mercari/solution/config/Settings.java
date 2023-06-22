@@ -84,6 +84,8 @@ public class Settings {
         private Integer numWorkers;
         private Integer maxNumWorkers;
         private String workerMachineType;
+        private Integer diskSizeGb;
+        private String workerDiskType;
         private Boolean usePublicIps;
         private List<String> dataflowServiceOptions;
         private Integer numberOfWorkerHarnessThreads;
@@ -130,6 +132,22 @@ public class Settings {
 
         public void setWorkerMachineType(String workerMachineType) {
             this.workerMachineType = workerMachineType;
+        }
+
+        public Integer getDiskSizeGb() {
+            return diskSizeGb;
+        }
+
+        public void setDiskSizeGb(Integer diskSizeGb) {
+            this.diskSizeGb = diskSizeGb;
+        }
+
+        public String getWorkerDiskType() {
+            return workerDiskType;
+        }
+
+        public void setWorkerDiskType(String workerDiskType) {
+            this.workerDiskType = workerDiskType;
         }
 
         public Boolean getUsePublicIps() {

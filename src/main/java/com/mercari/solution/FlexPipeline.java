@@ -140,6 +140,12 @@ public class FlexPipeline {
                 if(dataflow.getWorkerMachineType() != null) {
                     options.as(DataflowPipelineOptions.class).setWorkerMachineType(dataflow.getWorkerMachineType());
                 }
+                if(dataflow.getDiskSizeGb() != null) {
+                    options.as(DataflowPipelineOptions.class).setDiskSizeGb(dataflow.getDiskSizeGb());
+                }
+                if(dataflow.getWorkerDiskType() != null) {
+                    options.as(DataflowPipelineOptions.class).setWorkerDiskType(dataflow.getWorkerDiskType());
+                }
                 if(dataflow.getUsePublicIps() != null) {
                     options.as(DataflowPipelineOptions.class).setUsePublicIps(dataflow.getUsePublicIps());
                 }
