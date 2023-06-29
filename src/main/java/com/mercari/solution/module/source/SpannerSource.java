@@ -21,12 +21,14 @@ import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.SchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.Transaction;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.DataChangeRecord;
+import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
@@ -67,6 +69,8 @@ public class SpannerSource implements SourceModule {
         private List<String> fields;
         private List<KeyRangeParameter> keyRange;
         private String timestampBound;
+        private Boolean enableDataBoost;
+        private String requestTag;
 
         // for changestream
         private ChangeStreamMode changeStreamMode;
@@ -161,6 +165,14 @@ public class SpannerSource implements SourceModule {
 
         public void setTimestampBound(String timestampBound) {
             this.timestampBound = timestampBound;
+        }
+
+        public Boolean getEnableDataBoost() {
+            return enableDataBoost;
+        }
+
+        public String getRequestTag() {
+            return requestTag;
         }
 
         public Options.RpcPriority getPriority() {
@@ -441,6 +453,9 @@ public class SpannerSource implements SourceModule {
             if(this.outputType == null) {
                 this.outputType = OutputType.avro;
             }
+            if(this.enableDataBoost == null) {
+                this.enableDataBoost = false;
+            }
         }
 
         private void setChangeStreamDefaultParameters() {
@@ -694,7 +709,7 @@ public class SpannerSource implements SourceModule {
                         .apply("SplitQuery", FlatMapElements.into(TypeDescriptors.strings()).via(s -> Arrays.asList(s.split(SQL_SPLITTER))))
                         .apply("ExecuteQuery", ParDo.of(new QueryPartitionSpannerDoFn(
                                     projectId, instanceId, databaseId, timestampBound,
-                                    parameters.getPriority(), parameters.getEmulator(), transactionView))
+                                    parameters.getPriority(), parameters.getEnableDataBoost(), parameters.getRequestTag(), parameters.getEmulator(), transactionView))
                                 .withSideInput("transactionView", transactionView)
                                 .withOutputTags(tagOutputPartition, TupleTagList.of(tagOutputStruct)));
 
@@ -848,6 +863,8 @@ public class SpannerSource implements SourceModule {
             private final String databaseId;
             private final String timestampBound;
             private final Options.RpcPriority priority;
+            private final Boolean enableDataBoost;
+            private final String tag;
             private final Boolean emulator;
             private final PCollectionView<Transaction> transactionView;
 
@@ -857,6 +874,8 @@ public class SpannerSource implements SourceModule {
                     final String databaseId,
                     final String timestampBound,
                     final Options.RpcPriority priority,
+                    final Boolean enableDataBoost,
+                    final String tag,
                     final Boolean emulator,
                     final PCollectionView<Transaction> transactionView) {
 
@@ -865,6 +884,8 @@ public class SpannerSource implements SourceModule {
                 this.databaseId = databaseId;
                 this.timestampBound = timestampBound;
                 this.priority = priority;
+                this.enableDataBoost = enableDataBoost;
+                this.tag = tag;
                 this.emulator = emulator;
                 this.transactionView = transactionView;
             }
@@ -890,9 +911,11 @@ public class SpannerSource implements SourceModule {
                             //.setMaxPartitions(10000) // Note: this hint is currently ignored in v1.
                             //.setPartitionSizeBytes(100000000) // Note: this hint is currently ignored in v1.
                             .build();
+
+                    final Options.ReadQueryUpdateTransactionOption tagOption = createSpannerRequestTag(c.getPipelineOptions(), tag);
                     try {
                         final List<Partition> partitions = transaction
-                                .partitionQuery(options, statement, Options.priority(priority));
+                                .partitionQuery(options, statement, tagOption, Options.priority(priority), Options.dataBoostEnabled(enableDataBoost));
                         LOG.info(String.format("Query [%s] divided to [%d] partitions.", query, partitions.size()));
                         for (int i = 0; i < partitions.size(); ++i) {
                             final KV<BatchTransactionId, Partition> value = KV.of(transaction.getBatchTransactionId(), partitions.get(i));
@@ -905,7 +928,7 @@ public class SpannerSource implements SourceModule {
                             throw e;
                         }
                         LOG.warn(String.format("Query [%s] could not be executed. Retrying as single query.", query));
-                        try (final ResultSet resultSet = transaction.executeQuery(statement, Options.priority(priority))) {
+                        try (final ResultSet resultSet = transaction.executeQuery(statement, tagOption, Options.priority(priority))) {
                             int count = 0;
                             while (resultSet.next()) {
                                 c.output(tagOutputStruct, resultSet.getCurrentRowAsStruct());
@@ -916,6 +939,22 @@ public class SpannerSource implements SourceModule {
                     }
                 }
 
+            }
+
+            private Options.ReadQueryUpdateTransactionOption createSpannerRequestTag(
+                    final PipelineOptions options,
+                    final String vtag) {
+
+                final DataflowPipelineOptions dataflowOption = options.as(DataflowPipelineOptions.class);
+                final String project = dataflowOption.getProject();
+                final String jobName = dataflowOption.getJobName();
+                final String serviceAccount = dataflowOption.getServiceAccount();
+
+                final String tag = String.format("job=%s,sa=%s,project=%s", jobName, serviceAccount, project);
+                if(vtag != null) {
+                    return Options.tag(vtag + "," + tag);
+                }
+                return Options.tag(tag);
             }
 
             @Teardown
