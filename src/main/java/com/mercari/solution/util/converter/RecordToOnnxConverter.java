@@ -28,10 +28,10 @@ public class RecordToOnnxConverter {
         shape.add_dim().setNull();//.set_dim_value(1);
         tensorInput.set_allocated_shape(shape);
         TypeProto typeInput = new TypeProto();
-        typeInput.set_denotation("");
+        //typeInput.set_denotation("");
         typeInput.set_allocated_tensor_type(tensorInput);
         ValueInfoProto infoInput = new ValueInfoProto();
-        infoInput.set_name("input1");
+        //infoInput.set_name("input1");
         infoInput.set_allocated_type(typeInput);
 
 

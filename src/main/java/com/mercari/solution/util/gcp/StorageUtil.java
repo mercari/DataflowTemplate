@@ -203,7 +203,7 @@ public class StorageUtil {
 
     public static Boolean exists(final Storage storage, final String gcsPath) {
         if(gcsPath == null || !gcsPath.startsWith("gs://")) {
-            return null;
+            return false;
         }
         final String[] paths = parseGcsPath(gcsPath);
         try {
