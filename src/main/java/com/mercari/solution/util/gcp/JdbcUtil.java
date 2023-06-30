@@ -6,7 +6,7 @@ import com.mercari.solution.util.converter.ResultSetToRecordConverter;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.dbcp2.BasicDataSource;
@@ -1245,7 +1245,11 @@ public class JdbcUtil {
                 }
                 case ENUM:
                 case STRING: {
-                    return this.stringValue.compareTo(another.getStringValue());
+                    if(isCaseSensitive) {
+                        return this.stringValue.compareTo(another.getStringValue());
+                    } else {
+                        return this.stringValue.compareToIgnoreCase(another.getStringValue());
+                    }
                 }
                 case FIXED:
                 case BYTES: {

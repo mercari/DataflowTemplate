@@ -17,8 +17,8 @@
     <freemarker.version>2.3.32</freemarker.version>
     <hadoop.version>3.3.5</hadoop.version>
     <hbase.version>2.5.4</hbase.version>
-    <onnxruntime.version>1.15.0</onnxruntime.version>
-    <onnx.version>1.12.0-1.5.8</onnx.version>
+    <onnxruntime.version>1.15.1</onnxruntime.version>
+    <onnx.version>1.14.0-1.5.9</onnx.version>
     <solr.version>9.2.1</solr.version>
     <lucene.version>9.4.2</lucene.version>
     <neo4j.version>4.4.21</neo4j.version>
