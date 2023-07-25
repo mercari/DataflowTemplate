@@ -22,8 +22,8 @@ import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DatumReader;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
-import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -445,7 +445,7 @@ public class PubSubSource implements SourceModule {
             try {
                 c.output(datumReader.read(record, decoder));
             } catch (Exception e) {
-                LOG.error("Failed to parse avro record: " + c.element());
+                LOG.error("Failed to parse avro record: " + c.element() + ", cause: " + e.getMessage());
                 if(sendDeadletter) {
                     c.output(failuresTag, c.element());
                 } else {
@@ -488,7 +488,7 @@ public class PubSubSource implements SourceModule {
             } catch (Exception e) {
                 if(sendDeadletter) {
                     c.output(failuresTag, c.element());
-                    LOG.error("Failed to parse json: " + json);
+                    LOG.error("Failed to parse json: " + json + ", cause: " + e.getMessage());
                 } else {
                     throw e;
                 }
@@ -535,7 +535,7 @@ public class PubSubSource implements SourceModule {
             } catch (Exception e) {
                 if(sendDeadletter) {
                     c.output(failuresTag, c.element());
-                    LOG.error("Failed to parse json: " + json);
+                    LOG.error("Failed to parse json: " + json + ", cause: " + e.getMessage());
                 } else {
                     throw e;
                 }
