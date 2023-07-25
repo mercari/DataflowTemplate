@@ -35,6 +35,7 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
     private final List<String> setupCyphers;
     private final Integer bufferSize;
     private final String conf;
+    private final Boolean dump;
     private final List<String> inputNames;
 
     private final Counter counter;
@@ -51,6 +52,7 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
                       final List<Neo4jUtil.RelationshipConfig> relationships,
                       final List<String> setupCyphers,
                       final Integer bufferSize,
+                      final Boolean dump,
                       final List<String> inputNames) {
 
         this.name = name;
@@ -61,6 +63,7 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
         this.relationships = relationships;
         this.setupCyphers = setupCyphers;
         this.bufferSize = bufferSize;
+        this.dump = dump;
         this.inputNames = inputNames;
 
         this.counter = Metrics.counter(name, "processedCount");
@@ -75,9 +78,10 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
             final List<Neo4jUtil.RelationshipConfig> relationships,
             final List<String> setupCyphers,
             final Integer bufferSize,
+            final Boolean dump,
             final List<String> inputNames) {
 
-        return new Neo4jSink(name, input, database, conf, nodes, relationships, setupCyphers, bufferSize, inputNames);
+        return new Neo4jSink(name, input, database, conf, nodes, relationships, setupCyphers, bufferSize, dump, inputNames);
     }
 
     @Override
@@ -110,9 +114,11 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
             }
         }
 
-        final DatabaseManagementService service = new DatabaseManagementServiceBuilder(neo4jPath).build();
-        this.graphDB = service.database(database);
-        Neo4jUtil.registerShutdownHook(service);
+        if(graphDB == null) {
+            final DatabaseManagementService service = new DatabaseManagementServiceBuilder(neo4jPath).build();
+            this.graphDB = service.database(database);
+            Neo4jUtil.registerShutdownHook(service);
+        }
 
         setup();
 
@@ -131,7 +137,11 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
     @Override
     public void flush() throws IOException {
         flushBuffer();
-        ZipFileUtil.writeZipFile(outputStream, NEO4J_HOME);
+        if(dump) {
+            Neo4jUtil.dump(NEO4J_HOME, database, outputStream);
+        } else {
+            ZipFileUtil.writeZipFile(outputStream, NEO4J_HOME);
+        }
         LOG.info("Finished to upload documents!");
     }
 

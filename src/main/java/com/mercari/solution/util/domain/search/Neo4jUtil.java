@@ -4,12 +4,20 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.pipeline.union.UnionValue;
+import org.joda.time.Instant;
 import org.neo4j.dbms.api.DatabaseManagementService;
+import org.neo4j.dbms.archive.CompressionFormat;
+import org.neo4j.dbms.archive.DumpFormatSelector;
+import org.neo4j.dbms.archive.Dumper;
 import org.neo4j.graphdb.*;
+import org.neo4j.internal.helpers.ArrayUtil;
+import org.neo4j.io.layout.DatabaseLayout;
+import org.neo4j.io.layout.Neo4jLayout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.Serializable;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -17,7 +25,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.function.Predicate;
 
 
 public class Neo4jUtil implements Serializable {
@@ -148,12 +160,11 @@ public class Neo4jUtil implements Serializable {
             return label;
         }
 
-        public List<String> getKeyFields() {
-            return keyFields;
-        }
-
         public List<String> getLabels() {
             return Arrays.asList(label);
+        }
+        public List<String> getKeyFields() {
+            return keyFields;
         }
 
         public List<String> getPropertyFields() {
@@ -237,7 +248,8 @@ public class Neo4jUtil implements Serializable {
                     final Node node = getNode(tx, nodeConfig.getLabels(), nodeConfig.getKeyFields(), unionValue);
                     final Map<String, Object> properties = unionValue.getMap(nodeConfig.getPropertyFields());
                     for(final Map.Entry<String, Object> property : properties.entrySet()) {
-                        node.setProperty(property.getKey(), property.getValue());
+                        final Object propertyValue = formatValue(property.getValue());
+                        node.setProperty(property.getKey(), propertyValue);
                     }
                     countNode += 1;
                 }
@@ -265,7 +277,8 @@ public class Neo4jUtil implements Serializable {
                     if(sourceConfig.getPropertyFields().size() > 0) {
                         Map<String, Object> properties = unionValue.getMap(sourceConfig.getPropertyFields());
                         for(final Map.Entry<String, Object> property : properties.entrySet()) {
-                            source.setProperty(property.getKey(), property.getValue());
+                            final Object propertyValue = formatValue(property.getValue());
+                            source.setProperty(property.getKey(), propertyValue);
                         }
                     }
 
@@ -274,7 +287,8 @@ public class Neo4jUtil implements Serializable {
                     if(targetConfig.getPropertyFields().size() > 0) {
                         Map<String, Object> properties = unionValue.getMap(targetConfig.getPropertyFields());
                         for(final Map.Entry<String, Object> property : properties.entrySet()) {
-                            target.setProperty(property.getKey(), property.getValue());
+                            final Object propertyValue = formatValue(property.getValue());
+                            target.setProperty(property.getKey(), propertyValue);
                         }
                     }
 
@@ -282,7 +296,8 @@ public class Neo4jUtil implements Serializable {
                             relationshipConfig.getType(), relationshipConfig.getKeyFields(), unionValue);
                     final Map<String, Object> properties = unionValue.getMap(relationshipConfig.getPropertyFields());
                     for(final Map.Entry<String, Object> property : properties.entrySet()) {
-                        relationship.setProperty(property.getKey(), property.getValue());
+                        final Object propertyValue = formatValue(property.getValue());
+                        relationship.setProperty(property.getKey(), propertyValue);
                     }
                     countRelationship += 1;
                 }
@@ -290,6 +305,23 @@ public class Neo4jUtil implements Serializable {
             tx.commit();
         }
         LOG.info("update node: " + countNode + ", relationship: " + countRelationship);
+    }
+
+    public static void dump(final String neo4jHome, final String databaseName, final OutputStream os) throws IOException {
+        final DatabaseLayout layout = Neo4jLayout.of(Path.of(neo4jHome)).databaseLayout(databaseName);
+        final CompressionFormat format = DumpFormatSelector.selectFormat();
+        final String lockFile = layout.databaseLockFile().getFileName().toString();
+        final String quarantineMarkerFile = layout.quarantineMarkerFile().getFileName().toString();
+        LOG.info("dump databasePath: " + layout.databaseDirectory().toAbsolutePath()
+                + ", transactionLogsPath: " + layout.getTransactionLogsDirectory().toAbsolutePath()
+                + ", compressionFormat: " + format.getClass().getName());
+
+        dump(layout.databaseDirectory(), layout.getTransactionLogsDirectory(), os, format, path -> oneOf(path, lockFile, quarantineMarkerFile));
+    }
+
+    public static void dump(final Path dbPath, final Path transactionLogPath, final OutputStream os, final CompressionFormat format, final Predicate<Path> exclude) throws IOException {
+        final Dumper dumper = new Dumper();
+        dumper.dump(dbPath, transactionLogPath, os, format, exclude);
     }
 
     public static void registerShutdownHook(final DatabaseManagementService managementService) {
@@ -308,7 +340,8 @@ public class Neo4jUtil implements Serializable {
             } else {
                 final Node node = tx.createNode(labels);
                 for(final Map.Entry<String, Object> property : keyProperties.entrySet()) {
-                    node.setProperty(property.getKey(), property.getValue());
+                    final Object propertyValue = formatValue(property.getValue());
+                    node.setProperty(property.getKey(), propertyValue);
                 }
                 return node;
             }
@@ -317,19 +350,46 @@ public class Neo4jUtil implements Serializable {
 
     private static Relationship getRelationship(final Transaction tx, final Node source, final Node target, final String type, final List<String> keyFields, final UnionValue unionValue) {
         final RelationshipType relationshipType = RelationshipType.withName(type);
-        final Map<String, Object> keyProperties = unionValue.getMap(keyFields);
+        final Map<String, Object> keyProperties;
         if(keyFields != null && !keyFields.isEmpty()) {
+            keyProperties = unionValue.getMap(keyFields);
             try(final ResourceIterator<Relationship> relationships = tx.findRelationships(relationshipType, keyProperties)) {
                 if(relationships.hasNext()) {
                     return relationships.next();
                 }
             }
+        } else {
+            keyProperties = new HashMap<>();
         }
+
         final Relationship relationship = source.createRelationshipTo(target, relationshipType);
         for(final Map.Entry<String, Object> property : keyProperties.entrySet()) {
-            relationship.setProperty(property.getKey(), property.getValue());
+            final Object propertyValue = formatValue(property.getValue());
+            relationship.setProperty(property.getKey(), propertyValue);
         }
         return relationship;
+    }
+
+    private static Object formatValue(Object value) {
+        if(value == null) {
+            return null;
+        }
+        if(value instanceof java.time.Instant) {
+            final java.time.Instant instant = (java.time.Instant) value;
+            return instant.atZone(ZoneId.of("Etc/GMT"));
+        } else if(value instanceof Instant) {
+            final Instant instant = (Instant) value;
+            return ZonedDateTime.parse(instant.toString());
+        } else if(value instanceof Float) {
+            return ((Float) value).doubleValue();
+        } else if(value instanceof Integer) {
+            return ((Integer) value).longValue();
+        }
+        return value;
+    }
+
+    private static boolean oneOf(Path path, String... names) {
+        return ArrayUtil.contains(names, path.getFileName().toString());
     }
 
 }

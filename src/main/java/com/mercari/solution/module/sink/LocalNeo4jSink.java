@@ -36,6 +36,7 @@ public class LocalNeo4jSink implements SinkModule {
         private List<Neo4jUtil.RelationshipConfig> relationships;
         private List<String> setupCyphers;
         private Integer bufferSize;
+        private Boolean dump;
 
         private List<String> groupFields;
         private String tempDirectory;
@@ -70,6 +71,10 @@ public class LocalNeo4jSink implements SinkModule {
 
         public Integer getBufferSize() {
             return bufferSize;
+        }
+
+        public Boolean getDump() {
+            return dump;
         }
 
         public List<String> getGroupFields() {
@@ -141,7 +146,10 @@ public class LocalNeo4jSink implements SinkModule {
                 this.setupCyphers = new ArrayList<>();
             }
             if(this.bufferSize == null) {
-                this.bufferSize = 500;
+                this.bufferSize = 1000;
+            }
+            if(this.dump == null) {
+                this.dump = false;
             }
         }
 
@@ -237,7 +245,8 @@ public class LocalNeo4jSink implements SinkModule {
                                     name,
                                     parameters.getInput(), parameters.getDatabase(), parameters.getConf(),
                                     parameters.getNodes(), parameters.getRelationships(),
-                                    parameters.getSetupCyphers(), parameters.getBufferSize(), inputNames)));
+                                    parameters.getSetupCyphers(), parameters.getBufferSize(), parameters.getDump(),
+                                    inputNames)));
 
             return writeResult.getPerDestinationOutputFilenames();
         }
