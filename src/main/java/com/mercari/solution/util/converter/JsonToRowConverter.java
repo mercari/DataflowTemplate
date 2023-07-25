@@ -37,7 +37,7 @@ public class JsonToRowConverter {
                 final Schema.Field field = schema.getField(i);
                 if(i < array.size()) {
                     final JsonElement arrayElement = array.get(i);
-                    builder.withFieldValue(field.getName(), convertValue(field.getType(), arrayElement));
+                    builder.withFieldValue(field.getName(), convertValue(field.getType(), field.getOptions(), arrayElement));
                 } else {
                     builder.withFieldValue(field.getName(), null);
                 }
@@ -57,7 +57,7 @@ public class JsonToRowConverter {
             } else {
                 fieldName = field.getName();
             }
-            builder.withFieldValue(field.getName(), convertValue(field.getType(), jsonObject.get(fieldName)));
+            builder.withFieldValue(field.getName(), convertValue(field.getType(), field.getOptions(), jsonObject.get(fieldName)));
         }
         return builder.build();
     }
@@ -116,12 +116,12 @@ public class JsonToRowConverter {
         return true;
     }
 
-    private static Object convertValue(final Schema.FieldType fieldType, final JsonElement jsonElement) {
+    private static Object convertValue(final Schema.FieldType fieldType, final Schema.Options fieldOptions, final JsonElement jsonElement) {
         if(jsonElement == null || jsonElement.isJsonNull()) {
             if(Schema.TypeName.ARRAY.equals(fieldType.getTypeName())) {
                 return new ArrayList<>();
             }
-            return null;
+            return RowSchemaUtil.getDefaultValue(fieldType, fieldOptions);
         }
         switch (fieldType.getTypeName()) {
             case STRING:
@@ -231,8 +231,8 @@ public class JsonToRowConverter {
                 }
                 return jsonElement.getAsJsonObject().entrySet().stream()
                         .collect(Collectors.toMap(
-                                e -> convertValue(fieldType.getMapKeyType(), new JsonPrimitive(e.getKey())),
-                                e -> convertValue(fieldType.getMapValueType(), e.getValue())));
+                                e -> convertValue(fieldType.getMapKeyType(), fieldOptions, new JsonPrimitive(e.getKey())),
+                                e -> convertValue(fieldType.getMapValueType(), fieldOptions, e.getValue())));
             }
             case ITERABLE:
             case ARRAY:
@@ -251,8 +251,8 @@ public class JsonToRowConverter {
                                 .build();
                         return jsonElement.getAsJsonObject().entrySet().stream()
                                 .map(e -> Row.withSchema(schema)
-                                            .withFieldValue("key", convertValue(elementFieldType.getMapKeyType(), new JsonPrimitive(e.getKey())))
-                                            .withFieldValue("value", convertValue(elementFieldType.getMapValueType(), e.getValue()))
+                                            .withFieldValue("key", convertValue(elementFieldType.getMapKeyType(), fieldOptions, new JsonPrimitive(e.getKey())))
+                                            .withFieldValue("value", convertValue(elementFieldType.getMapValueType(), fieldOptions, e.getValue()))
                                             .build())
                                 .collect(Collectors.toList());
                     }
@@ -264,7 +264,7 @@ public class JsonToRowConverter {
                             && childJsonElement.isJsonArray()) {
                         throw new IllegalArgumentException("Not supported Array in Array field");
                     }
-                    final Object arrayValue = convertValue(fieldType.getCollectionElementType(), childJsonElement);
+                    final Object arrayValue = convertValue(fieldType.getCollectionElementType(), fieldOptions, childJsonElement);
                     if(arrayValue != null) {
                         childValues.add(arrayValue);
                     }

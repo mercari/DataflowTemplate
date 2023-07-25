@@ -8,8 +8,10 @@ import com.mercari.solution.util.converter.RecordToRowConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
 import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.schema.ProtoSchemaUtil;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.schemas.logicaltypes.SqlTypes;
 
 import java.io.Serializable;
@@ -187,6 +189,9 @@ public class SourceConfig implements Serializable {
                         .setOption("sqlType", Schema.FieldType.STRING, "JSON")
                         .build());
             }
+            if(inputSchemaField.getDefaultValue() != null) {
+                optionsList.add(RowSchemaUtil.createDefaultValueOptions(inputSchemaField.getDefaultValue()));
+            }
 
             final Schema.FieldType fieldType = convertFieldType(inputSchemaField);
             Schema.Field field = Schema.Field.of(fieldName, fieldType);
@@ -236,6 +241,7 @@ public class SourceConfig implements Serializable {
             case "string":
                 return Schema.FieldType.STRING.withNullable(nullable);
             case "byte":
+            case "int8":
                 return Schema.FieldType.BYTE.withNullable(nullable);
             case "short":
             case "int16":
@@ -247,11 +253,11 @@ public class SourceConfig implements Serializable {
             case "long":
             case "int64":
                 return Schema.FieldType.INT64.withNullable(nullable);
-            case "float32":
             case "float":
+            case "float32":
                 return Schema.FieldType.FLOAT.withNullable(nullable);
-            case "float64":
             case "double":
+            case "float64":
                 return Schema.FieldType.DOUBLE.withNullable(nullable);
             case "numeric":
             case "decimal":
@@ -267,6 +273,13 @@ public class SourceConfig implements Serializable {
                 return Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(nullable);
             case "timestamp":
                 return Schema.FieldType.DATETIME.withNullable(nullable);
+            case "enum":
+            case "enumeration": {
+                if(field.getSymbols() == null || field.getSymbols().size() == 0) {
+                    throw new IllegalArgumentException("enum type field requires symbols attribute");
+                }
+                return Schema.FieldType.logicalType(EnumerationType.create(field.getSymbols())).withNullable(nullable);
+            }
             case "row":
             case "struct":
             case "record":
@@ -338,6 +351,8 @@ public class SourceConfig implements Serializable {
         private String mode;
         private List<InputSchemaField> fields;
         private Map<String, String> options;
+        private String defaultValue;
+        private List<String> symbols;
         private String alterName;
 
         InputSchemaField() {
@@ -349,6 +364,8 @@ public class SourceConfig implements Serializable {
             this.type = type;
             this.mode = mode;
             this.options = new HashMap<>();
+            this.defaultValue = null;
+            this.symbols = new ArrayList<>();
         }
 
         public String getName() {
@@ -389,6 +406,22 @@ public class SourceConfig implements Serializable {
 
         public void setOptions(Map<String, String> options) {
             this.options = options;
+        }
+
+        public String getDefaultValue() {
+            return defaultValue;
+        }
+
+        public void setDefaultValue(String defaultValue) {
+            this.defaultValue = defaultValue;
+        }
+
+        public List<String> getSymbols() {
+            return symbols;
+        }
+
+        public void setSymbols(List<String> symbols) {
+            this.symbols = symbols;
         }
 
         public String getAlterName() {

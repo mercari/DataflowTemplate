@@ -123,7 +123,7 @@ public class JsonToRecordConverter {
             if(Schema.Type.ARRAY.equals(schema.getType())) {
                 return new ArrayList<>();
             }
-            return null;
+            return AvroSchemaUtil.convertDefaultValue(AvroSchemaUtil.unnestUnion(schema), AvroSchemaUtil.unnestUnion(schema).getProp("default"));
         }
         try {
             switch (schema.getType()) {
