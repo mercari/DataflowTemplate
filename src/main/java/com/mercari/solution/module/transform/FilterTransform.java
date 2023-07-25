@@ -3,6 +3,7 @@ package com.mercari.solution.module.transform;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mercari.solution.config.TransformConfig;
@@ -10,13 +11,10 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.Filter;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -40,24 +38,34 @@ public class FilterTransform implements TransformModule {
             return fields;
         }
 
-        public void setFields(List<String> fields) {
-            this.fields = fields;
-        }
-
         public JsonElement getFilters() {
             return filters;
-        }
-
-        public void setFilters(JsonElement filters) {
-            this.filters = filters;
         }
 
         public Map<String, String> getRenameFields() {
             return renameFields;
         }
 
-        public void setRenameFields(Map<String, String> renameFields) {
-            this.renameFields = renameFields;
+        private void validate() {
+
+
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.filters == null && fields == null) {
+                errorMessages.add("Filter transform module parameters must contain filters or fields parameter.");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
+        }
+
+        private void setDefaults() {
+            if(this.fields == null) {
+                this.fields = new ArrayList<>();
+            }
+            if(this.renameFields == null) {
+                this.renameFields = new HashMap<>();
+            }
         }
     }
 
@@ -72,9 +80,12 @@ public class FilterTransform implements TransformModule {
     static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 
         final FilterTransformParameters parameters = new Gson().fromJson(config.getParameters(), FilterTransformParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Filter transform module parameters must not be empty!");
+        }
 
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        parameters.validate();
+        parameters.setDefaults();
 
         final Map<String, FCollection<?>> results = new HashMap<>();
         for(final FCollection<?> input : inputs) {
@@ -96,7 +107,7 @@ public class FilterTransform implements TransformModule {
                         schema = RowSchemaUtil.removeFields(schema, parameters.getRenameFields().keySet());
                         schema = RowSchemaUtil.addSchema(schema, rf);
                     }
-                    final Transform<Row, Schema, Schema> transform = new Transform<>(
+                    final Transform<Schema, Schema, Row> transform = new Transform<>(
                             parameters,
                             schema,
                             s -> s,
@@ -119,7 +130,7 @@ public class FilterTransform implements TransformModule {
                     if (parameters.getRenameFields().size() > 0) {
                         schema = AvroSchemaUtil.renameFields(schema, parameters.getRenameFields());
                     }
-                    final Transform<GenericRecord, String, org.apache.avro.Schema> transform = new Transform<>(
+                    final Transform<String, org.apache.avro.Schema, GenericRecord> transform = new Transform<>(
                             parameters,
                             schema.toString(),
                             AvroSchemaUtil::convertSchema,
@@ -142,7 +153,7 @@ public class FilterTransform implements TransformModule {
                     if (parameters.getRenameFields().size() > 0) {
                         type = StructSchemaUtil.renameFields(type, parameters.getRenameFields());
                     }
-                    final Transform<Struct, Type, Type> transform = new Transform<>(
+                    final Transform<Type, Type, Struct> transform = new Transform<>(
                             parameters,
                             type,
                             s -> s,
@@ -151,6 +162,33 @@ public class FilterTransform implements TransformModule {
                     final PCollection<Struct> output = inputCollection.getCollection()
                             .apply(name, transform);
                     results.put(name, FCollection.of(name, output, DataType.STRUCT, type));
+                    break;
+                }
+                case DOCUMENT: {
+                    final FCollection<Document> inputCollection = (FCollection<Document>) input;
+                    Schema schema;
+                    if (parameters.getFields().size() == 0) {
+                        schema = inputCollection.getSchema();
+                    } else {
+                        schema = RowSchemaUtil.selectFields(inputCollection.getSchema(), parameters.getFields());
+                    }
+                    if (parameters.getRenameFields().size() > 0) {
+                        final List<Schema.Field> rf = schema.getFields().stream()
+                                .filter(f -> parameters.getRenameFields().containsKey(f.getName()))
+                                .map(f -> f.toBuilder().setName(parameters.getRenameFields().get(f.getName())).build())
+                                .collect(Collectors.toList());
+                        schema = RowSchemaUtil.removeFields(schema, parameters.getRenameFields().keySet());
+                        schema = RowSchemaUtil.addSchema(schema, rf);
+                    }
+                    final Transform<Schema, Schema, Document> transform = new Transform<>(
+                            parameters,
+                            schema,
+                            s -> s,
+                            DocumentSchemaUtil::getValue,
+                            (Schema s, Document e, Map<String, String> rf) -> DocumentSchemaUtil.toBuilder(s, e, rf).build());
+                    final PCollection<Document> output = inputCollection.getCollection()
+                            .apply(name, transform);
+                    results.put(name, FCollection.of(name, output, DataType.DOCUMENT, schema));
                     break;
                 }
                 case ENTITY: {
@@ -169,7 +207,7 @@ public class FilterTransform implements TransformModule {
                         schema = RowSchemaUtil.removeFields(schema, parameters.getRenameFields().keySet());
                         schema = RowSchemaUtil.addSchema(schema, rf);
                     }
-                    final Transform<Entity, Schema, Schema> transform = new Transform<>(
+                    final Transform<Schema, Schema, Entity> transform = new Transform<>(
                             parameters,
                             schema,
                             s -> s,
@@ -188,43 +226,19 @@ public class FilterTransform implements TransformModule {
         return results;
     }
 
-    private static void validateParameters(final FilterTransformParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("Filter transform module parameters must not be empty!");
-        }
-
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getFilters() == null && parameters.getFields() == null) {
-            errorMessages.add("Filter transform module parameters must contain filters or fields parameter.");
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void setDefaultParameters(FilterTransformParameters parameters) {
-        if(parameters.getFields() == null) {
-            parameters.setFields(new ArrayList<>());
-        }
-        if(parameters.getRenameFields() == null) {
-            parameters.setRenameFields(new HashMap<>());
-        }
-    }
-
-    public static class Transform<T, InputSchemaT, RuntimeSchemaT> extends PTransform<PCollection<T>, PCollection<T>> {
+    public static class Transform<InputSchemaT, RuntimeSchemaT, T> extends PTransform<PCollection<T>, PCollection<T>> {
 
         private final FilterTransformParameters parameters;
         private final InputSchemaT inputSchema;
-        private final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
-        private final Filter.Getter<T> getter;
-        private final Selector<T, RuntimeSchemaT> selector;
+        private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+        private final SchemaUtil.ValueGetter<T> getter;
+        private final Selector<RuntimeSchemaT, T> selector;
 
         private Transform(final FilterTransformParameters parameters,
                           final InputSchemaT inputSchema,
-                          final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                          final Filter.Getter<T> getter,
-                          final Selector<T, RuntimeSchemaT> selector) {
+                          final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                          final SchemaUtil.ValueGetter<T> getter,
+                          final Selector<RuntimeSchemaT, T> selector) {
 
             this.parameters = parameters;
             this.inputSchema = inputSchema;
@@ -253,15 +267,15 @@ public class FilterTransform implements TransformModule {
         private static class FilterDoFn<T> extends DoFn<T, T> {
 
             private final String conditionJsons;
-            private final Filter.Getter<T> getter;
+            private final SchemaUtil.ValueGetter<T> valueGetter;
 
             private transient Filter.ConditionNode conditions;
 
             FilterDoFn(final String conditionJsons,
-                       final Filter.Getter<T> getter) {
+                       final SchemaUtil.ValueGetter<T> valueGetter) {
 
                 this.conditionJsons = conditionJsons;
-                this.getter = getter;
+                this.valueGetter = valueGetter;
             }
 
             @Setup
@@ -272,24 +286,24 @@ public class FilterTransform implements TransformModule {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 final T element = c.element();
-                if(Filter.filter(element, getter, conditions)) {
+                if(Filter.filter(element, valueGetter, conditions)) {
                     c.output(element);
                 }
             }
         }
 
-        private static class SelectDoFn<T, InputSchemaT, RuntimeSchemaT> extends DoFn<T, T> {
+        private static class SelectDoFn<InputSchemaT, RuntimeSchemaT, T> extends DoFn<T, T> {
 
             private final InputSchemaT inputSchema;
-            private final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
-            private final Selector<T, RuntimeSchemaT> selector;
+            private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+            private final Selector<RuntimeSchemaT, T> selector;
             private final Map<String, String> renameFields;
 
             private transient RuntimeSchemaT schema;
 
             SelectDoFn(final InputSchemaT inputSchema,
-                       final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
-                       final Selector<T, RuntimeSchemaT> selector,
+                       final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                       final Selector<RuntimeSchemaT, T> selector,
                        final Map<String, String> renameFields) {
 
                 this.inputSchema = inputSchema;
@@ -313,11 +327,7 @@ public class FilterTransform implements TransformModule {
 
     }
 
-    private interface SchemaConverter<InputSchemaT, RuntimeSchemaT> extends Serializable {
-        RuntimeSchemaT convert(final InputSchemaT schema);
-    }
-
-    private interface Selector<T, SchemaT> extends Serializable {
+    private interface Selector<SchemaT, T> extends Serializable {
         T convert(final SchemaT schema, final T element, final Map<String, String> renameFields);
     }
 
