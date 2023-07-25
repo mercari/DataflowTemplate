@@ -33,6 +33,7 @@
 | [tokenize](transform/tokenize.md)       | ○     | ○         | Tokenizes and processes input text                                                                                                                         |
 | [pdfextract](transform/pdfextract.md)   | ○     | ○         | Extract text and metadata from PDF files                                                                                                                   |
 | [localNeo4j](transform/localneo4j.md)   | ○     | ○         | Inserts input data into a prepared graph database or generates and executes a query from input data to obtain results.                                     |
+| [reshuffle](transform/reshuffle.md)     | ○     | ○         | Insert reshuffle stage to prevent dataflow fusion optimizations                                                                                            |
 
 ## Sink Modules
 
