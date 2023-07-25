@@ -1,7 +1,12 @@
 package com.mercari.solution.util.schema;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
 import com.google.protobuf.ByteString;
+import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.JsonToRowConverter;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
@@ -21,6 +26,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RowSchemaUtil {
+
+    public static final String OPTION_NAME_DEFAULT_VALUE = "default";
 
     private static final Schema.FieldType REQUIRED_LOGICAL_DATETIME = Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(false);
     private static final Schema.FieldType NULLABLE_LOGICAL_DATETIME = Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(true);
@@ -150,6 +157,20 @@ public class RowSchemaUtil {
         return builder;
     }
 
+    public static Schema merge(final Schema base, final Schema addition) {
+        Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : base.getFields()) {
+            builder.addField(field);
+        }
+        for(final Schema.Field field : addition.getFields()) {
+            if(base.hasField(field.getName())) {
+                continue;
+            }
+            builder.addField(field);
+        }
+        return builder.build();
+    }
+
     public static Schema addSchema(final Schema schema, final List<Schema.Field> fields) {
         Schema.Builder builder = Schema.builder();
         for(final Schema.Field field : schema.getFields()) {
@@ -178,6 +199,21 @@ public class RowSchemaUtil {
         }
         builder.setOptions(optionBuilder);
 
+        return builder.build();
+    }
+
+    public static Schema renameFields(final Schema schema, final Map<String, String> renameFields) {
+        Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : schema.getFields()) {
+            if(renameFields.containsKey(field.getName())) {
+                Schema.Field renameField = Schema.Field.of(renameFields.get(field.getName()), field.getType())
+                        .withOptions(field.getOptions())
+                        .withDescription(field.getDescription());
+                builder.addField(renameField);
+            } else {
+                builder.addField(field);
+            }
+        }
         return builder.build();
     }
 
@@ -1039,15 +1075,104 @@ public class RowSchemaUtil {
     }
 
     public static EnumerationType.Value toEnumerationTypeValue(final Schema.FieldType fieldType, final String value) {
-        final int typeCode = fieldType
-                .getLogicalType(EnumerationType.class)
+        final EnumerationType enumerationType = fieldType.getLogicalType(EnumerationType.class);
+        final int typeCode = enumerationType
                 .getArgument()
-                .getOrDefault(value, 0);
+                .getOrDefault(value, enumerationType.getValues().size() - 1);
         return new EnumerationType.Value(typeCode);
     }
 
     public static String toString(final Schema.FieldType fieldType, final EnumerationType.Value value) {
         return fieldType.getLogicalType(EnumerationType.class).toString(value);
+    }
+
+    public static Schema.Options createDefaultValueOptions(final String defaultValue) {
+        return Schema.Options.builder()
+                .setOption(RowSchemaUtil.OPTION_NAME_DEFAULT_VALUE, Schema.FieldType.STRING, defaultValue)
+                .build();
+    }
+
+    public static Object getDefaultValue(final Schema.FieldType fieldType, final Schema.Options fieldOptions) {
+        if(fieldOptions == null || !fieldOptions.hasOption(OPTION_NAME_DEFAULT_VALUE)) {
+            return null;
+        }
+        final String defaultValue = fieldOptions.getValue(OPTION_NAME_DEFAULT_VALUE, String.class);
+        return convertDefaultValue(fieldType, defaultValue);
+    }
+
+    private static Object convertDefaultValue(final Schema.FieldType fieldType, final String defaultValue) {
+        switch (fieldType.getTypeName()) {
+            case STRING:
+                return defaultValue;
+            case BOOLEAN:
+                return Boolean.valueOf(defaultValue);
+            case BYTE:
+                return Byte.valueOf(defaultValue);
+            case INT16:
+                return Short.valueOf(defaultValue);
+            case INT32:
+                return Integer.valueOf(defaultValue);
+            case INT64:
+                return Long.valueOf(defaultValue);
+            case FLOAT:
+                return Float.valueOf(defaultValue);
+            case DOUBLE:
+                return Double.valueOf(defaultValue);
+            case DECIMAL:
+                return new BigDecimal(defaultValue);
+            case BYTES:
+                return Base64.getDecoder().decode(defaultValue);
+            case DATETIME:
+                return DateTimeUtil.toJodaInstant(defaultValue);
+            case LOGICAL_TYPE: {
+                final JsonElement element = new Gson().fromJson(defaultValue, JsonElement.class);
+                if(!element.isJsonPrimitive()) {
+                    return null;
+                }
+                final JsonPrimitive primitive = element.getAsJsonPrimitive();
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toLocalDate(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return LocalDate.ofEpochDay(primitive.getAsLong());
+                    } else {
+                        throw new IllegalStateException("json fieldType: " + fieldType.getTypeName() + ", value: " + primitive + " could not be convert to date");
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toLocalTime(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return LocalTime.ofSecondOfDay(primitive.getAsLong());
+                    } else {
+                        throw new IllegalStateException("json fieldType: " + fieldType.getTypeName() + ", value: " + primitive + " could not be convert to time");
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toJodaInstant(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return DateTimeUtil.toJodaInstant(primitive.getAsLong());
+                    } else {
+                        final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + primitive + " could not be convert to timestamp";
+                        throw new IllegalStateException(message);
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final String enumString = primitive.getAsString();
+                    return RowSchemaUtil.toEnumerationTypeValue(fieldType, enumString);
+                } else {
+                    throw new IllegalArgumentException(
+                            "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
+                }
+            }
+            case ROW: {
+                final JsonElement element = new Gson().fromJson(defaultValue, JsonElement.class);
+                return JsonToRowConverter.convert(fieldType.getRowSchema(), element);
+            }
+            case MAP:
+            case ARRAY:
+            case ITERABLE:
+            default:
+                throw new IllegalStateException("Not supported default value type: " + fieldType.getTypeName());
+        }
     }
 
 }

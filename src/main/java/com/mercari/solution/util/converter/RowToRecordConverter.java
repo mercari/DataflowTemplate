@@ -14,6 +14,8 @@ import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.HashMap;
@@ -37,33 +39,41 @@ public class RowToRecordConverter {
     }
 
     public static Schema convertSchema(final org.apache.beam.sdk.schemas.Schema schema) {
+        return convertSchema(schema, "root");
+    }
+
+    public static Schema convertSchema(final org.apache.beam.sdk.schemas.Schema schema, String name) {
         final String schemaName;
         final org.apache.beam.sdk.schemas.Schema.Options options = schema.getOptions();
-        if(options != null && options.hasOption("name")) {
+        if(options.hasOption("name")) {
             schemaName = options.getValue("name", String.class);
         } else {
-            schemaName = "root";
+            schemaName = name;
         }
-        final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record(schemaName).fields();
+        SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record(schemaName).fields();
         for(final org.apache.beam.sdk.schemas.Schema.Field field : schema.getFields()) {
+            SchemaBuilder.FieldBuilder<Schema> fieldBuilder = schemaFields
+                    .name(field.getName())
+                    .doc(field.getDescription())
+                    .orderIgnore();
+
+            // set altName
             if(field.getOptions().hasOption(SourceConfig.OPTION_ORIGINAL_FIELD_NAME)) {
-                schemaFields
-                        .name(field.getName())
-                        .prop(SourceConfig.OPTION_ORIGINAL_FIELD_NAME, field.getOptions().getValue(SourceConfig.OPTION_ORIGINAL_FIELD_NAME))
-                        .type(convertFieldSchema(field.getType(), field.getOptions(), field.getName(), null))
-                        .noDefault();
+                fieldBuilder = fieldBuilder.prop(SourceConfig.OPTION_ORIGINAL_FIELD_NAME, field.getOptions().getValue(SourceConfig.OPTION_ORIGINAL_FIELD_NAME));
+            }
+
+            final Schema fieldSchema = convertFieldSchema(field.getType(), field.getOptions(), field.getName(), null);
+
+            // set default
+            final SchemaBuilder.GenericDefault<Schema> fieldAssembler = fieldBuilder.type(fieldSchema);
+            if(field.getOptions().hasOption(RowSchemaUtil.OPTION_NAME_DEFAULT_VALUE)) {
+                final String defaultValue = field.getOptions().getValue(RowSchemaUtil.OPTION_NAME_DEFAULT_VALUE, String.class);
+                schemaFields = fieldAssembler.withDefault(AvroSchemaUtil.convertDefaultValue(fieldSchema, defaultValue));
             } else {
-                schemaFields
-                        .name(field.getName())
-                        .type(convertFieldSchema(field.getType(), field.getOptions(), field.getName(), null))
-                        .noDefault();
+                schemaFields = fieldAssembler.noDefault();
             }
         }
         return schemaFields.endRecord();
-    }
-
-    public static Schema convertFieldSchema(final org.apache.beam.sdk.schemas.Schema.FieldType fieldType) {
-        return convertFieldSchema(fieldType, null, "", null);
     }
 
     private static Schema convertFieldSchema(
@@ -124,18 +134,13 @@ public class RowToRecordConverter {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
-            case ROW: {
-                final List<Schema.Field> fields = fieldType.getRowSchema().getFields().stream()
-                        .map(f -> new Schema.Field(f.getName(), convertFieldSchema(f.getType(), f.getOptions(), f.getName(), parentNamespace), f.getDescription(), (Object) null, Schema.Field.Order.IGNORE))
-                        .collect(Collectors.toList());
-                fieldSchema = Schema.createRecord(fieldName, fieldType.getTypeName().name(), parentNamespace, false, fields);
+            case ROW:
+                fieldSchema = convertSchema(fieldType.getRowSchema(), fieldName);
                 break;
-            }
             case ITERABLE:
-            case ARRAY: {
+            case ARRAY:
                 fieldSchema = Schema.createArray(convertFieldSchema(fieldType.getCollectionElementType(), fieldOptions, fieldName, parentNamespace));
                 break;
-            }
             case MAP: {
                 final Schema mapValueSchema = convertFieldSchema(fieldType.getMapValueType(), fieldOptions, fieldName, parentNamespace);
                 fieldSchema = Schema.createMap(mapValueSchema);
@@ -167,8 +172,6 @@ public class RowToRecordConverter {
         }
         switch (schema.getType()) {
             case STRING:
-            case FIXED:
-            case BYTES:
             case BOOLEAN:
             case FLOAT:
             case DOUBLE:
@@ -180,6 +183,16 @@ public class RowToRecordConverter {
                 }
                 return schema.getEnumSymbols().get(enumValue.getValue());
             }
+            case FIXED:
+            case BYTES: {
+                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+                    if(value instanceof BigDecimal) {
+                        return AvroSchemaUtil.toByteBuffer((BigDecimal) value);
+                    }
+                } else {
+                    return ByteBuffer.wrap((byte[]) value);
+                }
+            }
             case INT:
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     if(value instanceof String) {
@@ -187,8 +200,12 @@ public class RowToRecordConverter {
                         return localDate != null ? Long.valueOf(localDate.toEpochDay()).intValue() : null;
                     } else if(value instanceof LocalDate) {
                         return ((Long)((LocalDate) value).toEpochDay()).intValue();
+                    } else if(value instanceof Long) {
+                        return ((Long)value).intValue();
                     } else if(value instanceof Integer) {
                         return value;
+                    } else if(value instanceof Short) {
+                        return ((Short)value).intValue();
                     } else {
                         throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for date");
                     }
@@ -196,11 +213,23 @@ public class RowToRecordConverter {
                     if(value instanceof String) {
                         final LocalTime localTime = DateTimeUtil.toLocalTime(value.toString());
                         return DateTimeUtil.toMilliOfDay(localTime);
+                    } else if(value instanceof LocalTime) {
+                        return ((Long)(((LocalTime) value).toNanoOfDay() / 1000_000L)).intValue();
                     } else {
                         throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for time");
                     }
                 } else {
-                    return Integer.valueOf(value.toString());
+                    if(value instanceof String) {
+                        return Integer.valueOf((String)value);
+                    } else if(value instanceof Long) {
+                        return ((Long)value).intValue();
+                    } else if(value instanceof Integer) {
+                        return value;
+                    } else if(value instanceof Short) {
+                        return ((Short)value).intValue();
+                    } else {
+                        throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for int");
+                    }
                 }
             case LONG:
                 if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
@@ -208,9 +237,32 @@ public class RowToRecordConverter {
                 } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
                     return java.time.Instant.parse(value.toString()).toEpochMilli() * 1000;
                 } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
-                    return Long.valueOf(value.toString());
+                    if(value instanceof String) {
+                        final LocalTime localTime = DateTimeUtil.toLocalTime(value.toString());
+                        return localTime != null ? (Long)(localTime.toNanoOfDay() / 1000L) : null;
+                    } else if(value instanceof LocalTime) {
+                        return ((LocalTime) value).toNanoOfDay() / 1000L;
+                    } else if(value instanceof Long) {
+                        return ((Long)value).intValue();
+                    } else if(value instanceof Integer) {
+                        return value;
+                    } else if(value instanceof Short) {
+                        return ((Short)value).intValue();
+                    } else {
+                        throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for date");
+                    }
                 } else {
-                    return Long.valueOf(value.toString());
+                    if(value instanceof String) {
+                        return Long.valueOf((String)value);
+                    } else if(value instanceof Long) {
+                        return value;
+                    } else if(value instanceof Integer) {
+                        return ((Integer)value).longValue();
+                    } else if(value instanceof Short) {
+                        return ((Short)value).longValue();
+                    } else {
+                        throw new IllegalArgumentException("Class: " + value.getClass().getName() + " is illegal for date");
+                    }
                 }
             case RECORD:
                 return convert(schema, (Row)value);

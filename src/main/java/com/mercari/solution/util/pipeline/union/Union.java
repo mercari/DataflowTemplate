@@ -120,7 +120,9 @@ public class Union {
                 list = list.and(unified);
             }
 
-            return list.apply("Flatten", Flatten.pCollections());
+            return list
+                    .apply("Flatten", Flatten.pCollections())
+                    .setCoder(outputCoder);
         }
 
         private static class UnionDoFn<T> extends DoFn<T, KV<String, UnionValue>> {

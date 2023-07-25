@@ -4,10 +4,11 @@ import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Value;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.JsonToRecordConverter;
+import com.mercari.solution.util.converter.JsonToRowConverter;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -26,6 +27,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -371,7 +373,7 @@ public class AvroSchemaUtil {
         return toBuilder(schema, schema.getNamespace(), fieldNames);
     }
 
-    public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema,  final String namespace, final Collection<String> fieldNames) {
+    public static SchemaBuilder.FieldAssembler<Schema> toBuilder(final Schema schema, final String namespace, final Collection<String> fieldNames) {
         final SchemaBuilder.FieldAssembler<Schema> schemaFields = SchemaBuilder.record("root").namespace(namespace).fields();
         schema.getFields().forEach(f -> {
             if(fieldNames == null || fieldNames.contains(f.name())) {
@@ -539,10 +541,22 @@ public class AvroSchemaUtil {
                 builder.set(field.name(), null);
             }
         }
-        //for(var entry : values.entrySet()) {
-        //    builder.set(entry.getKey(), entry.getValue());
-        //}
         return builder.build();
+    }
+
+    public static Schema merge(final Schema base, final Schema addition) {
+        SchemaBuilder.RecordBuilder<Schema> builder = SchemaBuilder.record(base.getName());
+        final SchemaBuilder.FieldAssembler<Schema> schemaFields = builder.fields();
+        for(final Schema.Field field : base.getFields()) {
+            schemaFields.name(field.name()).type(field.schema()).noDefault();
+        }
+        for(final Schema.Field field : addition.getFields()) {
+            if(base.getField(field.name()) != null) {
+                continue;
+            }
+            schemaFields.name(field.name()).type(field.schema()).noDefault();
+        }
+        return schemaFields.endRecord();
     }
 
     public static GenericRecord create(final Schema schema, final Map<String, ? extends Object> values) {
@@ -1445,6 +1459,13 @@ public class AvroSchemaUtil {
         return null;
     }
 
+    public static ByteBuffer toByteBuffer(final BigDecimal decimal) {
+        final BigDecimal newDecimal = decimal
+                .setScale(9, RoundingMode.HALF_UP)
+                .scaleByPowerOfTen(9);
+        return ByteBuffer.wrap(newDecimal.toBigInteger().toByteArray());
+    }
+
     public static Object toTimestampValue(final Instant timestamp) {
         if(timestamp == null) {
             return null;
@@ -1569,6 +1590,57 @@ public class AvroSchemaUtil {
             }
             default:
                 throw new IllegalStateException();
+        }
+    }
+
+    public static Object convertDefaultValue(final Schema fieldSchema, final String defaultValue) {
+        switch (fieldSchema.getType()) {
+            case ENUM:
+            case STRING:
+                return defaultValue;
+            case BOOLEAN:
+                return Boolean.valueOf(defaultValue);
+            case INT: {
+                if(LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
+                    final LocalDate localDate = DateTimeUtil.toLocalDate(defaultValue);
+                    return Long.valueOf(localDate.toEpochDay()).intValue();
+                } else if(LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                    final LocalTime localTime = DateTimeUtil.toLocalTime(defaultValue);
+                    final int epochMillis = Long.valueOf(localTime.toNanoOfDay() / 1000_000).intValue();
+                    return epochMillis;
+                } else {
+                    return Integer.valueOf(defaultValue);
+                }
+            }
+            case LONG: {
+                if(LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                    long epochMillis = DateTimeUtil.toEpochMicroSecond(defaultValue) / 1000L;
+                    return epochMillis;
+                } else if(LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                    return DateTimeUtil.toEpochMicroSecond(defaultValue);
+                } else if(LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                    final LocalTime localTime = DateTimeUtil.toLocalTime(defaultValue);
+                    return localTime.toNanoOfDay() / 1000L;
+                } else {
+                    return Long.valueOf(defaultValue);
+                }
+            }
+            case FLOAT:
+                return Float.valueOf(defaultValue);
+            case DOUBLE:
+                return Double.valueOf(defaultValue);
+            case BYTES:
+                return Base64.getDecoder().decode(defaultValue);
+            case RECORD: {
+                final JsonElement element = new Gson().fromJson(defaultValue, JsonElement.class);
+                return JsonToRecordConverter.convert(fieldSchema, element);
+            }
+            case UNION:
+                return convertDefaultValue(unnestUnion(fieldSchema), defaultValue);
+            case MAP:
+            case ARRAY:
+            default:
+                throw new IllegalStateException("Not supported default value type: " + fieldSchema);
         }
     }
 

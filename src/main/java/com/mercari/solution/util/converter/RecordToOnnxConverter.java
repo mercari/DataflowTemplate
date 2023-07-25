@@ -1,10 +1,10 @@
 package com.mercari.solution.util.converter;
 
 import ai.onnxruntime.*;
-import com.mercari.solution.util.OnnxUtil;
+import com.mercari.solution.util.domain.ml.ONNXRuntimeUtil;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
-import org.bytedeco.onnx.*;
 
 import java.nio.*;
 import java.util.HashMap;
@@ -13,30 +13,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class RecordToOnnxConverter {
-
-    public static ModelProto convertSchema(final Schema schema) {
-        //ModelProto model;
-        //model.graph().inp
-
-        for(Schema.Field field : schema.getFields()) {
-
-        }
-
-        TypeProto_Tensor tensorInput = new TypeProto_Tensor();
-        tensorInput.set_elem_type(7);
-        TensorShapeProto shape = new TensorShapeProto();
-        shape.add_dim().setNull();//.set_dim_value(1);
-        tensorInput.set_allocated_shape(shape);
-        TypeProto typeInput = new TypeProto();
-        //typeInput.set_denotation("");
-        typeInput.set_allocated_tensor_type(tensorInput);
-        ValueInfoProto infoInput = new ValueInfoProto();
-        //infoInput.set_name("input1");
-        infoInput.set_allocated_type(typeInput);
-
-
-        return null;
-    }
 
     public static Map<String, OnnxTensor> convert(
             final OrtEnvironment environment, final OrtSession session, final List<GenericRecord> records)
@@ -49,7 +25,7 @@ public class RecordToOnnxConverter {
                 final List<Object> values = records.stream()
                         .map(r -> r.get(entry.getKey()))
                         .collect(Collectors.toList());
-                tensors.put(entry.getKey(), convertTensor(environment, tensorInfo, values));
+                tensors.put(entry.getKey(), ONNXRuntimeUtil.convertTensor(environment, tensorInfo, values));
             } else if(entry.getValue().getInfo() instanceof MapInfo) {
                 final MapInfo mapInfo = (MapInfo) entry.getValue().getInfo();
             } else if(entry.getValue().getInfo() instanceof SequenceInfo) {
@@ -62,77 +38,158 @@ public class RecordToOnnxConverter {
         return tensors;
     }
 
-    private static OnnxTensor convertTensor(
-            final OrtEnvironment environment, final TensorInfo tensorInfo, final List<Object> values)
-            throws OrtException {
-
-        final long[] shape = new long[tensorInfo.getShape().length];
-        for(int idx = 0; idx < shape.length; idx++) {
-            shape[idx] = tensorInfo.getShape()[idx] >= 0 ? tensorInfo.getShape()[idx] : values.size();
+    public static Object getValue(final TensorInfo tensorInfo, final String field, final GenericRecord record, final Object defaultValue) {
+        final Object value = record.get(field);
+        if(value == null) {
+            return defaultValue;
         }
-        final List<Object> flattenValues = OnnxUtil.flatten(values, shape.length);
-        switch (tensorInfo.type) {
+        final Schema fieldSchema = AvroSchemaUtil.unnestUnion(record.getSchema().getField(field).schema());
+        switch (fieldSchema.getType()) {
+            case ARRAY: {
+                return ((List<Object>) value).stream()
+                        .map(v -> getValue(tensorInfo, fieldSchema.getElementType(), v))
+                        .collect(Collectors.toList());
+            }
+            case RECORD: {
+                throw new IllegalArgumentException();
+            }
+            default:
+                return getValue(tensorInfo, fieldSchema, value);
+        }
+
+    }
+
+    private static Object getValue(final TensorInfo tensorInfo, final Schema fieldSchema, final Object value) {
+        switch (fieldSchema.getType()) {
+            case BYTES: {
+                final ByteBuffer byteBuffer = (ByteBuffer) value;
+                switch (tensorInfo.type) {
+                    case INT8:
+                        return byteBuffer.array();
+                    case UINT8:
+                    case INT16:
+                        return byteBuffer.array();
+                    case UNKNOWN:
+                    default:
+                        throw new IllegalArgumentException("Not supported field type: " + fieldSchema.getType());
+                }
+            }
+            case ENUM:
             case STRING: {
-                final String[] stringValues = new String[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    stringValues[i] = (String) flattenValues.get(i);
+                final String stringValue = value.toString();
+                switch (tensorInfo.type) {
+                    case STRING:
+                        return stringValue;
+                    case BOOL:
+                        return Boolean.valueOf(stringValue);
+                    case INT32:
+                        return Integer.valueOf(stringValue);
+                    case INT64:
+                        return Long.valueOf(stringValue);
+                    case FLOAT:
+                        return Float.valueOf(stringValue);
+                    case DOUBLE:
+                        return Double.valueOf(stringValue);
+                    case INT8:
+                        return Byte.valueOf(stringValue);
+                    case INT16:
+                        return Short.valueOf(stringValue);
+                    case UNKNOWN:
+                    default:
+                        throw new IllegalArgumentException("Not supported field type: " + fieldSchema.getType());
                 }
-                return OnnxTensor.createTensor(environment, stringValues, shape);
             }
-            case BOOL: {
-                final int[] intValues = new int[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    intValues[i] = (Boolean) flattenValues.get(i) ? 1 : 0;
+            case INT: {
+                final Integer intValue = (Integer) value;
+                switch (tensorInfo.type) {
+                    case BOOL:
+                        return intValue > 0;
+                    case INT32:
+                        return intValue;
+                    case INT64:
+                        return intValue.longValue();
+                    case FLOAT:
+                        return intValue.floatValue();
+                    case DOUBLE:
+                        return intValue.doubleValue();
+                    case INT8:
+                        return intValue.byteValue();
+                    case INT16:
+                        return intValue.shortValue();
+                    case UNKNOWN:
+                    default:
+                        throw new IllegalArgumentException("Not supported field type: " + fieldSchema.getType());
                 }
-                return OnnxTensor.createTensor(environment, IntBuffer.wrap(intValues), shape);
             }
-            case INT8: {
-                final byte[] byteValues = new byte[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    byteValues[i] = (Byte) flattenValues.get(i);
+            case LONG: {
+                final Long longValue = (Long) value;
+                switch (tensorInfo.type) {
+                    case BOOL:
+                        return longValue > 0;
+                    case INT32:
+                        return longValue.intValue();
+                    case INT64:
+                        return longValue;
+                    case FLOAT:
+                        return longValue.floatValue();
+                    case DOUBLE:
+                        return longValue.doubleValue();
+                    case INT8:
+                        return longValue.byteValue();
+                    case INT16:
+                        return longValue.shortValue();
+                    case UNKNOWN:
+                    default:
+                        throw new IllegalArgumentException("Not supported field type: " + fieldSchema.getType());
                 }
-                return OnnxTensor.createTensor(environment, ByteBuffer.wrap(byteValues), shape);
-            }
-            case INT16: {
-                final short[] shortValues = new short[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    shortValues[i] = (Short) flattenValues.get(i);
-                }
-                return OnnxTensor.createTensor(environment, ShortBuffer.wrap(shortValues), shape);
-            }
-            case INT32: {
-                final int[] intValues = new int[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    intValues[i] = (Integer) flattenValues.get(i);
-                }
-                return OnnxTensor.createTensor(environment, IntBuffer.wrap(intValues), shape);
-            }
-            case INT64: {
-                final long[] longValues = new long[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    longValues[i] = (Long) flattenValues.get(i);
-                }
-                return OnnxTensor.createTensor(environment, LongBuffer.wrap(longValues), shape);
             }
             case FLOAT: {
-                final float[] floatValues = new float[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    floatValues[i] = (Float) flattenValues.get(i);
+                final Float floatValue = (Float) value;
+                switch (tensorInfo.type) {
+                    case BOOL:
+                        return floatValue > 0;
+                    case INT32:
+                        return floatValue.intValue();
+                    case INT64:
+                        return floatValue.longValue();
+                    case FLOAT:
+                        return floatValue;
+                    case DOUBLE:
+                        return floatValue.doubleValue();
+                    case INT8:
+                        return floatValue.byteValue();
+                    case INT16:
+                        return floatValue.shortValue();
+                    case UNKNOWN:
+                    default:
+                        throw new IllegalArgumentException("Not supported field type: " + fieldSchema.getType());
                 }
-                return OnnxTensor.createTensor(environment, FloatBuffer.wrap(floatValues), shape);
             }
             case DOUBLE: {
-                final double[] doubleValues = new double[flattenValues.size()];
-                for (int i = 0; i < flattenValues.size(); i++) {
-                    doubleValues[i] = (Double) flattenValues.get(i);
+                final Double doubleValue = (Double) value;
+                switch (tensorInfo.type) {
+                    case BOOL:
+                        return doubleValue > 0;
+                    case INT32:
+                        return doubleValue.intValue();
+                    case INT64:
+                        return doubleValue.longValue();
+                    case FLOAT:
+                        return doubleValue.floatValue();
+                    case DOUBLE:
+                        return doubleValue;
+                    case INT8:
+                        return doubleValue.byteValue();
+                    case INT16:
+                        return doubleValue.shortValue();
+                    case UNKNOWN:
+                    default:
+                        throw new IllegalArgumentException("Not supported field type: " + fieldSchema.getType());
                 }
-                return OnnxTensor.createTensor(environment, DoubleBuffer.wrap(doubleValues), shape);
             }
-            case UNKNOWN:
             default:
                 throw new IllegalArgumentException();
         }
-
     }
 
 }
