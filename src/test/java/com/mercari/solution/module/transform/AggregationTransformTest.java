@@ -30,7 +30,7 @@ public class AggregationTransformTest {
     @Rule
     public final transient TestPipeline pipeline = TestPipeline.create();
 
-    //@Test
+    @Test
     public void testAggregation() {
 
         final TransformConfig config = new TransformConfig();
@@ -342,7 +342,7 @@ public class AggregationTransformTest {
         PAssert.that(output1).satisfies(rows -> {
             int count = 0;
             for(final Row row : rows) {
-                System.out.println(row);
+                //System.out.println(row);
                 if("1".equals(row.getString("first_id"))) {
                     Assert.assertTrue(row.getBoolean("bool"));
                     Assert.assertEquals(5L, row.getInt64("count").longValue());
@@ -372,14 +372,14 @@ public class AggregationTransformTest {
                     Assert.assertEquals(3700D, row.getDouble("sumExpression").doubleValue(), DELTA);
                     Assert.assertEquals(250D, row.getDouble("avgDouble").doubleValue(), DELTA);
                     Assert.assertEquals(925D, row.getDouble("avgExpression").doubleValue(), DELTA);
-                    //Assert.assertEquals(1.5811388300841898D, row.getDouble("stdLong"), DELTA);
+                    Assert.assertEquals(1.5811388300841898D, row.getDouble("stdLong"), DELTA);
 
                     count += 1;
                 } else if("6".equals(row.getString("first_id"))) {
                     Assert.assertTrue(row.getBoolean("bool"));
                     Assert.assertEquals(5L, row.getInt64("count").longValue());
                     Assert.assertEquals("E", row.getString("first_string"));
-                    //Assert.assertEquals(1.5811388300841898D, row.getDouble("stdLong"), DELTA);
+                    Assert.assertEquals(1.5811388300841898D, row.getDouble("stdLong"), DELTA);
                     Assert.assertNull(row.getString("last_string"));
 
                     count += 1;

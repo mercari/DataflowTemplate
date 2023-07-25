@@ -1,17 +1,22 @@
 package com.mercari.solution.util.pipeline.aggregation;
 
 import com.mercari.solution.util.schema.RowSchemaUtil;
+import org.apache.avro.SchemaBuilder;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.StructuredCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
-import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.util.common.ElementByteSizeObserver;
 
-import java.io.Serializable;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
 
-@DefaultCoder(AvroCoder.class)
-public class Accumulator implements Serializable {
+public class Accumulator {
 
     public Boolean empty;
 
@@ -30,6 +35,22 @@ public class Accumulator implements Serializable {
 
     Accumulator() {
 
+    }
+
+    public Accumulator(final GenericRecord record) {
+        this.empty = (Boolean) record.get("empty");
+        this.ints = (Map<String, Integer>) record.get("ints");
+        this.longs = (Map<String, Long>) record.get("longs");
+        this.floats = (Map<String, Float>) record.get("floats");
+        this.doubles = (Map<String, Double>) record.get("doubles");
+        this.booleans = (Map<String, Boolean>) record.get("booleans");
+        this.strings = (Map<String, String>) record.get("strings");
+
+        this.intsList = (Map<String, List<Integer>>) record.get("intsList");
+        this.longsList = (Map<String, List<Long>>) record.get("longsList");
+        this.floatsList = (Map<String, List<Float>>) record.get("floatsList");
+        this.doublesList = (Map<String, List<Double>>) record.get("doublesList");
+        this.stringsList = (Map<String, List<String>>) record.get("stringsList");
     }
 
     public static Accumulator of() {
@@ -312,6 +333,26 @@ public class Accumulator implements Serializable {
         }
     }
 
+    public static Object convertNumberValue(Schema.FieldType fieldType, Double value) {
+        if(value == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case FLOAT:
+                return value.floatValue();
+            case DOUBLE:
+                return value;
+            case INT16:
+                return value.shortValue();
+            case INT32:
+                return value.intValue();
+            case INT64:
+                return value.longValue();
+            default:
+                return null;
+        }
+    }
+
     public static Accumulator copy(Accumulator base, Set<String> outputFields) {
         final Accumulator output = Accumulator.of();
         output.empty = base.empty;
@@ -342,6 +383,144 @@ public class Accumulator implements Serializable {
         }
 
         return output;
+    }
+
+    public static org.apache.avro.Schema schema() {
+        final org.apache.avro.Schema emptySchema = org.apache.avro.Schema.create(org.apache.avro.Schema.Type.BOOLEAN);
+
+        final org.apache.avro.Schema intsSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT));
+        final org.apache.avro.Schema longsSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.LONG));
+        final org.apache.avro.Schema floatsSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.FLOAT));
+        final org.apache.avro.Schema doublesSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.DOUBLE));
+        final org.apache.avro.Schema booleansSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.BOOLEAN));
+        final org.apache.avro.Schema stringsSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING));
+
+        final org.apache.avro.Schema intsListSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createArray(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT)));
+        final org.apache.avro.Schema longsListSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createArray(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.LONG)));
+        final org.apache.avro.Schema floatsListSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createArray(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.FLOAT)));
+        final org.apache.avro.Schema doublesListSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createArray(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.DOUBLE)));
+        final org.apache.avro.Schema stringsListSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createArray(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING)));
+
+
+        return SchemaBuilder.record("Accumulator").fields()
+                .name("empty").type(emptySchema).noDefault()
+                .name("ints").type(intsSchema).noDefault()
+                .name("longs").type(longsSchema).noDefault()
+                .name("floats").type(floatsSchema).noDefault()
+                .name("doubles").type(doublesSchema).noDefault()
+                .name("booleans").type(booleansSchema).noDefault()
+                .name("strings").type(stringsSchema).noDefault()
+                .name("intsList").type(intsListSchema).noDefault()
+                .name("longsList").type(longsListSchema).noDefault()
+                .name("floatsList").type(floatsListSchema).noDefault()
+                .name("doublesList").type(doublesListSchema).noDefault()
+                .name("stringsList").type(stringsListSchema).noDefault()
+                .endRecord();
+    }
+
+    public static class AccumulatorCoder extends StructuredCoder<Accumulator> {
+
+        private final AvroCoder<Accumulator> coder;
+
+        public AccumulatorCoder() {
+            this.coder = AvroCoder.of(Accumulator.class, schema(), false);
+        }
+
+        public static AccumulatorCoder of() {
+            return new AccumulatorCoder();
+        }
+
+        @Override
+        public void encode(Accumulator value, OutputStream outStream) throws IOException {
+            encode(value, outStream, Context.NESTED);
+        }
+
+
+        @Override
+        public void encode(Accumulator value, OutputStream outStream, Context context) throws IOException {
+            coder.encode(value, outStream, context);
+        }
+
+        @Override
+        public Accumulator decode(InputStream inStream) throws IOException {
+            final GenericRecord record = (GenericRecord) coder.decode(inStream, Context.NESTED);
+            return new Accumulator(record);
+        }
+
+        @Override
+        public Accumulator decode(InputStream inStream, Context context) throws  IOException {
+            final GenericRecord record = (GenericRecord) coder.decode(inStream, context);
+            return new Accumulator(record);
+        }
+
+        @Override
+        public List<? extends Coder<?>> getCoderArguments() {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<? extends Coder<?>> getComponents() {
+            final List<Coder<?>> coders = new ArrayList<>();
+            coders.add(coder);
+            return coders;
+        }
+
+        @Override
+        public void registerByteSizeObserver(Accumulator value, ElementByteSizeObserver observer) throws Exception {
+            coder.registerByteSizeObserver(value, observer);
+        }
+
+        @Override
+        public void verifyDeterministic() throws NonDeterministicException {
+            verifyDeterministic(this, "ProcessingBufferCoder is deterministic if all coders are deterministic");
+        }
+    }
+
+    public static Coder<Accumulator> coder() {
+        return AccumulatorCoder.of();
+    }
+
+    @Override
+    public String toString() {
+        final StringBuilder valuesMessage = new StringBuilder();
+        for(Map.Entry<String, Integer> entry : this.ints.entrySet()) {
+            valuesMessage.append("    ints." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, Long> entry : this.longs.entrySet()) {
+            valuesMessage.append("    longs." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, Float> entry : this.floats.entrySet()) {
+            valuesMessage.append("    floats." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, Double> entry : this.doubles.entrySet()) {
+            valuesMessage.append("    doubles." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, Boolean> entry : this.booleans.entrySet()) {
+            valuesMessage.append("    booleans." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, String> entry : this.strings.entrySet()) {
+            valuesMessage.append("    strings." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+
+        for(Map.Entry<String, List<Integer>> entry : this.intsList.entrySet()) {
+            valuesMessage.append("    intsList." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, List<Long>> entry : this.longsList.entrySet()) {
+            valuesMessage.append("    longsList." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, List<Float>> entry : this.floatsList.entrySet()) {
+            valuesMessage.append("    floatsList." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, List<Double>> entry : this.doublesList.entrySet()) {
+            valuesMessage.append("    doublesList." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+        for(Map.Entry<String, List<String>> entry : this.stringsList.entrySet()) {
+            valuesMessage.append("    stringsList." + entry.getKey() + ": " + entry.getValue() + "\n");
+        }
+
+        return "aggregation.Accumulator: \n" +
+                "  values:\n" + valuesMessage +
+                "  empty: " + empty;
     }
 
 }

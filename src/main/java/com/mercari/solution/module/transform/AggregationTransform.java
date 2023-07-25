@@ -21,8 +21,7 @@ import com.mercari.solution.util.pipeline.union.Union;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.RowCoder;
-import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
@@ -445,6 +444,7 @@ public class AggregationTransform implements TransformModule {
                     .apply("Union", Union.withKey(tags, inputTypes, groupFieldNames, inputNames))
                     .apply("WithWindow", window)
                     .apply("Aggregate", Combine.perKey(new AggregationCombineFn(inputNames, aggregatorsMap)))
+                    .setCoder(KvCoder.of(StringUtf8Coder.of(), Accumulator.coder()))
                     .apply("Values", ParDo.of(new AggregationOutputDoFn(
                             inputOutputSchema, schemaConverter, valueConverter, valueCreator,
                             groupFields, aggregatorsMap, outputEmpty, outputPaneInfo)));
@@ -464,7 +464,7 @@ public class AggregationTransform implements TransformModule {
                 this.aggregatorsMap = aggregatorsMap;
             }
 
-            public void init() {
+            private void init() {
                 if(this.aggregators == null) {
                     this.aggregators = aggregatorsMap
                             .entrySet()
@@ -485,8 +485,7 @@ public class AggregationTransform implements TransformModule {
             public Accumulator addInput(Accumulator accum, final UnionValue input) {
                 init();
                 final String inputName = inputNames.get(input.getIndex());
-                accum = aggregators.get(inputName).addInput(accum, input);
-                return accum;
+                return aggregators.get(inputName).addInput(accum, input);
             }
 
             @Override
@@ -504,21 +503,14 @@ public class AggregationTransform implements TransformModule {
                 return accum;
             }
 
-            /*
             @Override
-            public Coder<T> getAccumulatorCoder(CoderRegistry registry, Coder<T> inputCoder) {
-                return this.accumulatorCoder;
+            public Coder<Accumulator> getAccumulatorCoder(CoderRegistry registry, Coder<UnionValue> input) {
+                return Accumulator.coder();
             }
-
-            @Override
-            public Coder<T> getDefaultOutputCoder(CoderRegistry registry, Coder<T> inputCoder) {
-                return this.outputCoder;
-            }
-             */
 
         }
 
-        private class AggregationOutputDoFn extends DoFn<KV<String, Accumulator>, T> {
+        private class AggregationOutputDoFn extends DoFn<KV<String,Accumulator>, T> {
 
             private final InputSchemaT inputSchema;
             private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;

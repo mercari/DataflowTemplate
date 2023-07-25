@@ -129,7 +129,11 @@ public class Sum implements Aggregator {
 
         final Object maxValue = accumulator.get(sumField.getType(), name);
         final Object fieldValue = converter.convertPrimitive(sumField.getType(), maxValue);
-        values.put(name, fieldValue);
+        if(fieldValue == null) {
+            values.put(name, Accumulator.convertNumberValue(sumField.getType(), 0D));
+        } else {
+            values.put(name, fieldValue);
+        }
         return values;
     }
 

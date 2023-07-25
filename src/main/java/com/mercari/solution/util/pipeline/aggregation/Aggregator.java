@@ -127,7 +127,7 @@ public interface Aggregator extends Serializable {
             case avg:
                 return Avg.of(name, field, expression, condition, ignore, params);
             case std:
-                return Std.of(name, field, expression, condition, ignore, params);
+                return Std.of(name, field, expression, condition, ignore, separator, params);
             case regression:
                 return SimpleRegression.of(name, field, expression, condition, ignore, separator, params);
             case any:
