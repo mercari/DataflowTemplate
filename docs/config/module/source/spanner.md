@@ -13,20 +13,25 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 | timestampAttribute | optional | String              | If you want to use the value of an field as the event time, specify the name of the field. (The field must be Timestamp or Date type)                                         |
 | parameters         | required | Map<String,Object\> | Specify the following individual parameters                                                                                                                                   |
 
-## Spanner source module parameters
+## Spanner source module common parameters
+
+| parameter  | optional | type   | description                                                                                                                                                                                                  |
+|------------|----------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| projectId  | required | String | The GCP Project ID of the Spanner you want to load                                                                                                                                                           |
+| instanceId | required | String | The Instance ID of the Spanner you want to load                                                                                                                                                              |
+| databaseId | required | String | The Database ID of the Spanner you want to load                                                                                                                                                              |
+| mode       | optional | Enum   | Specify execution mode either `batch`, `changestream`, or `microbatch`. The default is `batch` when batch mode, `microbatch` when streaming mode and `microbatch` is true, `changestream` in the other case. |
+| priority   | optional | Enum   | Specify either `HIGH`, `MEDIUM`, or `LOW` as the query [priority](https://cloud.google.com/spanner/docs/cpu-utilization) to Spanner. The default is `MEDIUM`.                                                |
+
+### Spanner source module parameters for batch mode
 
 | parameter       | optional           | type           | description                                                                                                                                                                                                  |
 |-----------------|--------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| projectId       | required           | String         | The GCP Project ID of the Spanner you want to load                                                                                                                                                           |
-| instanceId      | required           | String         | The Instance ID of the Spanner you want to load                                                                                                                                                              |
-| databaseId      | required           | String         | The Database ID of the Spanner you want to load                                                                                                                                                              |
 | query           | selective required | String         | Specify the SQL to read data from Spanner. Not necessary if table is specified. You can also specify the path of the GCS where you put the SQL file.                                                         |
 | table           | selective required | String         | Specify the table name to read data from Spanner. Not necessary if query is specified.                                                                                                                       |
 | fields          | optional           | Array<String\> | Specify the name of the field you want to read from the table. The default is all fields.                                                                                                                    |
 | timestampBound  | optional           | String         | Specify when you want to read the data at the specified time. Format: `yyyy-MM-ddTHH:mm:SSZ`                                                                                                                 |
-| priority        | optional           | Enum           | Specify either `HIGH`, `MEDIUM`, or `LOW` as the query [priority](https://cloud.google.com/spanner/docs/cpu-utilization) to Spanner. The default is `MEDIUM`.                                                |
 | enableDataBoost | optional           | Boolean        | Specify to enable [data boost](https://cloud.google.com/spanner/docs/databoost/databoost-overview). The default is false.                                                                                    |
-| mode            | optional           | Enum           | Specify execution mode either `batch`, `changestream`, or `microbatch`. The default is `batch` when batch mode, `microbatch` when streaming mode and `microbatch` is true, `changestream` in the other case. |
 | requestTag      | optional           | String         | Specify the [request tag](https://cloud.google.com/spanner/docs/introspection/troubleshooting-with-tags#request_tags) to be given to the query to Spanner.                                                   |
 
 ### Spanner source module parameters for changestream mode
@@ -35,25 +40,27 @@ Source Module for loading data by specifying a query or table into Cloud Spanner
 
 To run in `changestream` mode, specify `streaming=true`, `additional-experiments=use_runner_v2` parameters at runtime.
 
-| parameter          | optional | type                | description                                                                                                                                                  |
-|--------------------|----------|---------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| changeStreamName   | required | String              | Specify name of the spanner change stream to read from.                                                                                                      |
-| changeStreamMode   | optional | Enum                | Specify either `struct` or `mutation` as the output type. The default is `struct`                                                                            |
-| metadataInstance   | optional | String              | Specify spanner instance to use for the change streams connector metadata table. The default is same as `instanceId`                                         |
-| metadataDatabase   | optional | String              | Specify spanner database to use for the change streams connector metadata table. The default is same as `databaseId`                                         |
-| metadataTable      | optional | String              | Specify change stream connector metadata table name. If not provided, automatically created.                                                                 |
-| inclusiveStartAt   | optional | String              | Specify timestamp to read change streams from. The starting DateTime inclusive                                                                               |
-| inclusiveEndAt     | optional | String              | Specify timestamp to read change streams to. The ending DateTime inclusive                                                                                   |
-| outputChangeRecord | optional | Boolean             | Specify output original change stream record. the default is true.                                                                                           |
-| tables             | optional | Array<String\>      | Specify table names you want to output.                                                                                                                      |
-| renameTables       | optional | Map<String,String\> | Specify a map of corresponding table names if you want to change the destination table name when inserting direct change record into another Spanner tables. |
+| parameter            | optional | type                | description                                                                                                                                                  |
+|----------------------|----------|---------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| changeStreamName     | required | String              | Specify name of the spanner change stream to read from.                                                                                                      |
+| changeStreamMode     | optional | Enum                | Specify either `struct` or `mutation` as the output type. The default is `struct`                                                                            |
+| metadataInstance     | optional | String              | Specify spanner instance to use for the change streams connector metadata table. The default is same as `instanceId`                                         |
+| metadataDatabase     | optional | String              | Specify spanner database to use for the change streams connector metadata table. The default is same as `databaseId`                                         |
+| metadataTable        | optional | String              | Specify change stream connector metadata table name. If not provided, automatically created.                                                                 |
+| inclusiveStartAt     | optional | String              | Specify timestamp to read change streams from. The starting DateTime inclusive                                                                               |
+| inclusiveEndAt       | optional | String              | Specify timestamp to read change streams to. The ending DateTime inclusive                                                                                   |
+| outputChangeRecord   | optional | Boolean             | Specify output original change stream record. the default is true.                                                                                           |
+| tables               | optional | Array<String\>      | Specify table names you want to output.                                                                                                                      |
+| renameTables         | optional | Map<String,String\> | Specify a map of corresponding table names if you want to change the destination table name when inserting direct change record into another Spanner tables. |
+| applyUpsertForInsert | optional | Boolean             | Specify true if you want to treat `INSERT` mutation as `INSERT_OR_UPDATE` when `changeStreamMode` is `mutation`. The default is false.                       |
+| applyUpsertForUpdate | optional | Boolean             | Specify true if you want to treat `UPDATE` mutation as `INSERT_OR_UPDATE` when `changeStreamMode` is `mutation`. The default is false.                       |
 
 #### changeStreamMode
 
-| name     | description                                                                       |
-|----------|-----------------------------------------------------------------------------------|
-| struct   | Output changed record itself and additionally output as structs in table schemas. |
-| mutation | Output change record as mutation to insert another spanner table.                 |
+| name     | description                                                                      |
+|----------|----------------------------------------------------------------------------------|
+| struct   | Output change record itself and additionally output as structs in table schemas. |
+| mutation | Output change record as mutation to insert another spanner database.             |
 
 ### Spanner source module parameters for microbatch mode
 

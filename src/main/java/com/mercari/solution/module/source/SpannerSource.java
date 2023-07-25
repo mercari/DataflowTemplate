@@ -83,6 +83,8 @@ public class SpannerSource implements SourceModule {
         private Boolean outputChangeRecord;
         private List<String> tables;
         private Map<String,String> renameTables;
+        private Boolean applyUpsertForInsert;
+        private Boolean applyUpsertForUpdate;
 
         // for microbatch
         private Integer intervalSecond;
@@ -278,6 +280,14 @@ public class SpannerSource implements SourceModule {
 
         public void setRenameTables(Map<String, String> renameTables) {
             this.renameTables = renameTables;
+        }
+
+        public Boolean getApplyUpsertForInsert() {
+            return applyUpsertForInsert;
+        }
+
+        public Boolean getApplyUpsertForUpdate() {
+            return applyUpsertForUpdate;
         }
 
         public Integer getIntervalSecond() {
@@ -482,6 +492,12 @@ public class SpannerSource implements SourceModule {
             if(this.getRenameTables() == null) {
                 this.setRenameTables(new HashMap<>());
             }
+            if(this.applyUpsertForInsert == null) {
+                this.applyUpsertForInsert = false;
+            }
+            if(this.applyUpsertForUpdate == null) {
+                this.applyUpsertForUpdate = false;
+            }
 
             if(this.outputChangeRecord == null) {
                 this.outputChangeRecord = true;
@@ -624,15 +640,6 @@ public class SpannerSource implements SourceModule {
                     }
                 }
             }
-            /*
-            case mutation: {
-                final Schema dummySchema = StructSchemaUtil.createDataChangeRecordRowSchema();
-                final PCollection<Mutation> output = begin
-                        .apply(new SpannerChangeStreamMutationRead(parameters, tableTypes))
-                        .setCoder(SerializableCoder.of(Mutation.class));
-                return Collections.singletonMap(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, dummySchema));
-            }
-             */
             case mutation: {
                 final Schema dummySchema = StructSchemaUtil.createDataChangeRecordRowSchema();
                 final PCollection<MutationGroup> output = begin
@@ -1270,7 +1277,7 @@ public class SpannerSource implements SourceModule {
                             .withKeyType(TypeDescriptors.strings()))
                     .apply("GroupByTransaction", GroupByKey.create())
                     .apply("ConvertToMutationGroup", ParDo
-                            .of(new ConvertMutationGroupDoFn(tableTypes, parameters.getRenameTables())))
+                            .of(new ConvertMutationGroupDoFn(tableTypes, parameters.getRenameTables(), parameters.getApplyUpsertForInsert(), parameters.getApplyUpsertForUpdate())))
                     .setCoder(SerializableCoder.of(MutationGroup.class));
         }
 
@@ -1279,10 +1286,18 @@ public class SpannerSource implements SourceModule {
 
             private final Map<String, Type> tableTypes;
             private final Map<String, String> tableNames;
+            private final Boolean applyUpsertForInsert;
+            private final Boolean applyUpsertForUpdate;
 
-            private ConvertMutationGroupDoFn(final Map<String, Type> tableTypes, final Map<String,String> tableNames) {
+            private ConvertMutationGroupDoFn(final Map<String, Type> tableTypes,
+                                             final Map<String,String> tableNames,
+                                             final Boolean applyUpsertForInsert,
+                                             final Boolean applyUpsertForUpdate) {
+
                 this.tableTypes = tableTypes;
                 this.tableNames = tableNames;
+                this.applyUpsertForInsert = applyUpsertForInsert;
+                this.applyUpsertForUpdate = applyUpsertForUpdate;
             }
 
             @Setup
@@ -1295,7 +1310,7 @@ public class SpannerSource implements SourceModule {
                 final List<Mutation> mutations = StreamSupport
                         .stream(c.element().getValue().spliterator(), false)
                         .sorted(Comparator.comparing(DataChangeRecord::getRecordSequence))
-                        .flatMap(r -> StructSchemaUtil.convertToMutation(tableTypes.get(r.getTableName()), r, tableNames).stream())
+                        .flatMap(r -> StructSchemaUtil.convertToMutation(tableTypes.get(r.getTableName()), r, tableNames, applyUpsertForInsert, applyUpsertForUpdate).stream())
                         .collect(Collectors.toList());
 
                 final MutationGroup mutationGroup;
