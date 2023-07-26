@@ -35,7 +35,7 @@ public class UnionValueToOnnxConverter {
         switch (unionValue.getType()) {
             case ROW: {
                 final Row row = (Row) unionValue.getValue();
-                return RowToONNXTensorConverter.getValue(tensorInfo, field, row, null);
+                return RowToOnnxConverter.getValue(tensorInfo, field, row, null);
             }
             case AVRO: {
                 final GenericRecord record = (GenericRecord) unionValue.getValue();

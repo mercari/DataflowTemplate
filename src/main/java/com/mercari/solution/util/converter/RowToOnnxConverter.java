@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class RowToONNXTensorConverter {
+public class RowToOnnxConverter {
 
     public static Map<String, OnnxTensor> convert(
             final OrtEnvironment environment, final OrtSession session, final List<Row> rows)

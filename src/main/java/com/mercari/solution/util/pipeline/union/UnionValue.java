@@ -303,12 +303,12 @@ public class UnionValue {
                 switch (dataType) {
                     case ROW: {
                         final Schema rowSchema = (Schema) schema;
-                        final Row row = FirestoreDocumentToRowConverter.convert(rowSchema, document);
+                        final Row row = DocumentToRowConverter.convert(rowSchema, document);
                         return RowSchemaUtil.merge(rowSchema, row, updates);
                     }
                     case AVRO:
                         final org.apache.avro.Schema avroSchema = (org.apache.avro.Schema) schema;
-                        final GenericRecord record = FirestoreDocumentToRecordConverter.convert(avroSchema, document);
+                        final GenericRecord record = DocumentToRecordConverter.convert(avroSchema, document);
                         return AvroSchemaUtil.merge(avroSchema, record, updates);
                     default:
                         throw new IllegalStateException("Not supported conversion. from firestore document to " + dataType.name());

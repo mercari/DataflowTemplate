@@ -7,9 +7,9 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
 import com.mercari.solution.util.OptionUtil;
-import com.mercari.solution.util.converter.FirestoreDocumentToRecordConverter;
-import com.mercari.solution.util.converter.FirestoreDocumentToRowConverter;
-import com.mercari.solution.util.converter.RowToFirestoreDocumentConverter;
+import com.mercari.solution.util.converter.DocumentToRecordConverter;
+import com.mercari.solution.util.converter.DocumentToRowConverter;
+import com.mercari.solution.util.converter.RowToDocumentConverter;
 import com.mercari.solution.util.gcp.FirestoreUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.DocumentSchemaUtil;
@@ -244,7 +244,7 @@ public class FirestoreSource implements SourceModule {
                         parameters,
                         outputSchema,
                         s -> s,
-                        FirestoreDocumentToRowConverter::convert);
+                        DocumentToRowConverter::convert);
                 final PCollection<Row> rows = begin
                         .apply(config.getName(), source)
                         .setCoder(RowCoder.of(outputSchema));
@@ -257,7 +257,7 @@ public class FirestoreSource implements SourceModule {
                         parameters,
                         outputAvroSchema.toString(),
                         AvroSchemaUtil::convertSchema,
-                        FirestoreDocumentToRecordConverter::convert);
+                        DocumentToRecordConverter::convert);
                 final PCollection<GenericRecord> records = begin
                         .apply(config.getName(), source)
                         .setCoder(AvroCoder.of(outputAvroSchema));
@@ -479,7 +479,7 @@ public class FirestoreSource implements SourceModule {
 
                             final Schema.FieldType fieldType = schema.getField(field).getType();
                             final StructuredQuery.FieldFilter.Operator operator = convertOp(op);
-                            final Value value = RowToFirestoreDocumentConverter.getValue(fieldType, strValue);
+                            final Value value = RowToDocumentConverter.getValue(fieldType, strValue);
 
                             final StructuredQuery.FieldFilter fieldFilter = StructuredQuery.FieldFilter.newBuilder()
                                     .setField(StructuredQuery.FieldReference.newBuilder()

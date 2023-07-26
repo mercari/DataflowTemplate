@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 
-public class RecordToFirestoreDocumentConverter {
+public class RecordToDocumentConverter {
 
     public static Document.Builder convert(final Schema schema, final GenericRecord record) {
         final Document.Builder builder = Document.newBuilder();

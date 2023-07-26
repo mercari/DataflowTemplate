@@ -16,7 +16,7 @@ import org.apache.avro.generic.GenericRecordBuilder;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class FirestoreDocumentToRecordConverter {
+public class DocumentToRecordConverter {
 
     public static GenericRecord convert(final RunQueryResponse response, final Schema schema) {
         return convert(schema, response.getDocument());

@@ -181,7 +181,7 @@ public class FirestoreSink implements SinkModule {
                         parameters,
                         inputSchema,
                         s -> s,
-                        RowToFirestoreDocumentConverter::convert,
+                        RowToDocumentConverter::convert,
                         RowSchemaUtil::getAsString,
                         RowToMapConverter::convert,
                         waitCollections);
@@ -195,7 +195,7 @@ public class FirestoreSink implements SinkModule {
                         parameters,
                         inputSchema.toString(),
                         AvroSchemaUtil::convertSchema,
-                        RecordToFirestoreDocumentConverter::convert,
+                        RecordToDocumentConverter::convert,
                         AvroSchemaUtil::getAsString,
                         RecordToMapConverter::convert,
                         waitCollections);

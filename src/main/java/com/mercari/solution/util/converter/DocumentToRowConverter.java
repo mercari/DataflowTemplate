@@ -14,7 +14,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class FirestoreDocumentToRowConverter {
+public class DocumentToRowConverter {
 
     public static Row convert(final Schema schema, final Document document) {
         if(schema == null) {
