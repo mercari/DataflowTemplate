@@ -57,28 +57,15 @@ public class FlexPipeline {
             LOG.info("DirectRunner mode.");
             final Pipeline pipeline = Pipeline.create(localOptions);
             run(pipeline, config);
-            return;
-        }
-
-        LOG.info("DataflowRunner mode.");
-        final FlexDataflowPipelineOptions flexOptions = localOptions.as(FlexDataflowPipelineOptions.class);
-        flexOptions.setAppName("Mercari Dataflow Template");
-        if(config.getName() != null) {
-            flexOptions.setJobName(config.getName().trim().replaceAll(" ", ""));
-        }
-
-        if(flexOptions.isStreaming()) {
-            LOG.info("streaming");
-            flexOptions.setEnableStreamingEngine(true);
         } else {
-            LOG.info("batch");
-            final List<String> experiments = Optional.ofNullable(flexOptions.getExperiments()).orElse(new ArrayList<>());
-            experiments.add("shuffle_mode=service");
-            flexOptions.setExperiments(experiments);
+            LOG.info("DataflowRunner mode.");
+            final FlexDataflowPipelineOptions flexOptions = localOptions.as(FlexDataflowPipelineOptions.class);
+            flexOptions.setAppName("Mercari Dataflow Template");
+
+            final Pipeline pipeline = Pipeline.create(flexOptions);
+            run(pipeline, config);
         }
 
-        final Pipeline pipeline = Pipeline.create(flexOptions);
-        run(pipeline, config);
     }
 
     private static void run(final Pipeline pipeline, final Config config) {
@@ -125,11 +112,23 @@ public class FlexPipeline {
 
             if(settings.getDataflow() != null) {
                 final Settings.DataflowSettings dataflow = settings.getDataflow();
-                if(dataflow.getAutoscalingAlgorithm() != null) {
-                    options.as(DataflowPipelineOptions.class).setAutoscalingAlgorithm(dataflow.getAutoscalingAlgorithm());
+                if(dataflow.getJobName() != null) {
+                    options.as(DataflowPipelineOptions.class).setJobName(dataflow.getJobName());
+                }
+                if(dataflow.getTempLocation() != null) {
+                    options.as(DataflowPipelineOptions.class).setTempLocation(dataflow.getTempLocation());
+                }
+                if(dataflow.getStagingLocation() != null) {
+                    options.as(DataflowPipelineOptions.class).setStagingLocation(dataflow.getStagingLocation());
                 }
                 if(dataflow.getLabels() != null && dataflow.getLabels().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setLabels(dataflow.getLabels());
+                }
+                if(dataflow.getAutoscalingAlgorithm() != null) {
+                    options.as(DataflowPipelineOptions.class).setAutoscalingAlgorithm(dataflow.getAutoscalingAlgorithm());
+                }
+                if(dataflow.getFlexRSGoal() != null) {
+                    options.as(DataflowPipelineOptions.class).setFlexRSGoal(dataflow.getFlexRSGoal());
                 }
                 if(dataflow.getNumWorkers() != null && dataflow.getNumWorkers() > 0) {
                     options.as(DataflowPipelineOptions.class).setNumWorkers(dataflow.getNumWorkers());
@@ -137,8 +136,17 @@ public class FlexPipeline {
                 if(dataflow.getMaxNumWorkers() != null && dataflow.getMaxNumWorkers() > 0) {
                     options.as(DataflowPipelineOptions.class).setMaxNumWorkers(dataflow.getMaxNumWorkers());
                 }
+                if(dataflow.getNumberOfWorkerHarnessThreads() != null && dataflow.getNumberOfWorkerHarnessThreads() > 0) {
+                    options.as(DataflowPipelineOptions.class).setNumberOfWorkerHarnessThreads(dataflow.getNumberOfWorkerHarnessThreads());
+                }
                 if(dataflow.getWorkerMachineType() != null) {
                     options.as(DataflowPipelineOptions.class).setWorkerMachineType(dataflow.getWorkerMachineType());
+                }
+                if(dataflow.getWorkerRegion() != null) {
+                    options.as(DataflowPipelineOptions.class).setWorkerRegion(dataflow.getWorkerRegion());
+                }
+                if(dataflow.getWorkerZone() != null) {
+                    options.as(DataflowPipelineOptions.class).setWorkerZone(dataflow.getWorkerZone());
                 }
                 if(dataflow.getDiskSizeGb() != null) {
                     options.as(DataflowPipelineOptions.class).setDiskSizeGb(dataflow.getDiskSizeGb());
@@ -146,23 +154,32 @@ public class FlexPipeline {
                 if(dataflow.getWorkerDiskType() != null) {
                     options.as(DataflowPipelineOptions.class).setWorkerDiskType(dataflow.getWorkerDiskType());
                 }
+                if(dataflow.getServiceAccount() != null) {
+                    options.as(DataflowPipelineOptions.class).setServiceAccount(dataflow.getServiceAccount());
+                }
+                if(dataflow.getImpersonateServiceAccount() != null) {
+                    options.as(DataflowPipelineOptions.class).setImpersonateServiceAccount(dataflow.getImpersonateServiceAccount());
+                }
+                if(dataflow.getNetwork() != null) {
+                    options.as(DataflowPipelineOptions.class).setNetwork(dataflow.getNetwork());
+                }
+                if(dataflow.getSubnetwork() != null) {
+                    options.as(DataflowPipelineOptions.class).setSubnetwork(dataflow.getSubnetwork());
+                }
                 if(dataflow.getUsePublicIps() != null) {
                     options.as(DataflowPipelineOptions.class).setUsePublicIps(dataflow.getUsePublicIps());
                 }
-                if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
-                    options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
-                }
-                if(dataflow.getNumberOfWorkerHarnessThreads() != null && dataflow.getNumberOfWorkerHarnessThreads() > 0) {
-                    options.as(DataflowPipelineOptions.class).setNumberOfWorkerHarnessThreads(dataflow.getNumberOfWorkerHarnessThreads());
-                }
-                if(dataflow.getFlexRSGoal() != null) {
-                    options.as(DataflowPipelineOptions.class).setFlexRSGoal(dataflow.getFlexRSGoal());
+                if(dataflow.getWorkerCacheMb() != null && dataflow.getWorkerCacheMb() > 0) {
+                    options.as(DataflowPipelineOptions.class).setWorkerCacheMb(dataflow.getWorkerCacheMb());
                 }
                 if(dataflow.getCreateFromSnapshot() != null) {
                     options.as(DataflowPipelineOptions.class).setCreateFromSnapshot(dataflow.getCreateFromSnapshot());
                 }
                 if(dataflow.getSdkContainerImage() != null) {
                     options.as(DataflowPipelineOptions.class).setSdkContainerImage(dataflow.getSdkContainerImage());
+                }
+                if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
+                    options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
                 }
                 if(dataflow.getExperiments() != null && dataflow.getExperiments().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setExperiments(dataflow.getExperiments());
