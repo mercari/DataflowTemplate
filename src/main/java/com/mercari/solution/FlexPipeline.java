@@ -178,6 +178,11 @@ public class FlexPipeline {
                 if(dataflow.getSdkContainerImage() != null) {
                     options.as(DataflowPipelineOptions.class).setSdkContainerImage(dataflow.getSdkContainerImage());
                 }
+                if(dataflow.getEnableStreamingEngine() != null) {
+                    options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(dataflow.getEnableStreamingEngine());
+                } else {
+                    options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(true);
+                }
                 if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
                 }

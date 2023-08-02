@@ -82,7 +82,6 @@ public class Settings {
         private String jobName;
         private String tempLocation;
         private String stagingLocation;
-        private String templateLocation;
         private Map<String, String> labels;
         private DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType autoscalingAlgorithm;
         private DataflowPipelineOptions.FlexResourceSchedulingGoal flexRSGoal;
@@ -102,6 +101,7 @@ public class Settings {
         private Integer workerCacheMb;
         private String createFromSnapshot;
         private String sdkContainerImage;
+        private Boolean enableStreamingEngine;
         private List<String> dataflowServiceOptions;
         private List<String> experiments;
 
@@ -192,6 +192,10 @@ public class Settings {
 
         public String getSdkContainerImage() {
             return sdkContainerImage;
+        }
+
+        public Boolean getEnableStreamingEngine() {
+            return enableStreamingEngine;
         }
 
         public List<String> getDataflowServiceOptions() {
