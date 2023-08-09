@@ -129,6 +129,13 @@ public class DocumentSchemaUtil {
         return document;
     }
 
+    public static String getAsString(final Value value) {
+        final Object object = getValue(value);
+        if(object == null) {
+            return null;
+        }
+        return object.toString();
+    }
     public static String getAsString(final Object document, final String fieldName) {
         if(document == null) {
             return null;
@@ -270,6 +277,10 @@ public class DocumentSchemaUtil {
             return null;
         }
         final Value value = document.getFieldsOrThrow(fieldName);
+        return getValue(value);
+    }
+
+    public static Object getValue(final Value value) {
         switch(value.getValueTypeCase()) {
             case STRING_VALUE: return value.getStringValue();
             case BYTES_VALUE: return value.getBytesValue().toByteArray();
