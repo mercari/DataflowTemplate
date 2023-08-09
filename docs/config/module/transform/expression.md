@@ -62,11 +62,16 @@ The following built-in operators and functions are available for use in formulas
 
 ### multi arguments functions
 
-| function                                 | description                                                                                          |
-|------------------------------------------|------------------------------------------------------------------------------------------------------|
-| if(`expr`, `true_result`, `else_result`) | If `expr` evaluates to `true`, returns `true_result`, else returns the evaluation for `else_result`. |
-| max(`value1`, `value2`)                  | Returns the greater of two arguments values.                                                         |
-| min(`value1`, `value2`)                  | Returns the smaller of two arguments values.                                                         |
+| function                                                      | description                                                                                          |
+|---------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| if(`expr`, `true_result`, `else_result`)                      | If `expr` evaluates to `true`, returns `true_result`, else returns the evaluation for `else_result`. |
+| max(`value1`, `value2`)                                       | Returns the greater of two arguments values.                                                         |
+| min(`value1`, `value2`)                                       | Returns the smaller of two arguments values.                                                         |
+| min(`value1`, `value2`)                                       | Returns the smaller of two arguments values.                                                         |
+| timestamp_diff_day(`timestamp_value2`, `timestamp_value2`)    | Returns the difference between two timestamps in days                                                |
+| timestamp_diff_hour(`timestamp_value2`, `timestamp_value2`)   | Returns the difference between two timestamps in hours                                               |
+| timestamp_diff_minute(`timestamp_value2`, `timestamp_value2`) | Returns the difference between two timestamps in minutes                                             |
+| timestamp_to_date(`timestamp_value`, `offset_hour`)           | Converts a timestamp value to a date with the specified offset hour                                  |
 
 
 ## Data type mapping
@@ -74,14 +79,15 @@ The following built-in operators and functions are available for use in formulas
 With expression, data fields types are converted to `double` types with the following mapping.
 
 
-| original data type  | description                                                                         |
-|---------------------|-------------------------------------------------------------------------------------|
-| int16, int32, int64 | integer value as double value                                                       |
-| float32, float64    | double value itself                                                                 |
-| numeric             | bigdecimal value as double value                                                    |
-| boolean             | `1.0` if the value is true, `0.0` if false                                          |
-| string              | Parse string value as double type                                                   |
-| date                | double value of unix epoch days (days number from `1970-01-01`)                     |
+| original data type  | description                                                                        |
+|---------------------|------------------------------------------------------------------------------------|
+| int16, int32, int64 | integer value as double value                                                      |
+| float32, float64    | double value itself                                                                |
+| numeric             | bigdecimal value as double value                                                   |
+| boolean             | `1.0` if the value is true, `0.0` if false                                         |
+| string              | Parse string value as double type                                                  |
+| date                | double value of unix epoch days (days from `1970-01-01`)                           |
+| timestamp           | double value of unix epoch microseconds (microseconds from `1970-01-01T00:00:00Z`) |
 
 ## Numerical constants
 

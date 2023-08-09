@@ -85,6 +85,10 @@ public class UnionValue {
                 final Struct struct = (Struct) unionValue.value;
                 return StructSchemaUtil.getValue(struct, field);
             }
+            case DOCUMENT: {
+                final Document document = (Document) unionValue.value;
+                return DocumentSchemaUtil.getValue(document, field);
+            }
             case ENTITY: {
                 final Entity entity = (Entity) unionValue.value;
                 return EntitySchemaUtil.getValue(entity, field);

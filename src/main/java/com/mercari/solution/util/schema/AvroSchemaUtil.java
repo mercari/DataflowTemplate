@@ -1326,6 +1326,65 @@ public class AvroSchemaUtil {
         }
     }
 
+    public static Object getAsPrimitive(final org.apache.beam.sdk.schemas.Schema.FieldType fieldType, final Object fieldValue) {
+        if(fieldValue == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT32:
+            case INT64:
+            case FLOAT:
+            case DOUBLE:
+            case BOOLEAN:
+                return fieldValue;
+            case STRING:
+                return fieldValue.toString();
+            case DATETIME: {
+                return fieldValue;
+            }
+            case LOGICAL_TYPE: {
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return fieldValue;
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return fieldValue;
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return fieldValue;
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT32:
+                    case INT64:
+                    case FLOAT:
+                    case DOUBLE:
+                    case BOOLEAN:
+                        return fieldValue;
+                    case STRING:
+                        return ((List<Object>) fieldValue).stream().map(Object::toString).collect(Collectors.toList());
+                    case DATETIME: {
+                        return fieldValue;
+                    }
+                    case LOGICAL_TYPE:
+                        return fieldValue;
+                    case ITERABLE:
+                    case ARRAY:
+                    case ROW:
+                    case BYTES:
+                    case MAP:
+                    case BYTE:
+                    case DECIMAL:
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
     public static List<Float> getAsFloatList(final GenericRecord record, final String fieldName) {
         final Object value = record.get(fieldName);
         if(value == null) {

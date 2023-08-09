@@ -121,6 +121,7 @@ public class Filter implements Serializable {
         private JsonElement value;
 
         private Expression expression;
+        private Set<String> expressionVariables;
         private String expressionString;
 
         public String getKey() {
@@ -297,8 +298,12 @@ public class Filter implements Serializable {
             for(ConditionLeaf leaf : condition.getLeaves()) {
                 final Object value;
                 if(leaf.expression != null) {
+                    if(!values.keySet().containsAll(leaf.expressionVariables)) {
+                        throw new IllegalArgumentException("filter conditions expression variables[" + leaf.expressionVariables + "] are not included all in values keys: " + values.keySet());
+                    }
                     final Map<String, Double> variables = values.entrySet()
                             .stream()
+                            .filter(e -> leaf.expressionVariables.contains(e.getKey()))
                             .collect(Collectors.toMap(
                                     Map.Entry::getKey,
                                     e -> ExpressionUtil.getAsDouble(e.getValue(), Double.NaN)));
@@ -432,12 +437,14 @@ public class Filter implements Serializable {
             }
             final String expression = jsonObject.get("expression").getAsString();
             leaf.key = expression;
-            leaf.expression = ExpressionUtil.createDefaultExpression(expression);
+            leaf.expressionVariables = ExpressionUtil.estimateVariables(expression);
+            leaf.expression = ExpressionUtil.createDefaultExpression(expression, leaf.expressionVariables);
             leaf.expressionString = expression;
         } else {
             leaf.key = jsonObject.get("key").getAsString();
             leaf.expression = null;
             leaf.expressionString = null;
+            leaf.expressionVariables = new HashSet<>();
         }
         return leaf;
     }

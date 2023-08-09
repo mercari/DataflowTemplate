@@ -859,25 +859,32 @@ public class RowSchemaUtil {
         if(value == null) {
             return null;
         }
+        return getAsPrimitive(fieldType, value);
+    }
+
+    public static Object getAsPrimitive(final Schema.FieldType fieldType, final Object fieldValue) {
+        if(fieldValue == null) {
+            return null;
+        }
         switch (fieldType.getTypeName()) {
             case INT16:
-                return ((Short) value).intValue();
+                return ((Short) fieldValue).intValue();
             case INT32:
             case INT64:
             case FLOAT:
             case DOUBLE:
             case STRING:
             case BOOLEAN:
-                return value;
+                return fieldValue;
             case DATETIME:
-                return ((Instant) value).getMillis() * 1000L;
+                return ((Instant) fieldValue).getMillis() * 1000L;
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                    return Long.valueOf(((LocalDate) fieldValue).toEpochDay()).intValue();
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return ((LocalTime) value).toNanoOfDay() / 1000L;
+                    return ((LocalTime) fieldValue).toNanoOfDay() / 1000L;
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
-                    return ((EnumerationType.Value) value).getValue();
+                    return ((EnumerationType.Value) fieldValue).getValue();
                 } else {
                     throw new IllegalStateException();
                 }
@@ -886,7 +893,7 @@ public class RowSchemaUtil {
             case ARRAY: {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
                     case INT16:
-                        return ((List<Short>) value).stream()
+                        return ((List<Short>) fieldValue).stream()
                                 .map(Short::intValue)
                                 .collect(Collectors.toList());
                     case INT32:
@@ -895,24 +902,24 @@ public class RowSchemaUtil {
                     case DOUBLE:
                     case STRING:
                     case BOOLEAN:
-                        return value;
+                        return fieldValue;
                     case DATETIME:
-                        return ((List<Instant>) value).stream()
+                        return ((List<Instant>) fieldValue).stream()
                                 .map(Instant::getMillis)
                                 .map(l -> l * 1000L)
                                 .collect(Collectors.toList());
                     case LOGICAL_TYPE: {
                         if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
-                            return ((List<LocalDate>) value).stream()
+                            return ((List<LocalDate>) fieldValue).stream()
                                     .map(LocalDate::toEpochDay)
                                     .collect(Collectors.toList());
                         } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
-                            return ((List<LocalTime>) value).stream()
+                            return ((List<LocalTime>) fieldValue).stream()
                                     .map(LocalTime::toNanoOfDay)
                                     .map(n -> n / 1000L)
                                     .collect(Collectors.toList());
                         } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
-                            return ((List<EnumerationType.Value>) value).stream()
+                            return ((List<EnumerationType.Value>) fieldValue).stream()
                                     .map(EnumerationType.Value::getValue)
                                     .collect(Collectors.toList());
                         } else {
@@ -1038,7 +1045,7 @@ public class RowSchemaUtil {
                     case BOOLEAN:
                         return primitiveValue;
                     case DATETIME:
-                        return ((List<Integer>) primitiveValue).stream()
+                        return ((List<Long>) primitiveValue).stream()
                                 .map(l -> l / 1000L)
                                 .map(Instant::ofEpochMilli)
                                 .collect(Collectors.toList());

@@ -46,6 +46,10 @@ public class Max implements Aggregator {
                          final Boolean ignore,
                          final Boolean opposite) {
 
+        if(field == null && expression == null) {
+            throw new IllegalArgumentException("Aggregation max: " + name + " requires field or expression parameter");
+        }
+
         final Max max = new Max();
         max.name = name;
         max.field = field;
