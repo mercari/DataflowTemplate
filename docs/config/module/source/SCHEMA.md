@@ -1,10 +1,10 @@
 # Schema (Source module)
 
-| name               | optional           | type          | description                                          |
-|--------------------|--------------------|---------------|------------------------------------------------------|
-| fields             | selective required | Array<Field\> | Specify an array of type Field below.                |
-| avroSchema         | selective required | String        | GCS path where you put the Avro schema file.         |
-| protobufDescriptor | selective required | String        | GCS path where you put the protobuf descriptor file. |
+| name               | optional           | type          | description                                                                                               |
+|--------------------|--------------------|---------------|-----------------------------------------------------------------------------------------------------------|
+| fields             | selective required | Array<Field\> | Specify an array of type Field below.                                                                     |
+| avroSchema         | selective required | String        | GCS path where you put the Avro schema file or directly specify the schmea in escaped JSON string format. |
+| protobufDescriptor | selective required | String        | GCS path where you put the protobuf descriptor file.                                                      |
 
 ## Field
 

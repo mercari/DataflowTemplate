@@ -140,8 +140,13 @@ public class SourceConfig implements Serializable {
     }
 
     public static Schema convertSchema(final InputSchema inputSchema) {
-        if(inputSchema.getAvroSchema() != null && inputSchema.getAvroSchema().startsWith("gs://")) {
-            final String schemaString = StorageUtil.readString(inputSchema.getAvroSchema());
+        if(inputSchema.getAvroSchema() != null) {
+            final String schemaString;
+            if(inputSchema.getAvroSchema().startsWith("gs://")) {
+                schemaString = StorageUtil.readString(inputSchema.getAvroSchema());
+            } else {
+                schemaString = inputSchema.getAvroSchema();
+            }
             return RecordToRowConverter.convertSchema(AvroSchemaUtil.convertSchema(schemaString));
         } else if(inputSchema.getFields() != null && inputSchema.getFields().size() > 0) {
             return convertSchema(inputSchema.getFields());
@@ -151,8 +156,13 @@ public class SourceConfig implements Serializable {
     }
 
     public static org.apache.avro.Schema convertAvroSchema(final InputSchema inputSchema) {
-        if(inputSchema.getAvroSchema() != null && inputSchema.getAvroSchema().startsWith("gs://")) {
-            final String schemaString = StorageUtil.readString(inputSchema.getAvroSchema());
+        if(inputSchema.getAvroSchema() != null) {
+            final String schemaString;
+            if(inputSchema.getAvroSchema().startsWith("gs://")) {
+                schemaString = StorageUtil.readString(inputSchema.getAvroSchema());
+            } else {
+                schemaString = inputSchema.getAvroSchema();
+            }
             return AvroSchemaUtil.convertSchema(schemaString);
         } else if(inputSchema.getFields() != null && inputSchema.getFields().size() > 0) {
             return RowToRecordConverter.convertSchema(convertSchema(inputSchema.getFields()));
