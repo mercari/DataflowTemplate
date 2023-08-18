@@ -186,7 +186,12 @@ public class Std implements Aggregator {
             } else {
                 inputValue = base.getDouble(accumKeyAvgName);
                 inputWeight = base.getDouble(accumKeyWeightName);
-                return add(input, inputValue, inputWeight);
+                final Accumulator mergedInput =  add(input, inputValue, inputWeight);
+                base.putDouble(name, mergedInput.getDouble(name));
+                base.putDouble(accumKeyCountName, mergedInput.getDouble(accumKeyCountName));
+                base.putDouble(accumKeyAvgName, mergedInput.getDouble(accumKeyAvgName));
+                base.putDouble(accumKeyWeightName, mergedInput.getDouble(accumKeyWeightName));
+                return base;
             }
         }
 
