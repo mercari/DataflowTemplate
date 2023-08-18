@@ -52,6 +52,7 @@ public class FlexPipeline {
                 .as(FlexPipelineOptions.class);
         final Config config = getConfig(localOptions.getConfig(), args);
         setSettingsOptions(localOptions, config);
+        setDefaults(localOptions, args);
 
         if(isDirectRunner(args)) {
             LOG.info("DirectRunner mode.");
@@ -178,16 +179,22 @@ public class FlexPipeline {
                 if(dataflow.getSdkContainerImage() != null) {
                     options.as(DataflowPipelineOptions.class).setSdkContainerImage(dataflow.getSdkContainerImage());
                 }
-                if(dataflow.getEnableStreamingEngine() != null) {
-                    options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(dataflow.getEnableStreamingEngine());
-                } else {
-                    options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(true);
+                if(options.isStreaming()) {
+                    if(dataflow.getEnableStreamingEngine() != null) {
+                        options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(dataflow.getEnableStreamingEngine());
+                    } else {
+                        options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(true);
+                    }
                 }
                 if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
                 }
                 if(dataflow.getExperiments() != null && dataflow.getExperiments().size() > 0) {
                     options.as(DataflowPipelineOptions.class).setExperiments(dataflow.getExperiments());
+                }
+            } else {
+                if(options.isStreaming()) {
+                    options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(true);
                 }
             }
 
@@ -219,16 +226,27 @@ public class FlexPipeline {
                     options.as(AwsOptions.class).setAwsRegion(aws.getRegion());
                 }
             }
+        } else {
+            if(options.isStreaming()) {
+                options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(true);
+            }
         }
     }
 
-    private static boolean isStreaming(final String[] args) {
-        return Arrays.stream(args)
-                .filter(Objects::nonNull)
-                .map(s -> s.contains("=") ? s.split("=")[0] : s)
-                .map(String::trim)
-                .map(String::toLowerCase)
-                .anyMatch("--streaming"::equals);
+    private static void setDefaults(FlexPipelineOptions options, String[] args) {
+        if(options.isStreaming()) {
+            if(hasEnableStreamingEngine(args) && !options.isEnableStreamingEngine()) {
+                options.as(DataflowPipelineOptions.class).setEnableStreamingEngine(true);
+            }
+        }
+    }
+
+    private static boolean hasStreaming(final String[] args) {
+        return hasOption(args, "--streaming");
+    }
+
+    private static boolean hasEnableStreamingEngine(final String[] args) {
+        return hasOption(args, "--enableStreamingEngine");
     }
 
     private static boolean isDirectRunner(final String[] args) {
@@ -237,7 +255,15 @@ public class FlexPipeline {
                 .filter(s -> s.contains("="))
                 .map(s -> s.split("="))
                 .filter(s -> s.length > 1)
-                .anyMatch(s -> s[0].toLowerCase().equals("--runner") && s[1].toLowerCase().equals("directrunner"));
+                .anyMatch(s -> s[0].equalsIgnoreCase("--runner") && s[1].equalsIgnoreCase("directrunner"));
+    }
+
+    private static boolean hasOption(final String[] args, final String optionName) {
+        return Arrays.stream(args)
+                .filter(Objects::nonNull)
+                .map(s -> s.contains("=") ? s.split("=")[0] : s)
+                .map(String::trim)
+                .anyMatch(optionName::equalsIgnoreCase);
     }
 
     private static String[] filterPipelineArgs(final String[] args) {
