@@ -8,7 +8,6 @@ import com.google.gson.*;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.converter.JsonToRecordConverter;
-import com.mercari.solution.util.converter.JsonToRowConverter;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -1224,6 +1223,14 @@ public class AvroSchemaUtil {
     }
 
     public static Object getAsPrimitive(final Object record, final org.apache.beam.sdk.schemas.Schema.FieldType fieldType, final String field) {
+
+        if(field.contains(".")) {
+            final String[] fields = field.split("\\.", 2);
+            final String parentField = fields[0];
+            final Object child = ((GenericRecord) record).get(parentField);
+            return getAsPrimitive(child, fieldType, fields[1]);
+        }
+
         final Object value = ((GenericRecord) record).get(field);
         if(value == null) {
             return null;

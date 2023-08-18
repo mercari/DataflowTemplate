@@ -22,6 +22,7 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -277,7 +278,7 @@ public class FilterTransformTest {
     }
 
     @Test
-    public void testRowSelect() {
+    public void testRowFields() {
         final TransformConfig config = new TransformConfig();
         config.setName("filter");
         config.setModule("filter");
@@ -355,7 +356,7 @@ public class FilterTransformTest {
     }
 
     @Test
-    public void testRecordSelect() {
+    public void testRecordFields() {
         final TransformConfig config = new TransformConfig();
         config.setName("filter");
         config.setModule("filter");
@@ -433,7 +434,7 @@ public class FilterTransformTest {
     }
 
     @Test
-    public void testStructSelect() {
+    public void testStructFields() {
         final TransformConfig config = new TransformConfig();
         config.setName("filter");
         config.setModule("filter");
@@ -511,7 +512,7 @@ public class FilterTransformTest {
     }
 
     @Test
-    public void testEntitySelect() {
+    public void testEntityFields() {
         final TransformConfig config = new TransformConfig();
         config.setName("filter");
         config.setModule("filter");
@@ -583,6 +584,216 @@ public class FilterTransformTest {
                     Assert.assertEquals(TestDatum.getFloatFieldValue().doubleValue(), grandchild.getPropertiesOrThrow("floatField").getDoubleValue(), DELTA);
                 }
 
+                count++;
+            }
+            Assert.assertEquals(3, count);
+            return null;
+        });
+
+        pipeline.run();
+    }
+
+    @Test
+    public void testRowSelect() {
+        final TransformConfig config = new TransformConfig();
+        config.setName("filter");
+        config.setModule("filter");
+        config.setInputs(Arrays.asList("rowInput"));
+
+        final JsonArray selectFields = new JsonArray();
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "stringField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "renamedIntField");
+            selectField.addProperty("field", "intField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "constantTimestampField");
+            selectField.addProperty("type", "timestamp");
+            selectField.addProperty("value", "2023-08-15T00:00:00Z");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "constantLongField");
+            selectField.addProperty("type", "long");
+            selectField.addProperty("value", 120L);
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "expressionField");
+            selectField.addProperty("expression", "longField * doubleField / intField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "hashField");
+            selectField.addProperty("func", "hash");
+            selectField.addProperty("field", "stringField");
+            selectField.addProperty("secret", "my secret");
+            selectField.addProperty("size", 16);
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "nestedStringField");
+            selectField.addProperty("field", "recordField.stringField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "nestedArrayStringField");
+            selectField.addProperty("field", "recordField.stringArrayField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "currentTimestampField");
+            selectField.addProperty("func", "current_timestamp");
+            selectFields.add(selectField);
+        }
+
+        final JsonObject parameters = new JsonObject();
+        parameters.add("select", selectFields);
+        config.setParameters(parameters);
+
+        final Row dummyRow = TestDatum.generateRow();
+
+        final PCollection<Row> inputStructs = pipeline
+                .apply("CreateDummy", Create.of(dummyRow, dummyRow, dummyRow));
+        final FCollection<Row> fCollection = FCollection.of("rowInput", inputStructs, DataType.ROW, dummyRow.getSchema());
+
+        final Map<String, FCollection<?>> outputs = FilterTransform.transform(Arrays.asList(fCollection), config);
+
+        final PCollection<Row> outputRows = (PCollection<Row>) outputs.get("filter").getCollection();
+
+        PAssert.that(outputRows).satisfies(rows -> {
+            int count = 0;
+            for(final Row row : rows) {
+                Assert.assertEquals(9, row.getFieldCount());
+                Assert.assertEquals(TestDatum.getStringFieldValue(), row.getString("stringField"));
+                Assert.assertEquals(TestDatum.getIntFieldValue(), row.getInt32("renamedIntField"));
+                Assert.assertEquals(Instant.parse("2023-08-15T00:00:00.000Z"), row.getDateTime("constantTimestampField"));
+                Assert.assertEquals(120L, row.getInt64("constantLongField").longValue());
+                Assert.assertEquals((Double)(TestDatum.getLongFieldValue() * TestDatum.getDoubleFieldValue() / TestDatum.getIntFieldValue()), row.getDouble("expressionField"));
+                Assert.assertEquals("5fa62a43c07f6d83", row.getString("hashField"));
+                Assert.assertEquals(TestDatum.getStringFieldValue(), row.getString("nestedStringField"));
+                Assert.assertEquals(TestDatum.getStringArrayFieldValues(), row.getArray("nestedArrayStringField"));
+                Assert.assertNotNull(row.getDateTime("currentTimestampField"));
+                count++;
+            }
+            Assert.assertEquals(3, count);
+            return null;
+        });
+
+        pipeline.run();
+    }
+
+    @Test
+    public void testRecordSelect() {
+        final TransformConfig config = new TransformConfig();
+        config.setName("filter");
+        config.setModule("filter");
+        config.setInputs(Arrays.asList("rowInput"));
+
+        final JsonArray selectFields = new JsonArray();
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "stringField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "renamedIntField");
+            selectField.addProperty("field", "intField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "constantTimestampField");
+            selectField.addProperty("type", "timestamp");
+            selectField.addProperty("value", "2023-08-15T00:00:00Z");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "constantLongField");
+            selectField.addProperty("type", "long");
+            selectField.addProperty("value", 120L);
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "expressionField");
+            selectField.addProperty("expression", "longField * doubleField / intField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "hashField");
+            selectField.addProperty("func", "hash");
+            selectField.addProperty("field", "stringField");
+            selectField.addProperty("secret", "my secret");
+            selectField.addProperty("size", 16);
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "nestedStringField");
+            selectField.addProperty("field", "recordField.stringField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "nestedArrayStringField");
+            selectField.addProperty("field", "recordField.stringArrayField");
+            selectFields.add(selectField);
+        }
+        {
+            final JsonObject selectField = new JsonObject();
+            selectField.addProperty("name", "currentTimestampField");
+            selectField.addProperty("func", "current_timestamp");
+            selectFields.add(selectField);
+        }
+
+        final JsonObject parameters = new JsonObject();
+        parameters.add("select", selectFields);
+        config.setParameters(parameters);
+
+        final GenericRecord dummyRecord = TestDatum.generateRecord();
+
+        final PCollection<GenericRecord> inputStructs = pipeline
+                .apply("CreateDummy", Create.of(dummyRecord, dummyRecord, dummyRecord).withCoder(AvroCoder.of(dummyRecord.getSchema())));
+        final FCollection<GenericRecord> fCollection = FCollection.of("recordInput", inputStructs, DataType.AVRO, dummyRecord.getSchema());
+
+        final Map<String, FCollection<?>> outputs = FilterTransform.transform(Arrays.asList(fCollection), config);
+
+        final PCollection<GenericRecord> outputRecords = (PCollection<GenericRecord>) outputs.get("filter").getCollection();
+
+        PAssert.that(outputRecords).satisfies(records -> {
+            int count = 0;
+            for(final GenericRecord record : records) {
+                Assert.assertEquals(9, record.getSchema().getFields().size());
+                Assert.assertEquals(TestDatum.getStringFieldValue(), record.get("stringField").toString());
+                Assert.assertEquals(TestDatum.getIntFieldValue(), record.get("renamedIntField"));
+                Assert.assertEquals(Instant.parse("2023-08-15T00:00:00.000Z").getMillis() * 1000L, record.get("constantTimestampField"));
+                Assert.assertEquals(120L, record.get("constantLongField"));
+                Assert.assertEquals((Double)(TestDatum.getLongFieldValue() * TestDatum.getDoubleFieldValue() / TestDatum.getIntFieldValue()), record.get("expressionField"));
+                Assert.assertEquals("5fa62a43c07f6d83", record.get("hashField").toString());
+                Assert.assertEquals(TestDatum.getStringFieldValue(), record.get("nestedStringField").toString());
+                final List<String> nestedArrayStringField = new ArrayList<>();
+                for(Object value : (Iterable)record.get("nestedArrayStringField")) {
+                    nestedArrayStringField.add(value == null ? null : value.toString());
+                }
+                Assert.assertEquals(TestDatum.getStringArrayFieldValues(), nestedArrayStringField);
+                Assert.assertNotNull(record.get("currentTimestampField"));
                 count++;
             }
             Assert.assertEquals(3, count);

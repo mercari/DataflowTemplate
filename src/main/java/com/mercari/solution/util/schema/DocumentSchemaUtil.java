@@ -14,6 +14,7 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.joda.time.Instant;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -425,6 +426,64 @@ public class DocumentSchemaUtil {
             final Object object = values.get(field.getName());
             final Value value =  toValue(field.getType(), object);
             builder = builder.putFields(field.getName(), value);
+        }
+        return builder.build();
+    }
+
+    public static Document create(final Schema schema, final Map<String, Object> values) {
+        final Document.Builder builder = Document.newBuilder();
+        for(final Schema.Field field : schema.getFields()) {
+            final Value value;
+            if(!values.containsKey(field.getName()) || values.get(field.getName()) == null) {
+                value = Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+            } else {
+                final Object object = values.get(field.getName());
+                switch (field.getType().getTypeName()) {
+                    case BOOLEAN:
+                        value = Value.newBuilder().setBooleanValue((Boolean)object).build();
+                        break;
+                    case STRING:
+                        value = Value.newBuilder().setStringValue(object.toString()).build();
+                        break;
+                    case BYTES:
+                        value = Value.newBuilder().setBytesValue(ByteString.copyFrom((byte[]) object)).build();
+                        break;
+                    case INT32:
+                        value = Value.newBuilder().setIntegerValue((Integer) object).build();
+                        break;
+                    case INT64:
+                        value = Value.newBuilder().setIntegerValue((Long) object).build();
+                        break;
+                    case FLOAT:
+                        value = Value.newBuilder().setDoubleValue((Float) object).build();
+                        break;
+                    case DOUBLE:
+                        value = Value.newBuilder().setDoubleValue((Double) object).build();
+                        break;
+                    case DECIMAL:
+                        value = Value.newBuilder().setStringValue(object.toString()).build();
+                        break;
+                    case DATETIME:
+                        value = Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp((Long) object)).build();
+                        break;
+                    case LOGICAL_TYPE: {
+                        if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
+                            value = Value.newBuilder().setStringValue(LocalDate.ofEpochDay((Integer) object).toString()).build();
+                        } else if(RowSchemaUtil.isLogicalTypeTime(field.getType())) {
+                            value = Value.newBuilder().setStringValue(LocalTime.ofNanoOfDay(((Long) object) / 1000L).toString()).build();
+                        } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
+                            value = Value.newBuilder().setStringValue(object.toString()).build();
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                        break;
+                    }
+                    default: {
+                        throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
+                    }
+                }
+            }
+            builder.putFields(field.getName(), value);
         }
         return builder.build();
     }

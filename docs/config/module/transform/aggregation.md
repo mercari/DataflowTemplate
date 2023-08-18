@@ -32,7 +32,7 @@ The output schema will include the fields specified in `groupFields`, the fields
 | aggregations     | required | Array<Aggregation\>                   | Specify the definition of the aggregate process for each input.                                                                                                                              |
 | groupFields      | optional | Array<String\>                        | Specify the names of fields to be referenced to group the data.　                                                                                                                             |
 | filter           | optional | [FilterCondition](filtercondition.md) | Specify filter conditions if you want to filter the records of the aggregate processing results.                                                                                             |
-| select           | optional | Array<SelectField\>                   | Specify the field definitions if you want to refine, rename, or apply some processing to the fields in the aggregate processing results.                                                     |
+| select           | optional | Array<[SelectField](select.md)\>      | Specify the field definitions if you want to refine, rename, or apply some processing to the fields in the aggregate processing results.                                                     |
 | window           | optional | Window                                | Specify [window](https://beam.apache.org/documentation/programming-guide/#windowing) by time to aggregate data. The default is `global` window.                                              |
 | trigger          | optional | Trigger                               | Specify window [trigger](https://beam.apache.org/documentation/programming-guide/#setting-a-trigger) setting. The default is `afterWatermark` trigger                                        |
 | accumulationMode | optional | Enum                                  | Specify trigger [accumulation mode](https://beam.apache.org/documentation/programming-guide/#window-accumulation-modes). One of `discarding` or `accumulating`. the default is `discarding`. |
@@ -72,24 +72,6 @@ The output schema will include the fields specified in `groupFields`, the fields
 | argmin     | Outputs the value of the specified `field` or `fields` for the data with the lowest value of the specified `comparingField` or `comaringExpression`                                                                                           | `field` or `fields`, `comparingField` or `comparingExpression` |
 | regression | Outputs the slope and intercept and RMSE of a linear simple regression with specified field as the objective variable. The field for the explanatory variable is specified by `xField`. If not specified, epoch millis of record will be used | `field`, `xField`                                              |
 | array_agg  | Outputs the values of the specified `field` in an array. If multiple `fields` are specified, it will be an array of structs.                                                                                                                  | `field` or `fields`                                            |
-
-## SelectField common parameters
-
-| parameter | optional | type    | description                                                                                                                                |
-|-----------|----------|---------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| name      | required | String  | Specify the name of the field in the aggregate result. Must be unique.                                                                     |
-| func      | required | Enum    | Specify the aggregate process type. Parameters differ depending on the `op`. Refer to following table of supported aggregation operations. |
-| ignore    | optional | Boolean | Specify true if you do not want to execute this aggregate processing                                                                       |
-
-### Supported SelectField functions
-
-| func              | description                                                                                                                                                                                 | additional parameters        |
-|-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------|
-| rename            | Renames the specified `field` to the specified `name`.                                                                                                                                      | `field`                      |
-| constant          | Generates a field with the specified `type` and `value`. As type values, `boolean`, `string`, `long`, `double`, `date` and `timestamp` are supported.                                       | `type` and `value`           |
-| expression        | Generates a field with the value of the result of the calculation for the specified `expression`. `expression` allows the fields contained in the aggregate result to be used as variables. | `expression`                 |
-| current_timestamp | Generates a field with a current timestamp value                                                                                                                                            | -                            |
-| hash              | Generates a hashed string of the value of the specified `field` as a string. if `size` is specified, returns it in the length of the string.                                                | `field`, `secret` and `size` |
 
 
 ## Window parameters

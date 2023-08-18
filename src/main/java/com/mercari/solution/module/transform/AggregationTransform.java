@@ -224,7 +224,6 @@ public class AggregationTransform implements TransformModule {
         final List<String> inputNames = new ArrayList<>();
         final List<DataType> inputTypes = new ArrayList<>();
 
-
         PCollectionTuple tuple = PCollectionTuple.empty(inputs.get(0).getCollection().getPipeline());
         for(final FCollection<?> input : inputs){
             final TupleTag tag = new TupleTag<>(){};
@@ -244,18 +243,15 @@ public class AggregationTransform implements TransformModule {
 
         final List<Schema.Field> aggregationOutputFields = createAggregationOutputFields(
                 groupFields, aggregatorsList, parameters.getOutputPaneInfo());
+        final List<SelectFunction> selectFunctions = SelectFunction.of(parameters.getSelect(), aggregationOutputFields, outputType);
 
-        final List<SelectFunction> selectFunctions = new ArrayList<>();
-        if(parameters.getSelect() != null) {
-            for(final JsonElement select : parameters.getSelect()) {
-                if(!select.isJsonObject()) {
-                    continue;
-                }
-                selectFunctions.add(SelectFunction.of(select.getAsJsonObject(), outputType, aggregationOutputFields));
-            }
+        final Schema outputSchema;
+        if(selectFunctions.size() == 0) {
+            outputSchema = Schema.builder().addFields(aggregationOutputFields).build();
+        } else {
+            outputSchema = SelectFunction.createSchema(selectFunctions);
         }
 
-        final Schema outputSchema = createOutputSchema(aggregationOutputFields, selectFunctions);
         final Map<String, Aggregators> aggregators = aggregatorsList.stream()
                 .collect(Collectors.toMap(Aggregators::getInput, s -> s));
 
@@ -345,15 +341,7 @@ public class AggregationTransform implements TransformModule {
         if(selectFunctions.size() == 0) {
             return Schema.builder().addFields(aggregationOutputFields).build();
         } else {
-            final List<Schema.Field> selectOutputFields = new ArrayList<>();
-            for(final SelectFunction selectFunction : selectFunctions) {
-                if(selectFunction.ignore()) {
-                    continue;
-                }
-                final Schema.FieldType selectOutputFieldType = selectFunction.getOutputFieldType();
-                selectOutputFields.add(Schema.Field.of(selectFunction.getName(), selectOutputFieldType));
-            }
-            return Schema.builder().addFields(selectOutputFields).build();
+            return SelectFunction.createSchema(selectFunctions);
         }
     }
 
@@ -608,24 +596,7 @@ public class AggregationTransform implements TransformModule {
                     values.put("paneTiming", c.pane().getTiming().name());
                 }
 
-                if(selectFunctions.size() > 0) {
-                    for(final SelectFunction selectFunction : selectFunctions) {
-                        if(selectFunction.ignore()) {
-                            continue;
-                        }
-                        final Schema.FieldType fieldType = selectFunction.getOutputFieldType();
-                        final Object primitiveValue = selectFunction.apply(values);
-                        final Object value;
-                        if(DataType.ROW.equals(outputType)) {
-                            value = RowSchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                        } else if(DataType.AVRO.equals(outputType)) {
-                            value = AvroSchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                        } else {
-                            throw new IllegalArgumentException();
-                        }
-                        values.put(selectFunction.getName(), value);
-                    }
-                }
+                values = SelectFunction.apply(selectFunctions, values, outputType);
 
                 if(conditionNode == null || Filter.filter(conditionNode, values)) {
                     final T output = valueCreator.create(runtimeSchema, values);

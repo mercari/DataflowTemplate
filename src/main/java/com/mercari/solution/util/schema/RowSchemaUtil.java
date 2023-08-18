@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
 import com.google.protobuf.ByteString;
-import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.converter.JsonToRowConverter;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
@@ -855,10 +854,18 @@ public class RowSchemaUtil {
     }
 
     public static Object getAsPrimitive(final Object row, final Schema.FieldType fieldType, final String field) {
+        if(field.contains(".")) {
+            final String[] fields = field.split("\\.", 2);
+            final String parentField = fields[0];
+            final Object child = ((Row) row).getValue(parentField);
+            return getAsPrimitive(child, fieldType, fields[1]);
+        }
+
         final Object value = ((Row) row).getValue(field);
         if(value == null) {
             return null;
         }
+
         return getAsPrimitive(fieldType, value);
     }
 
@@ -888,6 +895,14 @@ public class RowSchemaUtil {
                 } else {
                     throw new IllegalStateException();
                 }
+            }
+            case ROW: {
+                final Map<String, Object> values = new HashMap<>();
+                for(final Schema.Field field : fieldType.getRowSchema().getFields()) {
+                    final Object value = getAsPrimitive(fieldValue, field.getType(), field.getName());
+                    values.put(field.getName(), value);
+                }
+                return values;
             }
             case ITERABLE:
             case ARRAY: {
