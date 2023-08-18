@@ -1,10 +1,10 @@
 package com.mercari.solution.util.pipeline.select;
 
 import com.mercari.solution.module.DataType;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.beam.sdk.schemas.Schema;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -12,12 +12,15 @@ public class Pass implements SelectFunction {
 
     private final String name;
     private final DataType outputType;
+    private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
     Pass(String name, DataType outputType, Schema.FieldType outputFieldType, boolean ignore) {
         this.name = name;
         this.outputType = outputType;
+        this.inputFields = new ArrayList<>();
+        this.inputFields.add(Schema.Field.of(name, outputFieldType));
         this.outputFieldType = outputFieldType;
         this.ignore = ignore;
     }
@@ -35,6 +38,11 @@ public class Pass implements SelectFunction {
     @Override
     public boolean ignore() {
         return ignore;
+    }
+
+    @Override
+    public List<Schema.Field> getInputFields() {
+        return inputFields;
     }
 
     @Override

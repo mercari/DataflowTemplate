@@ -7,6 +7,8 @@ import com.mercari.solution.util.DateTimeUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class Constant implements SelectFunction {
@@ -15,6 +17,7 @@ public class Constant implements SelectFunction {
     private final String type;
     private final String valueString;
 
+    private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
@@ -24,6 +27,7 @@ public class Constant implements SelectFunction {
         this.name = name;
         this.type = type;
         this.valueString = valueString;
+        this.inputFields = new ArrayList<>();
         this.outputFieldType = createOutputFieldType(name, type);
         this.ignore = ignore;
     }
@@ -50,6 +54,11 @@ public class Constant implements SelectFunction {
     @Override
     public boolean ignore() {
         return ignore;
+    }
+
+    @Override
+    public List<Schema.Field> getInputFields() {
+        return inputFields;
     }
 
     @Override

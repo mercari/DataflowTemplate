@@ -9,6 +9,8 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class Hash implements SelectFunction {
@@ -20,6 +22,7 @@ public class Hash implements SelectFunction {
     private final String algorithm;
     private final String secret;
     private final Integer size;
+    private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
@@ -32,6 +35,8 @@ public class Hash implements SelectFunction {
         this.algorithm = algorithm;
         this.size = size;
 
+        this.inputFields = new ArrayList<>();
+        this.inputFields.add(Schema.Field.of(field, Schema.FieldType.STRING.withNullable(true)));
         this.outputFieldType = Schema.FieldType.STRING.withNullable(true);
         this.ignore = ignore;
     }
@@ -80,6 +85,11 @@ public class Hash implements SelectFunction {
     @Override
     public boolean ignore() {
         return ignore;
+    }
+
+    @Override
+    public List<Schema.Field> getInputFields() {
+        return inputFields;
     }
 
     @Override

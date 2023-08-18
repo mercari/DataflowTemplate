@@ -3,18 +3,22 @@ package com.mercari.solution.util.pipeline.select;
 import org.apache.beam.sdk.schemas.Schema;
 import org.joda.time.Instant;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class CurrentTimestamp implements SelectFunction {
 
     private final String name;
 
+    private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
 
     CurrentTimestamp(String name, boolean ignore) {
         this.name = name;
+        this.inputFields = new ArrayList<>();
         this.outputFieldType = Schema.FieldType.DATETIME.withNullable(true);
         this.ignore = ignore;
     }
@@ -31,6 +35,11 @@ public class CurrentTimestamp implements SelectFunction {
     @Override
     public boolean ignore() {
         return ignore;
+    }
+
+    @Override
+    public List<Schema.Field> getInputFields() {
+        return inputFields;
     }
 
     @Override

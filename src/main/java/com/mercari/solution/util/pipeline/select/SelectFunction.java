@@ -1,10 +1,15 @@
 package com.mercari.solution.util.pipeline.select;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.module.DataType;
+import com.mercari.solution.util.schema.*;
 import org.apache.beam.sdk.schemas.Schema;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -13,6 +18,7 @@ public interface SelectFunction extends Serializable {
     String getName();
     Object apply(Map<String, Object> input);
     void setup();
+    List<Schema.Field> getInputFields();
     Schema.FieldType getOutputFieldType();
     boolean ignore();
 
@@ -25,6 +31,21 @@ public interface SelectFunction extends Serializable {
         current_timestamp
     }
 
+
+    static List<SelectFunction> of(final JsonArray selects, final List<Schema.Field> inputFields, final DataType outputType) {
+        final List<SelectFunction> selectFunctions = new ArrayList<>();
+        if(selects == null || !selects.isJsonArray()) {
+            return selectFunctions;
+        }
+
+        for(final JsonElement select : selects) {
+            if(!select.isJsonObject()) {
+                continue;
+            }
+            selectFunctions.add(SelectFunction.of(select.getAsJsonObject(), outputType, inputFields));
+        }
+        return selectFunctions;
+    }
 
     static SelectFunction of(JsonObject jsonObject, DataType outputType, List<Schema.Field> inputFields) {
 
@@ -88,10 +109,101 @@ public interface SelectFunction extends Serializable {
         return selectFunction;
     }
 
+    static Schema createSchema(List<SelectFunction> selectFunctions) {
+        final List<Schema.Field> selectOutputFields = new ArrayList<>();
+        for(final SelectFunction selectFunction : selectFunctions) {
+            if(selectFunction.ignore()) {
+                continue;
+            }
+            final Schema.FieldType selectOutputFieldType = selectFunction.getOutputFieldType();
+
+            selectOutputFields.add(Schema.Field.of(selectFunction.getName(), selectOutputFieldType));
+        }
+        return Schema.builder().addFields(selectOutputFields).build();
+    }
+
+    static Map<String, Object> apply(List<SelectFunction> selectFunctions, Object element, DataType inputType, DataType outputType) {
+        final Map<String, Object> values = new HashMap<>();
+        for(final SelectFunction selectFunction : selectFunctions) {
+            for(final Schema.Field inputField : selectFunction.getInputFields()) {
+                final Object value;
+                switch (inputType) {
+                    case ROW:
+                        value = RowSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                        break;
+                    case AVRO:
+                        value = AvroSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                        break;
+                    case STRUCT:
+                        value = StructSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                        break;
+                    case DOCUMENT:
+                        value = DocumentSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                        break;
+                    case ENTITY:
+                        value = EntitySchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                        break;
+                    default:
+                        throw new IllegalArgumentException("SelectFunction not supported input data type: " + inputType);
+                }
+                values.put(inputField.getName(), value);
+            }
+        }
+        return apply(selectFunctions, values, outputType);
+    }
+
+    static Map<String, Object> apply(List<SelectFunction> selectFunctions, Map<String, Object> values, DataType outputType) {
+        for(final SelectFunction selectFunction : selectFunctions) {
+            if(selectFunction.ignore()) {
+                continue;
+            }
+            final Schema.FieldType fieldType = selectFunction.getOutputFieldType();
+            final Object primitiveValue = selectFunction.apply(values);
+            final Object value;
+            switch (outputType) {
+                case ROW:
+                    value = RowSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                    break;
+                case AVRO:
+                    value = AvroSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                    break;
+                case STRUCT:
+                    value = StructSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                    break;
+                case DOCUMENT:
+                    value = DocumentSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                    break;
+                case ENTITY:
+                    value = EntitySchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                    break;
+                default:
+                    throw new IllegalArgumentException("SelectFunction not supported input data type: " + outputType);
+            }
+            values.put(selectFunction.getName(), value);
+        }
+        return values;
+    }
+
     static Schema.FieldType getInputFieldType(String field, List<Schema.Field> inputFields) {
         for(final Schema.Field inputField : inputFields) {
             if(field.equals(inputField.getName())) {
                 return inputField.getType();
+            } else if(field.contains(".")) {
+                final String[] fields = field.split("\\.", 2);
+                final Schema.FieldType parentFieldType = getInputFieldType(fields[0], inputFields);
+                switch (parentFieldType.getTypeName()) {
+                    case ROW:
+                        return getInputFieldType(fields[1], parentFieldType.getRowSchema().getFields());
+                    case ARRAY:
+                    case ITERABLE: {
+                        if(!Schema.TypeName.ROW.equals(parentFieldType.getCollectionElementType().getTypeName())) {
+                            throw new IllegalArgumentException();
+                        }
+                        return getInputFieldType(fields[1], parentFieldType.getCollectionElementType().getRowSchema().getFields());
+                    }
+                    default:
+                        throw new IllegalArgumentException();
+                }
             }
         }
         throw new IllegalArgumentException("Not found field: " + field + " in input fields: " + inputFields);

@@ -4,9 +4,7 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.util.domain.math.ExpressionUtil;
 import org.apache.beam.sdk.schemas.Schema;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class Expression implements SelectFunction {
 
@@ -14,6 +12,7 @@ public class Expression implements SelectFunction {
     private final String expressionString;
     private final Set<String> expressionVariables;
 
+    private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
@@ -24,6 +23,10 @@ public class Expression implements SelectFunction {
         this.expressionString = expressionString;
         this.expressionVariables = expressionVariables;
 
+        this.inputFields = new ArrayList<>();
+        for(String variable : expressionVariables) {
+            this.inputFields.add(Schema.Field.of(variable, Schema.FieldType.DOUBLE.withNullable(true)));
+        }
         this.outputFieldType = Schema.FieldType.DOUBLE.withNullable(true);
         this.ignore = ignore;
     }
@@ -45,6 +48,11 @@ public class Expression implements SelectFunction {
     @Override
     public boolean ignore() {
         return ignore;
+    }
+
+    @Override
+    public List<Schema.Field> getInputFields() {
+        return inputFields;
     }
 
     @Override
