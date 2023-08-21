@@ -11,11 +11,18 @@
       }
     }
   ],
+  "transforms": [
+    {
+      "name": "reshuffleInput",
+      "module": "reshuffle",
+      "inputs": ["spannerInput"]
+    }
+  ],
   "sinks": [
     {
       "name": "spannerOutput",
       "module": "spanner",
-      "input": "spannerInput",
+      "input": "reshuffleInput",
       "parameters": {
         "projectId": "anotherproject",
         "instanceId": "anotherinstance",
@@ -23,6 +30,16 @@
         "table": "anothertable",
         "mutationOp": "DELETE",
         "keyFields": ["keyField"]
+      }
+    },
+    {
+      "name": "bigQueryFailuresOutput",
+      "module": "bigquery",
+      "input": "spannerOutput.failures",
+      "parameters": {
+        "table": "myproject:mydataset.failures",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
       }
     }
   ]

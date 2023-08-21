@@ -1426,129 +1426,156 @@ public class StructSchemaUtil {
     }
 
     public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record) {
-        return convertToMutation(type, record, new HashMap<>());
+        return convertToMutation(type, record, new HashMap<>(), false, false);
     }
 
-    public static List<Mutation> convertToMutation(final Type type, final DataChangeRecord record, final Map<String,String> renameTables) {
-        final String table = renameTables.getOrDefault(record.getTableName(), record.getTableName());
-        final ModType modType = record.getModType();
+    public static List<Mutation> convertToMutation(final Type type,
+                                                   final DataChangeRecord record,
+                                                   final Map<String,String> renameTables,
+                                                   final Boolean applyUpsertForInsert,
+                                                   final Boolean applyUpsertForUpdate) {
+
         final Map<String, TypeCode> columnTypeCodes = Optional.ofNullable(record.getRowType())
                 .orElseGet(ArrayList::new)
                 .stream()
                 .collect(Collectors
                         .toMap(ColumnType::getName, ColumnType::getType));
 
+        final String table = renameTables.getOrDefault(record.getTableName(), record.getTableName());
         if(type == null) {
             throw new IllegalStateException("Not found table: " + table + "'s type.");
         }
 
+        final ModType modType = record.getModType();
         if(ModType.DELETE.equals(modType)) {
-            final List<Mutation> deletes = new ArrayList<>();
-            for(final Mod mod : record.getMods()) {
-                final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
-                Key.Builder keyBuilder = Key.newBuilder();
-                for(final Map.Entry<String, JsonElement> keyField : keys.entrySet()) {
-                    final String code = Optional.ofNullable(columnTypeCodes.get(keyField.getKey()))
-                            .map(TypeCode::getCode)
-                            .orElse(null);
-                    if(code != null && !"TYPE_CODE_UNSPECIFIED".equals(code) && false) { // TODO
-                        switch (code) {
-                            case "BOOL":
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
-                                break;
-                            case "STRING":
-                            case "JSON":
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                                break;
-                            case "INT64":
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
-                                break;
-                            case "FLOAT64":
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
-                                break;
-                            case "NUMERIC":
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
-                                break;
-                            case "PG_NUMERIC":
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                            case "DATE":
-                                keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
-                                break;
-                            case "TIMESTAMP":
-                                keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
-                                break;
-                            case "BYTES":
-                                keyBuilder = keyBuilder.append(ByteArray.copyFrom(keyField.getValue().getAsString()));
-                                break;
-                            case "ARRAY":
-                            case "STRUCT":
-                            case "PG_JSONB":
-                            default:
-                                throw new IllegalStateException("Not supported columnTypeCode: " + code + " for key column: " + keyField.getKey());
-                        }
-                    } else {
-                        final Type fieldType = type.getStructFields().get(type.getFieldIndex(keyField.getKey())).getType();
-                        switch (fieldType.getCode()) {
-                            case BOOL:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
-                                break;
-                            case JSON:
-                            case STRING:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                                break;
-                            case INT64:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
-                                break;
-                            case FLOAT64:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
-                                break;
-                            case NUMERIC:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
-                                break;
-                            case PG_NUMERIC:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                                break;
-                            case PG_JSONB:
-                                keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                                break;
-                            case DATE:
-                                keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
-                                break;
-                            case TIMESTAMP:
-                                keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
-                                break;
-                            case BYTES:
-                                keyBuilder = keyBuilder.append(ByteArray.copyFrom(Base64.getDecoder().decode(keyField.getValue().getAsString())));
-                                break;
-                            case STRUCT:
-                            case ARRAY:
-                            default:
-                                throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
-                        }
+            return delete(record, table, type, columnTypeCodes);
+        } else {
+            return update(record, table, type, columnTypeCodes, applyUpsertForInsert, applyUpsertForUpdate);
+        }
+    }
+
+    private static List<Mutation> delete(final DataChangeRecord record, final String table, final Type type, final Map<String, TypeCode> columnTypeCodes) {
+        final List<Mutation> deletes = new ArrayList<>();
+        for(final Mod mod : record.getMods()) {
+            final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
+            Key.Builder keyBuilder = Key.newBuilder();
+            for(final Map.Entry<String, JsonElement> keyField : keys.entrySet()) {
+                final String code = Optional.ofNullable(columnTypeCodes.get(keyField.getKey()))
+                        .map(TypeCode::getCode)
+                        .orElse(null);
+                if(code != null && !"TYPE_CODE_UNSPECIFIED".equals(code) && false) { // TODO
+                    switch (code) {
+                        case "BOOL":
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
+                            break;
+                        case "STRING":
+                        case "JSON":
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            break;
+                        case "INT64":
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
+                            break;
+                        case "FLOAT64":
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
+                            break;
+                        case "NUMERIC":
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
+                            break;
+                        case "PG_NUMERIC":
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                        case "DATE":
+                            keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
+                            break;
+                        case "TIMESTAMP":
+                            keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
+                            break;
+                        case "BYTES":
+                            keyBuilder = keyBuilder.append(ByteArray.copyFrom(keyField.getValue().getAsString()));
+                            break;
+                        case "ARRAY":
+                        case "STRUCT":
+                        case "PG_JSONB":
+                        default:
+                            throw new IllegalStateException("Not supported columnTypeCode: " + code + " for key column: " + keyField.getKey());
+                    }
+                } else {
+                    final Type fieldType = type.getStructFields().get(type.getFieldIndex(keyField.getKey())).getType();
+                    switch (fieldType.getCode()) {
+                        case BOOL:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
+                            break;
+                        case JSON:
+                        case STRING:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            break;
+                        case INT64:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
+                            break;
+                        case FLOAT64:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
+                            break;
+                        case NUMERIC:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
+                            break;
+                        case PG_NUMERIC:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            break;
+                        case PG_JSONB:
+                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
+                            break;
+                        case DATE:
+                            keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
+                            break;
+                        case TIMESTAMP:
+                            keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
+                            break;
+                        case BYTES:
+                            keyBuilder = keyBuilder.append(ByteArray.copyFrom(Base64.getDecoder().decode(keyField.getValue().getAsString())));
+                            break;
+                        case STRUCT:
+                        case ARRAY:
+                        default:
+                            throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
                     }
                 }
-                deletes.add(Mutation.delete(table, keyBuilder.build()));
             }
-            return deletes;
+            deletes.add(Mutation.delete(table, keyBuilder.build()));
         }
+        return deletes;
+    }
+
+    private static List<Mutation> update(final DataChangeRecord record,
+                                         final String table,
+                                         final Type type,
+                                         final Map<String, TypeCode> columnTypeCodes,
+                                         final Boolean applyUpsertForInsert,
+                                         final Boolean applyUpsertForUpdate) {
 
         final List<Mutation> mutations = new ArrayList<>();
         for(final Mod mod : record.getMods()) {
             final Mutation.WriteBuilder builder;
-            switch (modType) {
+            switch (record.getModType()) {
                 case INSERT:
-                    builder = Mutation.newInsertOrUpdateBuilder(table);
+                    if(applyUpsertForInsert) {
+                        builder = Mutation.newInsertOrUpdateBuilder(table);
+                    } else {
+                        builder = Mutation.newInsertBuilder(table);
+                    }
                     break;
                 case UPDATE:
-                    builder = Mutation.newUpdateBuilder(table);
+                    if(applyUpsertForUpdate) {
+                        builder = Mutation.newInsertOrUpdateBuilder(table);
+                    } else {
+                        builder = Mutation.newUpdateBuilder(table);
+                    }
                     break;
                 default:
-                    throw new IllegalStateException();
+                    throw new IllegalStateException("Not supported modType: " + record.getModType());
             }
 
             final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
             for(final Map.Entry<String, JsonElement> value : keys.entrySet()) {
-                if(columnTypeCodes.containsKey(value.getKey()) && false) { // TODO
+                if(columnTypeCodes.containsKey(value.getKey())) {
                     final TypeCode typeCode = columnTypeCodes.get(value.getKey());
                     builder.set(value.getKey()).to(getStructValue(typeCode.getCode(), value.getValue()));
                 } else {
@@ -1559,7 +1586,7 @@ public class StructSchemaUtil {
 
             final JsonObject values = new Gson().fromJson(mod.getNewValuesJson(), JsonObject.class);
             for(final Map.Entry<String, JsonElement> value : values.entrySet()) {
-                if(columnTypeCodes.containsKey(value.getKey()) && false) { // TODO
+                if(columnTypeCodes.containsKey(value.getKey())) {
                     final TypeCode typeCode = columnTypeCodes.get(value.getKey());
                     builder.set(value.getKey()).to(getStructValue(typeCode.getCode(), value.getValue()));
                 } else {

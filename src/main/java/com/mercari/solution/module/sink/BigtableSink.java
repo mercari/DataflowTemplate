@@ -13,10 +13,7 @@ import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import freemarker.template.Template;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
@@ -422,23 +419,23 @@ public class BigtableSink implements SinkModule {
         private static final Logger LOG = LoggerFactory.getLogger(Write.class);
 
         private final InputSchemaT inputSchema;
-        private final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
-        private final StringGetter<T> stringGetter;
-        private final MapConverter<T> mapConverter;
+        private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
+        private final SchemaUtil.StringGetter<T> stringGetter;
+        private final SchemaUtil.MapConverter<T> mapConverter;
         private final MutationConverter<T,RuntimeSchemaT> mutationConverter;
-        private final AvroConverter<T> avroConverter;
-        private final AvroSchemaConverter<InputSchemaT> avroSchemaConverter;
+        private final SchemaUtil.DataConverter<Schema,T,GenericRecord> avroConverter;
+        private final SchemaUtil.SchemaConverter<InputSchemaT,Schema> avroSchemaConverter;
 
         private final BigtableSinkParameters parameters;
 
         private Write(final BigtableSinkParameters parameters,
                       final InputSchemaT inputSchema,
-                      final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
-                      final StringGetter<T> stringGetter,
-                      final MapConverter<T> mapConverter,
+                      final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
+                      final SchemaUtil.StringGetter<T> stringGetter,
+                      final SchemaUtil.MapConverter<T> mapConverter,
                       final MutationConverter<T,RuntimeSchemaT> mutationConverter,
-                      final AvroConverter<T> avroConverter,
-                      final AvroSchemaConverter<InputSchemaT> avroSchemaConverter) {
+                      final SchemaUtil.DataConverter<Schema,T,GenericRecord> avroConverter,
+                      final SchemaUtil.SchemaConverter<InputSchemaT,Schema> avroSchemaConverter) {
 
             this.parameters = parameters;
             this.inputSchema = inputSchema;
@@ -490,12 +487,12 @@ public class BigtableSink implements SinkModule {
         private final Map<String, ColumnSetting> columnSettings;
 
         private final InputSchemaT inputSchema;
-        private final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
-        private final StringGetter<T> stringGetter;
-        private final MapConverter<T> mapConverter;
+        private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
+        private final SchemaUtil.StringGetter<T> stringGetter;
+        private final SchemaUtil.MapConverter<T> mapConverter;
         private final MutationConverter<T,RuntimeSchemaT> mutationConverter;
-        private final AvroConverter<T> avroConverter;
-        private final AvroSchemaConverter<InputSchemaT> avroSchemaConverter;
+        private final SchemaUtil.DataConverter<Schema,T,GenericRecord> avroConverter;
+        private final SchemaUtil.SchemaConverter<InputSchemaT,Schema> avroSchemaConverter;
 
         private transient RuntimeSchemaT runtimeSchema;
         private transient Schema avroSchema;
@@ -517,12 +514,12 @@ public class BigtableSink implements SinkModule {
                             final List<ColumnSetting> columnSettings,
                             final String separator,
                             final InputSchemaT inputSchema,
-                            final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
-                            final StringGetter<T> stringGetter,
-                            final MapConverter<T> mapConverter,
+                            final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
+                            final SchemaUtil.StringGetter<T> stringGetter,
+                            final SchemaUtil.MapConverter<T> mapConverter,
                             final MutationConverter<T,RuntimeSchemaT> mutationConverter,
-                            final AvroConverter<T> avroConverter,
-                            final AvroSchemaConverter<InputSchemaT> avroSchemaConverter) {
+                            final SchemaUtil.DataConverter<Schema,T,GenericRecord> avroConverter,
+                            final SchemaUtil.SchemaConverter<InputSchemaT,Schema> avroSchemaConverter) {
 
             this.rowKeyFields = rowKeyFields;
             this.columnFamily = columnFamily;
@@ -669,18 +666,6 @@ public class BigtableSink implements SinkModule {
     }
 
 
-    private interface SchemaConverter<InputSchemaT, RuntimeSchemaT> extends Serializable {
-        RuntimeSchemaT convert(InputSchemaT schema);
-    }
-
-    private interface MapConverter<T> extends Serializable {
-        Map<String, Object> convert(T element);
-    }
-
-    private interface StringGetter<T> extends Serializable {
-        String getAsString(T element, String field);
-    }
-
     private interface MutationConverter<T, SchemaT> extends Serializable {
         Iterable<Mutation> convert(final SchemaT schema, final T element,
                                    final String defaultColumnFamily,
@@ -688,14 +673,6 @@ public class BigtableSink implements SinkModule {
                                    final MutationOp defaultMutationOp,
                                    final Map<String,ColumnSetting> columnSettings,
                                    final long timestampMicros);
-    }
-
-    private interface AvroConverter<T> extends Serializable {
-        GenericRecord convert(final Schema schema, final T element);
-    }
-
-    private interface AvroSchemaConverter<InputSchemaT> extends Serializable {
-        Schema convert(InputSchemaT schema);
     }
 
 }

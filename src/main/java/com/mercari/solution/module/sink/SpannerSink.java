@@ -4,6 +4,7 @@ import com.google.api.gax.longrunning.OperationFuture;
 import com.google.cloud.spanner.*;
 import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.spanner.admin.instance.v1.UpdateInstanceMetadata;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
@@ -25,6 +26,7 @@ import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
+import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,7 +49,7 @@ public class SpannerSink implements SinkModule {
         private List<String> keyFields;
         private List<String> commitTimestampFields;
         private Boolean failFast;
-        private WriteMode writeMode;
+        private Boolean flattenFailures;
 
         private Boolean emulator;
 
@@ -124,12 +126,8 @@ public class SpannerSink implements SinkModule {
             this.failFast = failFast;
         }
 
-        public WriteMode getWriteMode() {
-            return writeMode;
-        }
-
-        public void setWriteMode(WriteMode writeMode) {
-            this.writeMode = writeMode;
+        public Boolean getFlattenFailures() {
+            return flattenFailures;
         }
 
         public Boolean getEmulator() {
@@ -396,15 +394,10 @@ public class SpannerSink implements SinkModule {
             if(this.getPriority() == null) {
                 this.setPriority(Options.RpcPriority.MEDIUM);
             }
-            if(this.writeMode == null) {
-                this.writeMode = WriteMode.normal;
+            if(this.flattenFailures == null) {
+                this.flattenFailures = true;
             }
         }
-    }
-
-    private enum WriteMode {
-        normal,
-        simple
     }
 
     public String getName() { return "spanner"; }
@@ -415,14 +408,14 @@ public class SpannerSink implements SinkModule {
             throw new IllegalArgumentException("spanner sink module requires input parameter");
         }
         final FCollection<?> input = inputs.get(0);
-        return Collections.singletonMap(config.getName(), write(input, config, waits));
+        return write(input, config, waits);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
+    public static Map<String, FCollection<?>> write(final FCollection<?> collection, final SinkConfig config) {
         return write(collection, config, null);
     }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
+    public static Map<String, FCollection<?>> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final SpannerSinkParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSinkParameters.class);
         if(parameters == null) {
             throw new IllegalArgumentException("spanner sink parameter must not be empty!");
@@ -433,9 +426,11 @@ public class SpannerSink implements SinkModule {
         if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
             return writeMutationGroup((FCollection<MutationGroup>) collection, config, parameters);
         } else if(collection.getIsTuple()) {
-            return writeMulti(collection, config, parameters, waits);
+            final FCollection<?> r = writeMulti(collection, config, parameters, waits);
+            return Collections.singletonMap(config.getName(), r);
         } else {
-            return writeSingle(collection, config, parameters, waits);
+            final FCollection<?> r = writeSingle(collection, config, parameters, waits);
+            return Collections.singletonMap(config.getName(), r);
         }
     }
 
@@ -531,18 +526,32 @@ public class SpannerSink implements SinkModule {
         return FCollection.of(config.getName(), output, DataType.MUTATION, schema);
     }
 
-    public static FCollection<?> writeMutationGroup(final FCollection<MutationGroup> collection,
-                                                    final SinkConfig config,
-                                                    final SpannerSinkParameters parameters) {
+    public static Map<String, FCollection<?>> writeMutationGroup(
+            final FCollection<MutationGroup> collection,
+            final SinkConfig config,
+            final SpannerSinkParameters parameters) {
 
         final SpannerWriteMutationGroup write = new SpannerWriteMutationGroup(config.getName(), parameters);
-        final PCollection output = collection.getCollection().apply(config.getName(), write);
+        final PCollectionTuple outputs = collection.getCollection()
+                .apply(config.getName(), write);
         try {
             config.outputAvroSchema(collection.getAvroSchema());
         } catch (Exception e) {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
-        return FCollection.update(collection, output);
+
+        final Schema outputFailureSchema = FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures());
+        final Map<String, FCollection<?>> results = new HashMap<>();
+        for(final Map.Entry<String, TupleTag<?>> entry : write.getOutputTags().entrySet()) {
+            if(entry.getKey().contains(".")) {
+                final PCollection<Row> output = outputs.get((TupleTag<Row>) entry.getValue());
+                results.put(entry.getKey(), FCollection.of(entry.getKey(), output, DataType.ROW, outputFailureSchema));
+            } else {
+                final PCollection<Void> output = outputs.get((TupleTag<Void>) entry.getValue());
+                results.put(entry.getKey(), FCollection.of(entry.getKey(), output, DataType.ROW, outputFailureSchema));
+            }
+        }
+        return results;
     }
 
     public static class SpannerWriteSingle<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection<T>, PCollection<Void>> {
@@ -1103,43 +1112,58 @@ public class SpannerSink implements SinkModule {
 
     }
 
-    public static class SpannerWriteMutationGroup extends PTransform<PCollection<MutationGroup>, PCollection<Void>> {
+    public static class SpannerWriteMutationGroup extends PTransform<PCollection<MutationGroup>, PCollectionTuple> {
 
         private final String name;
         private final SpannerSinkParameters parameters;
 
+        private final Map<String, TupleTag<?>> outputTags;
+
+        public Map<String, TupleTag<?>> getOutputTags() {
+            return outputTags;
+        }
+
+
         SpannerWriteMutationGroup(final String name, final SpannerSinkParameters parameters) {
             this.name = name;
             this.parameters = parameters;
+
+            this.outputTags = new HashMap<>();
         }
 
         @Override
-        public PCollection<Void> expand(PCollection<MutationGroup> input) {
+        public PCollectionTuple expand(PCollection<MutationGroup> input) {
+
+            PCollectionTuple tuple = PCollectionTuple.empty(input.getPipeline());
             final SpannerIO.Write write = createWrite(parameters);
-            switch (parameters.getWriteMode()) {
-                case simple: {
-                    return input
-                            .apply("WriteSimpleMutationGroup", ParDo
-                                    .of(new WriteMutationGroupDoFn(
-                                            name, parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), false)));
-                }
-                case normal:
-                default: {
-                    final SpannerWriteResult writeResult;
-                    if(parameters.getCommitTimestampFields() != null && parameters.getCommitTimestampFields().size() > 0)  {
-                        writeResult = input
-                                .apply("WithCommitTimestampFields", ParDo.of(new WithCommitTimestampDoFn(parameters.getCommitTimestampFields())))
-                                .apply("WriteMutationGroup", write.grouped());
-                    } else {
-                        writeResult = input
-                                .apply("WriteMutationGroup", write.grouped());
-                    }
-                    return writeResult.getOutput();
-                }
+            final SpannerWriteResult writeResult;
+            if(parameters.getCommitTimestampFields() != null && parameters.getCommitTimestampFields().size() > 0)  {
+                writeResult = input
+                        .apply("WithCommitTimestampFields", ParDo.of(new WithCommitTimestampDoFn(parameters.getCommitTimestampFields())))
+                        .apply("WriteMutationGroup", write.grouped());
+            } else {
+                writeResult = input
+                        .apply("WriteMutationGroup", write.grouped());
             }
+            final TupleTag<Void> tag = new TupleTag<>() {};
+            final PCollection<Void> output = writeResult.getOutput();
+            tuple = tuple.and(tag, output);
+            outputTags.put(name, tag);
+
+            if(!parameters.getFailFast()) {
+                final TupleTag<Row> failureTag = new TupleTag<>() {};
+                outputTags.put(name + ".failures", failureTag);
+                final PCollection<Row> failures = writeResult
+                        .getFailedMutations()
+                        .apply("ConvertFailures", ParDo.of(new FailedMutationConvertDoFn(
+                                parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getFlattenFailures())))
+                        .setCoder(RowCoder.of(FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
+                tuple = tuple.and(failureTag, failures);
+            }
+            return tuple;
         }
 
-        private class WithCommitTimestampDoFn extends DoFn<MutationGroup, MutationGroup> {
+        private static class WithCommitTimestampDoFn extends DoFn<MutationGroup, MutationGroup> {
 
             private final List<String> commitTimestampFields;
 
@@ -1251,7 +1275,7 @@ public class SpannerSink implements SinkModule {
                                     final SpannerMutationConverter<RuntimeSchemaT, T> converter) {
             this.table = table;
             this.mutationOp = mutationOp;
-            this.keyFields = keyFields;// == null ? null : Arrays.asList(keyFields.split(","));
+            this.keyFields = keyFields;
             this.allowCommitTimestampFields = allowCommitTimestampFields;
             this.excludeFields = excludeFields;
             this.maskFields = maskFields;
@@ -1422,6 +1446,114 @@ public class SpannerSink implements SinkModule {
                 c.output(currentNodeCount);
             }
         }
+    }
+
+    private static class FailedMutationConvertDoFn extends DoFn<MutationGroup, Row> {
+
+        private final Schema schema;
+        private final Schema childSchema;
+
+        private final String projectId;
+        private final String instanceId;
+        private final String databaseId;
+        private final Boolean flatten;
+
+
+        FailedMutationConvertDoFn(final String projectId, final String instanceId, final String databaseId, final Boolean flatten) {
+            this.schema = createFailureSchema(flatten);
+            this.childSchema = createFailureMutationSchema();
+            this.projectId = projectId;
+            this.instanceId = instanceId;
+            this.databaseId = databaseId;
+            this.flatten = flatten;
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final MutationGroup input = c.element();
+            final Instant timestamp = Instant.now();
+
+            if(flatten) {
+                final Row primaryFailedRow = convertFailedFlatRow(input.primary(), timestamp);
+                c.output(primaryFailedRow);
+                for(final Mutation attached : input.attached()) {
+                    final Row attachedFailedRow = convertFailedFlatRow(attached, timestamp);
+                    c.output(attachedFailedRow);
+                }
+            } else {
+                final List<Row> contents = new ArrayList<>();
+                final Mutation primary = input.primary();
+                contents.add(convertFailedRow(primary));
+                for(final Mutation attached : input.attached()) {
+                    contents.add(convertFailedRow(attached));
+                }
+
+                final Row output = Row.withSchema(schema)
+                        .withFieldValue("timestamp", timestamp)
+                        .withFieldValue("project", projectId)
+                        .withFieldValue("instance", instanceId)
+                        .withFieldValue("database", databaseId)
+                        .withFieldValue("mutations", contents)
+                        .build();
+
+                c.output(output);
+            }
+        }
+
+        private Row convertFailedRow(final Mutation mutation) {
+            final JsonObject jsonObject = MutationToJsonConverter.convert(mutation);
+            return Row.withSchema(childSchema)
+                    .withFieldValue("table", mutation.getTable())
+                    .withFieldValue("op", mutation.getOperation().name())
+                    .withFieldValue("mutation", jsonObject.toString())
+                    .build();
+        }
+
+        private Row convertFailedFlatRow(final Mutation mutation, final Instant timestamp) {
+            final JsonObject jsonObject = MutationToJsonConverter.convert(mutation);
+            return Row.withSchema(schema)
+                    .withFieldValue("id", UUID.randomUUID().toString())
+                    .withFieldValue("timestamp", timestamp)
+                    .withFieldValue("project", projectId)
+                    .withFieldValue("instance", instanceId)
+                    .withFieldValue("database", databaseId)
+                    .withFieldValue("table", mutation.getTable())
+                    .withFieldValue("op", mutation.getOperation().name())
+                    .withFieldValue("mutation", jsonObject.toString())
+                    .build();
+        }
+
+        public static Schema createFailureSchema(boolean flatten) {
+            if(flatten) {
+                return Schema.builder()
+                        .addField("id", Schema.FieldType.STRING)
+                        .addField("timestamp", Schema.FieldType.DATETIME)
+                        .addField("project", Schema.FieldType.STRING)
+                        .addField("instance", Schema.FieldType.STRING)
+                        .addField("database", Schema.FieldType.STRING)
+                        .addField("table", Schema.FieldType.STRING.withNullable(true))
+                        .addField("op", Schema.FieldType.STRING.withNullable(true))
+                        .addField(Schema.Field.of("mutation", Schema.FieldType.STRING).withOptions(Schema.Options.builder().setOption("sqlType", Schema.FieldType.STRING, "JSON").build()))
+                        .build();
+            } else {
+                return Schema.builder()
+                        .addField("timestamp", Schema.FieldType.DATETIME)
+                        .addField("project", Schema.FieldType.STRING)
+                        .addField("instance", Schema.FieldType.STRING)
+                        .addField("database", Schema.FieldType.STRING)
+                        .addField("mutations", Schema.FieldType.array(Schema.FieldType.row(createFailureMutationSchema())))
+                        .build();
+            }
+        }
+
+        private static Schema createFailureMutationSchema() {
+            return Schema.builder()
+                    .addField("table", Schema.FieldType.STRING.withNullable(true))
+                    .addField("op", Schema.FieldType.STRING.withNullable(true))
+                    .addField(Schema.Field.of("mutation", Schema.FieldType.STRING).withOptions(Schema.Options.builder().setOption("sqlType", Schema.FieldType.STRING, "JSON").build()))
+                    .build();
+        }
+
     }
 
     private static class WriteMutationDoFn extends DoFn<Mutation, Void> {

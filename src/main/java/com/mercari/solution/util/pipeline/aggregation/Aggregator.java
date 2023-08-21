@@ -2,6 +2,7 @@ package com.mercari.solution.util.pipeline.aggregation;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.Filter;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.SchemaUtil;
@@ -33,6 +34,7 @@ public interface Aggregator extends Serializable {
         avg,
         std,
         regression,
+        array_agg,
         any
     }
 
@@ -54,7 +56,7 @@ public interface Aggregator extends Serializable {
     Map<String, Object> extractOutput(Accumulator accumulator, Map<String, Object> values, SchemaUtil.PrimitiveValueConverter converter);
 
 
-    static Aggregator of(final JsonElement element, final Schema inputSchema) {
+    static Aggregator of(final JsonElement element, final Schema inputSchema, final DataType outputType) {
         if (element == null || element.isJsonNull() || !element.isJsonObject()) {
             return null;
         }
@@ -127,9 +129,11 @@ public interface Aggregator extends Serializable {
             case avg:
                 return Avg.of(name, field, expression, condition, ignore, params);
             case std:
-                return Std.of(name, field, expression, condition, ignore, params);
+                return Std.of(name, field, expression, condition, ignore, separator, params);
             case regression:
                 return SimpleRegression.of(name, field, expression, condition, ignore, separator, params);
+            case array_agg:
+                return ArrayAgg.of(name, inputSchema, outputType, condition, ignore, params);
             case any:
             default:
                 throw new IllegalArgumentException("Not supported op: " + op);

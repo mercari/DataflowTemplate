@@ -200,11 +200,11 @@ public class SchemaUtil {
                 switch (outputType) {
                     case AVRO: {
                         final org.apache.avro.Schema outputAvroSchema = (org.apache.avro.Schema) outputSchema;
-                        return new TypeTransform<String, org.apache.avro.Schema, Document, GenericRecord>(outputAvroSchema.toString(), AvroSchemaUtil::convertSchema, FirestoreDocumentToRecordConverter::convert, AvroCoder.of(outputAvroSchema));
+                        return new TypeTransform<String, org.apache.avro.Schema, Document, GenericRecord>(outputAvroSchema.toString(), AvroSchemaUtil::convertSchema, DocumentToRecordConverter::convert, AvroCoder.of(outputAvroSchema));
                     }
                     case ROW: {
                         final Schema outputRowSchema = (Schema) outputSchema;
-                        return new TypeTransform<>(outputRowSchema, s -> s, FirestoreDocumentToRowConverter::convert, RowCoder.of(outputRowSchema));
+                        return new TypeTransform<>(outputRowSchema, s -> s, DocumentToRowConverter::convert, RowCoder.of(outputRowSchema));
                     }
                     case DOCUMENT: {
                         final Schema outputRowSchema = (Schema) outputSchema;

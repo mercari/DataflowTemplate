@@ -79,132 +79,133 @@ public class Settings {
 
     public class DataflowSettings {
 
-        private DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType autoscalingAlgorithm;
+        private String jobName;
+        private String tempLocation;
+        private String stagingLocation;
         private Map<String, String> labels;
+        private DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType autoscalingAlgorithm;
+        private DataflowPipelineOptions.FlexResourceSchedulingGoal flexRSGoal;
         private Integer numWorkers;
         private Integer maxNumWorkers;
         private String workerMachineType;
         private Integer diskSizeGb;
         private String workerDiskType;
+        private String workerRegion;
+        private String workerZone;
+        private String serviceAccount;
+        private String impersonateServiceAccount;
+        private String network;
+        private String subnetwork;
         private Boolean usePublicIps;
-        private List<String> dataflowServiceOptions;
         private Integer numberOfWorkerHarnessThreads;
-        private DataflowPipelineOptions.FlexResourceSchedulingGoal flexRSGoal;
+        private Integer workerCacheMb;
         private String createFromSnapshot;
         private String sdkContainerImage;
+        private Boolean enableStreamingEngine;
+        private List<String> dataflowServiceOptions;
         private List<String> experiments;
 
-        public DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType getAutoscalingAlgorithm() {
-            return autoscalingAlgorithm;
+
+        public String getJobName() {
+            return jobName;
         }
 
-        public void setAutoscalingAlgorithm(DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType autoscalingAlgorithm) {
-            this.autoscalingAlgorithm = autoscalingAlgorithm;
+        public String getTempLocation() {
+            return tempLocation;
+        }
+
+        public String getStagingLocation() {
+            return stagingLocation;
         }
 
         public Map<String, String> getLabels() {
             return labels;
         }
 
-        public void setLabels(Map<String, String> labels) {
-            this.labels = labels;
-        }
-
-        public Integer getNumWorkers() {
-            return numWorkers;
-        }
-
-        public void setNumWorkers(Integer numWorkers) {
-            this.numWorkers = numWorkers;
-        }
-
-        public Integer getMaxNumWorkers() {
-            return maxNumWorkers;
-        }
-
-        public void setMaxNumWorkers(Integer maxNumWorkers) {
-            this.maxNumWorkers = maxNumWorkers;
-        }
-
-        public String getWorkerMachineType() {
-            return workerMachineType;
-        }
-
-        public void setWorkerMachineType(String workerMachineType) {
-            this.workerMachineType = workerMachineType;
-        }
-
-        public Integer getDiskSizeGb() {
-            return diskSizeGb;
-        }
-
-        public void setDiskSizeGb(Integer diskSizeGb) {
-            this.diskSizeGb = diskSizeGb;
-        }
-
-        public String getWorkerDiskType() {
-            return workerDiskType;
-        }
-
-        public void setWorkerDiskType(String workerDiskType) {
-            this.workerDiskType = workerDiskType;
-        }
-
-        public Boolean getUsePublicIps() {
-            return usePublicIps;
-        }
-
-        public void setUsePublicIps(Boolean usePublicIps) {
-            this.usePublicIps = usePublicIps;
-        }
-
-        public List<String> getDataflowServiceOptions() {
-            return dataflowServiceOptions;
-        }
-
-        public void setDataflowServiceOptions(List<String> dataflowServiceOptions) {
-            this.dataflowServiceOptions = dataflowServiceOptions;
-        }
-
-        public Integer getNumberOfWorkerHarnessThreads() {
-            return numberOfWorkerHarnessThreads;
-        }
-
-        public void setNumberOfWorkerHarnessThreads(Integer numberOfWorkerHarnessThreads) {
-            this.numberOfWorkerHarnessThreads = numberOfWorkerHarnessThreads;
+        public DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType getAutoscalingAlgorithm() {
+            return autoscalingAlgorithm;
         }
 
         public DataflowPipelineOptions.FlexResourceSchedulingGoal getFlexRSGoal() {
             return flexRSGoal;
         }
 
-        public void setFlexRSGoal(DataflowPipelineOptions.FlexResourceSchedulingGoal flexRSGoal) {
-            this.flexRSGoal = flexRSGoal;
+        public Integer getNumWorkers() {
+            return numWorkers;
+        }
+
+        public Integer getMaxNumWorkers() {
+            return maxNumWorkers;
+        }
+
+        public String getWorkerMachineType() {
+            return workerMachineType;
+        }
+
+        public String getWorkerRegion() {
+            return workerRegion;
+        }
+
+        public String getWorkerZone() {
+            return workerZone;
+        }
+
+        public Integer getDiskSizeGb() {
+            return diskSizeGb;
+        }
+
+        public String getWorkerDiskType() {
+            return workerDiskType;
+        }
+
+        public String getServiceAccount() {
+            return serviceAccount;
+        }
+
+        public String getImpersonateServiceAccount() {
+            return impersonateServiceAccount;
+        }
+
+        public String getNetwork() {
+            return network;
+        }
+
+        public String getSubnetwork() {
+            return subnetwork;
+        }
+
+        public Boolean getUsePublicIps() {
+            return usePublicIps;
+        }
+
+        public Integer getNumberOfWorkerHarnessThreads() {
+            return numberOfWorkerHarnessThreads;
+        }
+
+        public Integer getWorkerCacheMb() {
+            return workerCacheMb;
         }
 
         public String getCreateFromSnapshot() {
             return createFromSnapshot;
         }
 
-        public void setCreateFromSnapshot(String createFromSnapshot) {
-            this.createFromSnapshot = createFromSnapshot;
-        }
-
         public String getSdkContainerImage() {
             return sdkContainerImage;
         }
 
-        public void setSdkContainerImage(String sdkContainerImage) {
-            this.sdkContainerImage = sdkContainerImage;
+        public Boolean getEnableStreamingEngine() {
+            return enableStreamingEngine;
+        }
+
+        public List<String> getDataflowServiceOptions() {
+            return dataflowServiceOptions;
         }
 
         public List<String> getExperiments() {
             return experiments;
         }
 
-        public void setExperiments(List<String> experiments) {
-            this.experiments = experiments;
-        }
     }
 
     public class BeamSQLSettings {

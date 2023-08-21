@@ -17,7 +17,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class RowToFirestoreDocumentConverter {
+public class RowToDocumentConverter {
 
     public static Document.Builder convert(final Schema schema, final Row row) {
         final Document.Builder builder = Document.newBuilder();

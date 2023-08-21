@@ -11,13 +11,10 @@ import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.converter.RowToMutationConverter;
 import com.mercari.solution.util.converter.RowToRecordConverter;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
@@ -35,7 +32,7 @@ public class UnionTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(UnionTransform.class);
 
-    private class UnionTransformParameters {
+    private static class UnionTransformParameters implements Serializable {
 
         private String baseInput;
         private List<MappingParameter> mappings;
@@ -64,9 +61,50 @@ public class UnionTransform implements TransformModule {
         public void setOutputType(DataType outputType) {
             this.outputType = outputType;
         }
+
+        private void validate(final List<String> inputs) {
+
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.mappings != null) {
+                int index = 0;
+                for(final MappingParameter mapping : this.mappings) {
+                    if(mapping.outputField == null) {
+                        errorMessages.add("UnionTransform parameter mappings[" + index + "].outputField parameters must not be null.");
+                    }
+                    if(mapping.inputs == null) {
+                        errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs parameters must not be null.");
+                    } else {
+                        int indexInput = 0;
+                        for(final MappingInputParameter mappingInput : mapping.inputs) {
+                            if(mappingInput.input == null) {
+                                errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs[" + indexInput +"].input parameters must not be null.");
+                            } else if(!inputs.contains(mappingInput.input)){
+                                errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs[" + indexInput +"].input does not exists in inputs: " + inputs);
+                            }
+                            if(mappingInput.field == null) {
+                                errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs[" + indexInput +"].field parameters must not be null.");
+                            }
+                            indexInput++;
+                        }
+                    }
+                    index++;
+                }
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
+        }
+
+        private void setDefaults() {
+            if(this.mappings == null) {
+                this.mappings = new ArrayList<>();
+            }
+        }
+
     }
 
-    private class MappingParameter implements Serializable {
+    private static class MappingParameter implements Serializable {
 
         private String outputField;
         private List<MappingInputParameter> inputs;
@@ -88,7 +126,7 @@ public class UnionTransform implements TransformModule {
         }
     }
 
-    private class MappingInputParameter implements Serializable {
+    private static class MappingInputParameter implements Serializable {
 
         private String input;
         private String field;
@@ -116,56 +154,17 @@ public class UnionTransform implements TransformModule {
         return Collections.singletonMap(config.getName(), UnionTransform.transform(inputs, config));
     }
 
-    private static void validateParameters(final UnionTransformParameters parameters, final List<String> inputs) {
+    public static FCollection<?> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
+        final UnionTransformParameters parameters = Optional
+                .ofNullable(new Gson().fromJson(config.getParameters(), UnionTransformParameters.class))
+                .orElseGet(UnionTransformParameters::new);
         if(parameters == null) {
             throw new IllegalArgumentException("UnionTransform config parameters must not be empty!");
         }
+        parameters.validate(inputs.stream().map(FCollection::getName).collect(Collectors.toList()));
+        parameters.setDefaults();
 
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getMappings() != null) {
-            int index = 0;
-            for(final MappingParameter mapping : parameters.getMappings()) {
-                if(mapping.getOutputField() == null) {
-                    errorMessages.add("UnionTransform parameter mappings[" + index + "].outputField parameters must not be null.");
-                }
-                if(mapping.getInputs() == null) {
-                    errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs parameters must not be null.");
-                } else {
-                    int indexInput = 0;
-                    for(final MappingInputParameter mappingInput : mapping.getInputs()) {
-                        if(mappingInput.getInput() == null) {
-                            errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs[" + indexInput +"].input parameters must not be null.");
-                        } else if(!inputs.contains(mappingInput.getInput())){
-                            errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs[" + indexInput +"].input does not exists in inputs: " + inputs);
-                        }
-                        if(mappingInput.getField() == null) {
-                            errorMessages.add("UnionTransform parameter mappings[" + index + "].inputs[" + indexInput +"].field parameters must not be null.");
-                        }
-                        indexInput++;
-                    }
-                }
-                index++;
-            }
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void setDefaultParameters(UnionTransformParameters parameters) {
-        if(parameters.getMappings() == null) {
-            parameters.setMappings(new ArrayList<>());
-        }
-    }
-
-    public static FCollection<?> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
-        final UnionTransformParameters parameters = new Gson()
-                .fromJson(config.getParameters(), UnionTransformParameters.class);
         final DataType outputType = selectDataType(parameters, inputs);
-
-        validateParameters(parameters, inputs.stream().map(FCollection::getName).collect(Collectors.toList()));
-        setDefaultParameters(parameters);
 
         final Schema schema = createUnionSchema(inputs, parameters);
         final Map<String, Map<String, String>> renameMap = createRenameMap(parameters);
@@ -179,7 +178,7 @@ public class UnionTransform implements TransformModule {
                 .collect(Collectors.toMap(FCollection::getName, i -> i));
 
         final PCollection<?> output = unionInputs
-                .apply("Union" + config.getName(), new Union(outputType, schema, collections, renameMap));
+                .apply(config.getName(), new Union(outputType, schema, collections, renameMap));
         return FCollection.of(config.getName(), output, outputType, schema);
     }
 
@@ -194,6 +193,7 @@ public class UnionTransform implements TransformModule {
                      final Schema outputSchema,
                      final Map<String, FCollection<?>> collections,
                      final Map<String, Map<String, String>> renameMap) {
+
             this.outputType = outputType;
             this.outputSchema = outputSchema;
             this.collections = collections;
@@ -280,14 +280,14 @@ public class UnionTransform implements TransformModule {
         private final DataType outputType;
         private final FCollection<?> inputCollection;
         private final InputSchemaT inputSchema;
-        private final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+        private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
         private final Selector<RuntimeSchemaT, T> selector;
         private final Map<String, String> renameMap;
 
         private Format(final DataType outputType,
                        final FCollection<?> inputCollection,
                        final InputSchemaT inputSchema,
-                       final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                       final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
                        final Selector<RuntimeSchemaT,T> selector,
                        final Map<String, String> renameMap) {
 
@@ -310,14 +310,14 @@ public class UnionTransform implements TransformModule {
         private static class SelectDoFn<T, InputSchemaT, RuntimeSchemaT> extends DoFn<T, T> {
 
             private final InputSchemaT inputSchema;
-            private final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+            private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
             private final Selector<RuntimeSchemaT, T> selector;
             private final Map<String, String> renameFields;
 
             private transient RuntimeSchemaT schema;
 
             SelectDoFn(final InputSchemaT inputSchema,
-                       final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                       final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
                        final Selector<RuntimeSchemaT, T> selector,
                        final Map<String, String> renameFields) {
 
@@ -407,10 +407,6 @@ public class UnionTransform implements TransformModule {
                             .collect(Collectors.toMap(c -> c.getValue().getKey() , c -> c.getValue().getValue()))))
                     .collect(Collectors.toMap(KV::getKey, KV::getValue));
         }
-    }
-
-    private interface SchemaConverter<InputSchemaT, RuntimeSchemaT> extends Serializable {
-        RuntimeSchemaT convert(final InputSchemaT schema);
     }
 
     private interface Selector<SchemaT, T> extends Serializable {

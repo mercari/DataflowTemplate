@@ -548,6 +548,121 @@ public class FilterTest {
         values = StructToMapConverter.convert(struct3);
         Assert.assertTrue(Filter.filter(struct3, StructSchemaUtil::getValue, Filter.parse(filter3)));
         Assert.assertTrue(Filter.filter(Filter.parse(filter3), values));
+
+        {
+            final String filterString =
+                    "{ \"expression\": \"field1 - field2\", \"op\": \">\", \"value\": 0 }";
+
+            final JsonObject filter = new Gson().fromJson(filterString, JsonObject.class);
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Date.parseDate("2023-12-31"))
+                    .set("field2").to(com.google.cloud.Date.parseDate("2022-12-31"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertTrue(Filter.filter(Filter.parse(filter), values));
+
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Timestamp.parseTimestamp("2022-12-31T23:59:59.999Z"))
+                    .set("field2").to(com.google.cloud.Timestamp.parseTimestamp("2023-12-31T23:59:59.999Z"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertFalse(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertFalse(Filter.filter(Filter.parse(filter), values));
+        }
+
+        {
+            final String filterString =
+                    "{ \"expression\": \"timestamp_diff_hour(field1, field2)\", \"op\": \"<\", \"value\": 24 }";
+
+            final JsonObject filter = new Gson().fromJson(filterString, JsonObject.class);
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Timestamp.parseTimestamp("2024-01-01T23:59:59.999Z"))
+                    .set("field2").to(com.google.cloud.Timestamp.parseTimestamp("2024-01-01T00:00:00.000Z"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertTrue(Filter.filter(Filter.parse(filter), values));
+
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Timestamp.parseTimestamp("2024-01-01T23:59:59.999Z"))
+                    .set("field2").to(com.google.cloud.Timestamp.parseTimestamp("2023-12-31T23:59:59.999Z"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertFalse(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertFalse(Filter.filter(Filter.parse(filter), values));
+        }
+
+        {
+            final String filterString =
+                    "{ \"expression\": \"timestamp_diff_day(field1, field2)\", \"op\": \"=\", \"value\": 365 }";
+
+            final JsonObject filter = new Gson().fromJson(filterString, JsonObject.class);
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Timestamp.parseTimestamp("2023-12-31T23:59:59.999Z"))
+                    .set("field2").to(com.google.cloud.Timestamp.parseTimestamp("2022-12-31T23:59:59.999Z"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertTrue(Filter.filter(Filter.parse(filter), values));
+
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Timestamp.parseTimestamp("2024-01-01T23:59:59.998Z"))
+                    .set("field2").to(com.google.cloud.Timestamp.parseTimestamp("2022-12-31T23:59:59.999Z"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertTrue(Filter.filter(Filter.parse(filter), values));
+
+            struct = Struct.newBuilder()
+                    .set("field1").to(com.google.cloud.Timestamp.parseTimestamp("2024-01-01T23:59:59.999Z"))
+                    .set("field2").to(com.google.cloud.Timestamp.parseTimestamp("2022-12-31T23:59:59.999Z"))
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertFalse(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertFalse(Filter.filter(Filter.parse(filter), values));
+        }
+
+        {
+            final String filterString =
+                    "{ \"key\": \"field1\", \"op\": \"=\", \"value\": null }";
+
+            final JsonObject filter = new Gson().fromJson(filterString, JsonObject.class);
+            struct = Struct.newBuilder()
+                    .set("field1").to((Long) null)
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertTrue(Filter.filter(Filter.parse(filter), values));
+
+            struct = Struct.newBuilder()
+                    .set("field1").to(-10D)
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertFalse(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertFalse(Filter.filter(Filter.parse(filter), values));
+        }
+
+        {
+            final String filterString =
+                    "{ \"key\": \"field1\", \"op\": \"!=\", \"value\": null }";
+
+            final JsonObject filter = new Gson().fromJson(filterString, JsonObject.class);
+            struct = Struct.newBuilder()
+                    .set("field1").to((Long) null)
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertFalse(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertFalse(Filter.filter(Filter.parse(filter), values));
+
+            struct = Struct.newBuilder()
+                    .set("field1").to(10D)
+                    .build();
+            values = StructToMapConverter.convert(struct);
+            Assert.assertTrue(Filter.filter(struct, StructSchemaUtil::getValue, Filter.parse(filter)));
+            Assert.assertTrue(Filter.filter(Filter.parse(filter), values));
+        }
+
     }
 
 }

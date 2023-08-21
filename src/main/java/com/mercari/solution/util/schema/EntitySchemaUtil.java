@@ -16,8 +16,8 @@ import org.joda.time.Instant;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class EntitySchemaUtil {
@@ -600,6 +600,21 @@ public class EntitySchemaUtil {
                     case DECIMAL:
                         value = Value.newBuilder().setStringValue(object.toString()).build();
                         break;
+                    case DATETIME:
+                        value = Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp((Long) object)).build();
+                        break;
+                    case LOGICAL_TYPE: {
+                        if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
+                            value = Value.newBuilder().setStringValue(LocalDate.ofEpochDay((Integer) object).toString()).build();
+                        } else if(RowSchemaUtil.isLogicalTypeTime(field.getType())) {
+                            value = Value.newBuilder().setStringValue(LocalTime.ofNanoOfDay(((Long) object) / 1000L).toString()).build();
+                        } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
+                            value = Value.newBuilder().setStringValue(object.toString()).build();
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                        break;
+                    }
                     default: {
                         throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
                     }

@@ -9,11 +9,12 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class FirestoreDocumentToRowConverter {
+public class DocumentToRowConverter {
 
     public static Row convert(final Schema schema, final Document document) {
         if(schema == null) {
@@ -29,7 +30,7 @@ public class FirestoreDocumentToRowConverter {
                 values.put(field.getName(), DateTimeUtil.toJodaInstant(document.getUpdateTime()));
             } else {
                 final Value value = document.getFieldsMap().get(field.getName());
-                values.put(field.getName(), getValue(field.getType(), value));
+                values.put(field.getName(), getValue(field.getType(), field.getOptions(), value));
             }
         }
         return Row
@@ -45,7 +46,7 @@ public class FirestoreDocumentToRowConverter {
         final Map<String,Object> values = new HashMap<>();
         for(final Schema.Field field : schema.getFields()) {
             final Value value = document.getFieldsMap().get(field.getName());
-            values.put(field.getName(), getValue(field.getType(), value));
+            values.put(field.getName(), getValue(field.getType(), field.getOptions(), value));
         }
         return Row
                 .withSchema(schema)
@@ -53,11 +54,15 @@ public class FirestoreDocumentToRowConverter {
                 .build();
     }
 
-    private static Object getValue(final Schema.FieldType fieldType, final Value value) {
+    private static Object getValue(final Schema.FieldType fieldType, final Schema.Options fieldOptions, final Value value) {
         if (value == null
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
-            return null;
+
+            if(fieldType.getTypeName().isCollectionType()) {
+                return new ArrayList<>();
+            }
+            return RowSchemaUtil.getDefaultValue(fieldType, fieldOptions);
         }
 
         switch (fieldType.getTypeName()) {
@@ -102,7 +107,7 @@ public class FirestoreDocumentToRowConverter {
             case MAP: {
                 final Map<String,Object> values = new HashMap<>();
                 for(final Map.Entry<String, Value> entry : value.getMapValue().getFieldsMap().entrySet()) {
-                    final Object object = getValue(fieldType.getMapValueType(), entry.getValue());
+                    final Object object = getValue(fieldType.getMapValueType(), fieldOptions, entry.getValue());
                     values.put(entry.getKey(), object);
                 }
                 return values;
@@ -112,7 +117,7 @@ public class FirestoreDocumentToRowConverter {
             case ITERABLE:
             case ARRAY:
                 return value.getArrayValue().getValuesList().stream()
-                        .map(v -> getValue(fieldType.getCollectionElementType(), v))
+                        .map(v -> getValue(fieldType.getCollectionElementType(), fieldOptions, v))
                         .collect(Collectors.toList());
             default:
                 return null;

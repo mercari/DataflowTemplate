@@ -1,7 +1,11 @@
 package com.mercari.solution.util.schema;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.JsonToRowConverter;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
@@ -21,6 +25,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RowSchemaUtil {
+
+    public static final String OPTION_NAME_DEFAULT_VALUE = "default";
 
     private static final Schema.FieldType REQUIRED_LOGICAL_DATETIME = Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(false);
     private static final Schema.FieldType NULLABLE_LOGICAL_DATETIME = Schema.FieldType.logicalType(SqlTypes.DATETIME).withNullable(true);
@@ -150,6 +156,20 @@ public class RowSchemaUtil {
         return builder;
     }
 
+    public static Schema merge(final Schema base, final Schema addition) {
+        Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : base.getFields()) {
+            builder.addField(field);
+        }
+        for(final Schema.Field field : addition.getFields()) {
+            if(base.hasField(field.getName())) {
+                continue;
+            }
+            builder.addField(field);
+        }
+        return builder.build();
+    }
+
     public static Schema addSchema(final Schema schema, final List<Schema.Field> fields) {
         Schema.Builder builder = Schema.builder();
         for(final Schema.Field field : schema.getFields()) {
@@ -178,6 +198,21 @@ public class RowSchemaUtil {
         }
         builder.setOptions(optionBuilder);
 
+        return builder.build();
+    }
+
+    public static Schema renameFields(final Schema schema, final Map<String, String> renameFields) {
+        Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : schema.getFields()) {
+            if(renameFields.containsKey(field.getName())) {
+                Schema.Field renameField = Schema.Field.of(renameFields.get(field.getName()), field.getType())
+                        .withOptions(field.getOptions())
+                        .withDescription(field.getDescription());
+                builder.addField(renameField);
+            } else {
+                builder.addField(field);
+            }
+        }
         return builder.build();
     }
 
@@ -819,38 +854,61 @@ public class RowSchemaUtil {
     }
 
     public static Object getAsPrimitive(final Object row, final Schema.FieldType fieldType, final String field) {
+        if(field.contains(".")) {
+            final String[] fields = field.split("\\.", 2);
+            final String parentField = fields[0];
+            final Object child = ((Row) row).getValue(parentField);
+            return getAsPrimitive(child, fieldType, fields[1]);
+        }
+
         final Object value = ((Row) row).getValue(field);
         if(value == null) {
             return null;
         }
+
+        return getAsPrimitive(fieldType, value);
+    }
+
+    public static Object getAsPrimitive(final Schema.FieldType fieldType, final Object fieldValue) {
+        if(fieldValue == null) {
+            return null;
+        }
         switch (fieldType.getTypeName()) {
             case INT16:
-                return ((Short) value).intValue();
+                return ((Short) fieldValue).intValue();
             case INT32:
             case INT64:
             case FLOAT:
             case DOUBLE:
             case STRING:
             case BOOLEAN:
-                return value;
+                return fieldValue;
             case DATETIME:
-                return ((Instant) value).getMillis() * 1000L;
+                return ((Instant) fieldValue).getMillis() * 1000L;
             case LOGICAL_TYPE: {
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                    return Long.valueOf(((LocalDate) fieldValue).toEpochDay()).intValue();
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return ((LocalTime) value).toNanoOfDay() / 1000L;
+                    return ((LocalTime) fieldValue).toNanoOfDay() / 1000L;
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
-                    return ((EnumerationType.Value) value).getValue();
+                    return ((EnumerationType.Value) fieldValue).getValue();
                 } else {
                     throw new IllegalStateException();
                 }
+            }
+            case ROW: {
+                final Map<String, Object> values = new HashMap<>();
+                for(final Schema.Field field : fieldType.getRowSchema().getFields()) {
+                    final Object value = getAsPrimitive(fieldValue, field.getType(), field.getName());
+                    values.put(field.getName(), value);
+                }
+                return values;
             }
             case ITERABLE:
             case ARRAY: {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
                     case INT16:
-                        return ((List<Short>) value).stream()
+                        return ((List<Short>) fieldValue).stream()
                                 .map(Short::intValue)
                                 .collect(Collectors.toList());
                     case INT32:
@@ -859,24 +917,24 @@ public class RowSchemaUtil {
                     case DOUBLE:
                     case STRING:
                     case BOOLEAN:
-                        return value;
+                        return fieldValue;
                     case DATETIME:
-                        return ((List<Instant>) value).stream()
+                        return ((List<Instant>) fieldValue).stream()
                                 .map(Instant::getMillis)
                                 .map(l -> l * 1000L)
                                 .collect(Collectors.toList());
                     case LOGICAL_TYPE: {
                         if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
-                            return ((List<LocalDate>) value).stream()
+                            return ((List<LocalDate>) fieldValue).stream()
                                     .map(LocalDate::toEpochDay)
                                     .collect(Collectors.toList());
                         } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
-                            return ((List<LocalTime>) value).stream()
+                            return ((List<LocalTime>) fieldValue).stream()
                                     .map(LocalTime::toNanoOfDay)
                                     .map(n -> n / 1000L)
                                     .collect(Collectors.toList());
                         } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
-                            return ((List<EnumerationType.Value>) value).stream()
+                            return ((List<EnumerationType.Value>) fieldValue).stream()
                                     .map(EnumerationType.Value::getValue)
                                     .collect(Collectors.toList());
                         } else {
@@ -1002,7 +1060,7 @@ public class RowSchemaUtil {
                     case BOOLEAN:
                         return primitiveValue;
                     case DATETIME:
-                        return ((List<Integer>) primitiveValue).stream()
+                        return ((List<Long>) primitiveValue).stream()
                                 .map(l -> l / 1000L)
                                 .map(Instant::ofEpochMilli)
                                 .collect(Collectors.toList());
@@ -1039,15 +1097,104 @@ public class RowSchemaUtil {
     }
 
     public static EnumerationType.Value toEnumerationTypeValue(final Schema.FieldType fieldType, final String value) {
-        final int typeCode = fieldType
-                .getLogicalType(EnumerationType.class)
+        final EnumerationType enumerationType = fieldType.getLogicalType(EnumerationType.class);
+        final int typeCode = enumerationType
                 .getArgument()
-                .getOrDefault(value, 0);
+                .getOrDefault(value, enumerationType.getValues().size() - 1);
         return new EnumerationType.Value(typeCode);
     }
 
     public static String toString(final Schema.FieldType fieldType, final EnumerationType.Value value) {
         return fieldType.getLogicalType(EnumerationType.class).toString(value);
+    }
+
+    public static Schema.Options createDefaultValueOptions(final String defaultValue) {
+        return Schema.Options.builder()
+                .setOption(RowSchemaUtil.OPTION_NAME_DEFAULT_VALUE, Schema.FieldType.STRING, defaultValue)
+                .build();
+    }
+
+    public static Object getDefaultValue(final Schema.FieldType fieldType, final Schema.Options fieldOptions) {
+        if(fieldOptions == null || !fieldOptions.hasOption(OPTION_NAME_DEFAULT_VALUE)) {
+            return null;
+        }
+        final String defaultValue = fieldOptions.getValue(OPTION_NAME_DEFAULT_VALUE, String.class);
+        return convertDefaultValue(fieldType, defaultValue);
+    }
+
+    private static Object convertDefaultValue(final Schema.FieldType fieldType, final String defaultValue) {
+        switch (fieldType.getTypeName()) {
+            case STRING:
+                return defaultValue;
+            case BOOLEAN:
+                return Boolean.valueOf(defaultValue);
+            case BYTE:
+                return Byte.valueOf(defaultValue);
+            case INT16:
+                return Short.valueOf(defaultValue);
+            case INT32:
+                return Integer.valueOf(defaultValue);
+            case INT64:
+                return Long.valueOf(defaultValue);
+            case FLOAT:
+                return Float.valueOf(defaultValue);
+            case DOUBLE:
+                return Double.valueOf(defaultValue);
+            case DECIMAL:
+                return new BigDecimal(defaultValue);
+            case BYTES:
+                return Base64.getDecoder().decode(defaultValue);
+            case DATETIME:
+                return DateTimeUtil.toJodaInstant(defaultValue);
+            case LOGICAL_TYPE: {
+                final JsonElement element = new Gson().fromJson(defaultValue, JsonElement.class);
+                if(!element.isJsonPrimitive()) {
+                    return null;
+                }
+                final JsonPrimitive primitive = element.getAsJsonPrimitive();
+                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toLocalDate(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return LocalDate.ofEpochDay(primitive.getAsLong());
+                    } else {
+                        throw new IllegalStateException("json fieldType: " + fieldType.getTypeName() + ", value: " + primitive + " could not be convert to date");
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toLocalTime(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return LocalTime.ofSecondOfDay(primitive.getAsLong());
+                    } else {
+                        throw new IllegalStateException("json fieldType: " + fieldType.getTypeName() + ", value: " + primitive + " could not be convert to time");
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                    if(primitive.isString()) {
+                        return DateTimeUtil.toJodaInstant(primitive.getAsString());
+                    } else if(primitive.isNumber()) {
+                        return DateTimeUtil.toJodaInstant(primitive.getAsLong());
+                    } else {
+                        final String message = "json fieldType: " + fieldType.getTypeName() + ", value: " + primitive + " could not be convert to timestamp";
+                        throw new IllegalStateException(message);
+                    }
+                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final String enumString = primitive.getAsString();
+                    return RowSchemaUtil.toEnumerationTypeValue(fieldType, enumString);
+                } else {
+                    throw new IllegalArgumentException(
+                            "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
+                }
+            }
+            case ROW: {
+                final JsonElement element = new Gson().fromJson(defaultValue, JsonElement.class);
+                return JsonToRowConverter.convert(fieldType.getRowSchema(), element);
+            }
+            case MAP:
+            case ARRAY:
+            case ITERABLE:
+            default:
+                throw new IllegalStateException("Not supported default value type: " + fieldType.getTypeName());
+        }
     }
 
 }

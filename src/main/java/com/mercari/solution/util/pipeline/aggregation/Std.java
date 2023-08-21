@@ -21,13 +21,16 @@ public class Std implements Aggregator {
     private String weightField;
     private String weightExpression;
     private Integer ddof; // Delta Degree of Freedom
+    private Boolean outputVar;
     private String condition;
 
     private Boolean ignore;
+    private String separator;
 
     private String accumKeyAvgName;
     private String accumKeyCountName;
     private String accumKeyWeightName;
+    private String outputVarName;
 
 
     private transient Expression exp;
@@ -44,6 +47,7 @@ public class Std implements Aggregator {
                          final String expression,
                          final String condition,
                          final Boolean ignore,
+                         final String separator,
                          final JsonObject params) {
 
         final Std std = new Std();
@@ -52,9 +56,7 @@ public class Std implements Aggregator {
         std.expression = expression;
         std.condition = condition;
         std.ignore = ignore;
-
-        std.outputFields = new ArrayList<>();
-        std.outputFields.add(Schema.Field.of(name, Schema.FieldType.DOUBLE.withNullable(true)));
+        std.separator = separator;
 
         if(params.has("weightField")) {
             std.weightField = params.get("weightField").getAsString();
@@ -66,6 +68,19 @@ public class Std implements Aggregator {
             std.ddof = params.get("ddof").getAsInt();
         } else {
             std.ddof = 1;
+        }
+
+        if(params.has("outputVar") && params.get("outputVar").isJsonPrimitive()) {
+            std.outputVar = params.get("outputVar").getAsBoolean();
+        } else {
+            std.outputVar = false;
+        }
+
+        std.outputFields = new ArrayList<>();
+        std.outputFields.add(Schema.Field.of(name, Schema.FieldType.DOUBLE.withNullable(true)));
+        if(std.outputVar) {
+            std.outputVarName = std.outputFieldName("var");
+            std.outputFields.add(Schema.Field.of(std.outputVarName, Schema.FieldType.DOUBLE.withNullable(true)));
         }
 
         std.accumKeyAvgName = name + ".avg";
@@ -153,9 +168,13 @@ public class Std implements Aggregator {
     public Accumulator mergeAccumulator(final Accumulator base, final Accumulator input) {
         final Double baseCount = Optional.ofNullable(base.getDouble(accumKeyCountName)).orElse(0D);
         final Double inputCount = Optional.ofNullable(input.getDouble(accumKeyCountName)).orElse(0D);
-        if(baseCount == 0) {
-            return input;
-        } else if(inputCount == 0) {
+        if(inputCount == 0) {
+            return base;
+        } else if(baseCount == 0) {
+            base.putDouble(name, input.getDouble(name));
+            base.putDouble(accumKeyCountName, inputCount);
+            base.putDouble(accumKeyAvgName, input.getDouble(accumKeyAvgName));
+            base.putDouble(accumKeyWeightName, input.getDouble(accumKeyWeightName));
             return base;
         } else if(baseCount == 1 || inputCount == 1) {
             final Double inputValue;
@@ -167,7 +186,12 @@ public class Std implements Aggregator {
             } else {
                 inputValue = base.getDouble(accumKeyAvgName);
                 inputWeight = base.getDouble(accumKeyWeightName);
-                return add(input, inputValue, inputWeight);
+                final Accumulator mergedInput = add(input, inputValue, inputWeight);
+                base.putDouble(name, mergedInput.getDouble(name));
+                base.putDouble(accumKeyCountName, mergedInput.getDouble(accumKeyCountName));
+                base.putDouble(accumKeyAvgName, mergedInput.getDouble(accumKeyAvgName));
+                base.putDouble(accumKeyWeightName, mergedInput.getDouble(accumKeyWeightName));
+                return base;
             }
         }
 
@@ -198,8 +222,9 @@ public class Std implements Aggregator {
         final Double weight = Optional.ofNullable(accumulator.getDouble(accumKeyWeightName)).orElse(0D);
         if(var != null && weight != 0 && weight - ddof > 0) {
             values.put(name, Math.sqrt(var / (weight - ddof)));
-        } else {
-            values.put(name, null);
+            if(outputVar) {
+                values.put(outputVarName, var);
+            }
         }
         return values;
     }
@@ -225,6 +250,10 @@ public class Std implements Aggregator {
         accumulator.putDouble(name, nextVar);
 
         return accumulator;
+    }
+
+    private String outputFieldName(String field) {
+        return String.format("%s%s%s", name, separator, field);
     }
 
 }

@@ -4,9 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.pipeline.union.UnionValue;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.SchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.beam.sdk.schemas.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +44,7 @@ public class Aggregators implements Serializable {
     public static Aggregators of(final String input,
                                  final List<Schema.Field> commonFields,
                                  final DataType sourceType,
+                                 final DataType targetType,
                                  final Schema inputSchema,
                                  final JsonArray fields) {
 
@@ -54,7 +53,7 @@ public class Aggregators implements Serializable {
         aggregators.commonFields = commonFields;
         aggregators.aggregators = new ArrayList<>();
         for(final JsonElement element : fields) {
-            final Aggregator aggregator = Aggregator.of(element, inputSchema);
+            final Aggregator aggregator = Aggregator.of(element, inputSchema, targetType);
             aggregators.aggregators.add(aggregator);
         }
         switch (sourceType) {
@@ -65,13 +64,16 @@ public class Aggregators implements Serializable {
                 aggregators.valueGetter = AvroSchemaUtil::getAsPrimitive;
                 break;
             case STRUCT:
+                aggregators.valueGetter = StructSchemaUtil::getAsPrimitive;
                 break;
             case DOCUMENT:
+                aggregators.valueGetter = DocumentSchemaUtil::getAsPrimitive;
                 break;
             case ENTITY:
+                aggregators.valueGetter = EntitySchemaUtil::getAsPrimitive;
                 break;
             default:
-                throw new IllegalStateException();
+                throw new IllegalStateException("Not supported aggregators sourceType: " + sourceType);
         }
         return aggregators;
     }

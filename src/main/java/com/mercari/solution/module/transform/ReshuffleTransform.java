@@ -3,8 +3,6 @@ package com.mercari.solution.module.transform;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.values.PCollection;
 import org.slf4j.Logger;
@@ -26,27 +24,15 @@ public class ReshuffleTransform implements TransformModule {
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 
-        final WithReshuffle transform = new WithReshuffle(config);
-        final Map<String, FCollection<?>> collections = new HashMap<>();
+        final Map<String, FCollection<?>> outputs = new HashMap<>();
         for(final FCollection input : inputs) {
-            final String name = config.getName() + "." + input.getName();
-            final Coder coder = input.getCollection().getCoder();
-            final PCollection<?> output = ((PCollection<?>) (input.getCollection()).apply(config.getName(), transform))
-                    .setCoder(coder);
-            collections.put(name, FCollection.update(input, name, output));
+            final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
+            final PCollection<?> output = ((PCollection<?>) (input.getCollection())
+                    .apply(config.getName(), Reshuffle.viaRandomKey()))
+                    .setCoder(input.getCollection().getCoder());
+            outputs.put(name, FCollection.update(input, name, output));
         }
-        return collections;
-    }
-
-    public static class WithReshuffle<T> extends PTransform<PCollection<T>, PCollection<T>> {
-
-        private WithReshuffle(final TransformConfig config) {}
-
-        @Override
-        public PCollection<T> expand(final PCollection<T> input) {
-            return input.apply("WithWindow", Reshuffle.viaRandomKey());
-        }
-
+        return outputs;
     }
 
 }

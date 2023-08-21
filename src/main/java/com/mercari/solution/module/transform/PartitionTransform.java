@@ -2,6 +2,7 @@ package com.mercari.solution.module.transform;
 
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mercari.solution.config.TransformConfig;
@@ -9,10 +10,7 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.Filter;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -41,24 +39,12 @@ public class PartitionTransform implements TransformModule {
             return exclusive;
         }
 
-        public void setExclusive(Boolean exclusive) {
-            this.exclusive = exclusive;
-        }
-
         public List<PartitionParameter> getPartitions() {
             return partitions;
         }
 
-        public void setPartitions(List<PartitionParameter> partitions) {
-            this.partitions = partitions;
-        }
-
         public String getSeparator() {
             return separator;
-        }
-
-        public void setSeparator(String separator) {
-            this.separator = separator;
         }
 
         private class PartitionParameter implements Serializable {
@@ -70,24 +56,32 @@ public class PartitionTransform implements TransformModule {
                 return output;
             }
 
-            public void setOutput(String output) {
-                this.output = output;
-            }
-
             public JsonElement getFilters() {
                 return filters;
             }
 
-            public void setFilters(JsonElement filters) {
-                this.filters = filters;
+            private List<String> validate(String name, int index) {
+                final List<String> errorMessages = new ArrayList<>();
+                if(this.output == null) {
+                    errorMessages.add("PartitionTransform module: " + name + " parameters.partitions[" + index + "].output is missing.");
+                }
+                return errorMessages;
+            }
+
+            private void setDefaults() {
+
             }
 
         }
 
-        private void validate() {
+        private void validate(final String name) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.getPartitions() == null || this.getPartitions().size() == 0) {
-                errorMessages.add("PartitionTransform config parameters must contain partitions parameter.");
+                errorMessages.add("PartitionTransform module: " + name + " partitions parameter is missing.");
+            } else {
+                for(int index=0; index<this.partitions.size(); index++) {
+                    errorMessages.addAll(partitions.get(index).validate(name, index));
+                }
             }
 
             if(errorMessages.size() > 0) {
@@ -96,12 +90,17 @@ public class PartitionTransform implements TransformModule {
         }
 
         private void setDefaults() {
-            if(this.getExclusive() == null) {
-                this.setExclusive(true);
+
+            for(final PartitionParameter partitionParameter : partitions) {
+                partitionParameter.setDefaults();
             }
-            if(this.getSeparator() == null) {
-                this.setSeparator(".");
+            if(this.exclusive == null) {
+                this.exclusive = true;
             }
+            if(this.separator == null) {
+                this.separator = ".";
+            }
+
         }
 
     }
@@ -117,15 +116,19 @@ public class PartitionTransform implements TransformModule {
                 .fromJson(config.getParameters(), PartitionTransformParameters.class);
 
         if(parameters == null) {
-            throw new IllegalArgumentException("PartitionTransform config parameters must not be empty!");
+            throw new IllegalArgumentException("PartitionTransform module: " + config.getName() + " parameters must not be empty!");
         }
 
-        parameters.validate();
+        parameters.validate(config.getName());
         parameters.setDefaults();
 
-        final List<KV<String, String>> conditionJsons = parameters.getPartitions().stream()
-                .map(p -> KV.of(p.getOutput(), p.getFilters().toString()))
-                .collect(Collectors.toList());
+        final List<String> conditionJsons = new ArrayList<>();
+        final List<String> outputNames = new ArrayList<>();
+        for(int i=0; i<parameters.getPartitions().size(); i++) {
+            final var p = parameters.getPartitions().get(i);
+            conditionJsons.add(p.getFilters().toString());
+            outputNames.add(p.getOutput());
+        }
 
         final Map<String, FCollection<?>> results = new HashMap<>();
         for(final FCollection<?> input : inputs) {
@@ -133,49 +136,76 @@ public class PartitionTransform implements TransformModule {
             switch (input.getDataType()) {
                 case AVRO: {
                     final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
-                    final Transform<GenericRecord> transform = new Transform<>(conditionJsons, AvroSchemaUtil::getValue, parameters.getExclusive());
+                    final Transform<GenericRecord> transform = new Transform<>(
+                            conditionJsons, AvroSchemaUtil::getValue, parameters.getExclusive(), outputNames);
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
+                    final Map<TupleTag<GenericRecord>, String> outputTags = transform.getOutputTags();
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());//prefix + "." + entry.getKey().getId();
-                        final PCollection<GenericRecord> collection = entry.getValue()
-                                .setCoder((Coder)input.getCollection().getCoder());
-                        results.put(name, FCollection.of(name, collection, DataType.AVRO, inputCollection.getAvroSchema()));
+                        final TupleTag<GenericRecord> tag = (TupleTag<GenericRecord>)entry.getKey();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), outputTags.get(tag));
+                        final Coder<GenericRecord> coder = (Coder<GenericRecord>) input.getCollection().getCoder();
+                        final PCollection<GenericRecord> output = ((PCollection<GenericRecord>)entry.getValue()).setCoder(coder);
+                        results.put(name, FCollection.of(name, output, DataType.AVRO, inputCollection.getAvroSchema()));
                     }
                     break;
                 }
                 case ROW: {
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
-                    final Transform<Row> transform = new Transform<>(conditionJsons, RowSchemaUtil::getValue, parameters.getExclusive());
+                    final Transform<Row> transform = new Transform<>(
+                            conditionJsons, RowSchemaUtil::getValue, parameters.getExclusive(), outputNames);
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
+                    final Map<TupleTag<Row>, String> outputTags = transform.getOutputTags();
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());
-                        final PCollection<GenericRecord> collection = entry.getValue()
-                                .setCoder((Coder)input.getCollection().getCoder());
-                        results.put(name, FCollection.of(name, collection, DataType.ROW, inputCollection.getSchema()));
+                        final TupleTag<Row> tag = (TupleTag<Row>)entry.getKey();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), outputTags.get(tag));
+                        final Coder<Row> coder = inputCollection.getCollection().getCoder();
+                        final PCollection<Row> output = ((PCollection<Row>)entry.getValue()).setCoder(coder);
+                        results.put(name, FCollection.of(name, output, DataType.ROW, inputCollection.getSchema()));
                     }
                     break;
                 }
                 case STRUCT: {
                     final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
-                    final Transform<Struct> transform = new Transform<>(conditionJsons, StructSchemaUtil::getValue, parameters.getExclusive());
+                    final Transform<Struct> transform = new Transform<>(
+                            conditionJsons, StructSchemaUtil::getValue, parameters.getExclusive(), outputNames);
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
+                    final Map<TupleTag<Struct>, String> outputTags = transform.getOutputTags();
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());
-                        final PCollection<GenericRecord> collection = entry.getValue()
-                                .setCoder((Coder)input.getCollection().getCoder());
-                        results.put(name, FCollection.of(name, collection, DataType.STRUCT, inputCollection.getSpannerType()));
+                        final TupleTag<Struct> tag = (TupleTag<Struct>)entry.getKey();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), outputTags.get(tag));
+                        final Coder<Struct> coder = inputCollection.getCollection().getCoder();
+                        final PCollection<Struct> output = ((PCollection<Struct>) entry.getValue()).setCoder(coder);
+                        results.put(name, FCollection.of(name, output.setCoder(coder), DataType.STRUCT, inputCollection.getSpannerType()));
+                    }
+                    break;
+                }
+                case DOCUMENT: {
+                    final FCollection<Document> inputCollection = (FCollection<Document>) input;
+                    final Transform<Document> transform = new Transform<>(
+                            conditionJsons, DocumentSchemaUtil::getValue, parameters.getExclusive(), outputNames);
+                    final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
+                    final Map<TupleTag<Document>, String> outputTags = transform.getOutputTags();
+                    for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
+                        final TupleTag<Document> tag = (TupleTag<Document>)entry.getKey();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), outputTags.get(tag));
+                        final Coder<Document> coder = inputCollection.getCollection().getCoder();
+                        final PCollection<Document> output = ((PCollection<Document>) entry.getValue()).setCoder(coder);
+                        results.put(name, FCollection.of(name, output, DataType.DOCUMENT, inputCollection.getSchema()));
                     }
                     break;
                 }
                 case ENTITY: {
                     final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
-                    final Transform<Entity> transform = new Transform<>(conditionJsons, EntitySchemaUtil::getValue, parameters.getExclusive());
+                    final Transform<Entity> transform = new Transform<>(
+                            conditionJsons, EntitySchemaUtil::getValue, parameters.getExclusive(), outputNames);
                     final PCollectionTuple tuple = inputCollection.getCollection().apply(prefix, transform);
+                    final Map<TupleTag<Entity>, String> outputTags = transform.getOutputTags();
                     for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : tuple.getAll().entrySet()) {
-                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), entry.getKey().getId());
-                        final PCollection<GenericRecord> collection = entry.getValue()
-                                .setCoder((Coder)input.getCollection().getCoder());
-                        results.put(name, FCollection.of(name, collection, DataType.ENTITY, inputCollection.getSchema()));
+                        final TupleTag<Entity> tag = (TupleTag<Entity>)entry.getKey();
+                        final String name = String.format("%s%s%s", prefix, parameters.getSeparator(), outputTags.get(tag));
+                        final Coder<Entity> coder = inputCollection.getCollection().getCoder();
+                        final PCollection<Entity> output = ((PCollection<Entity>) entry.getValue()).setCoder(coder);
+                        results.put(name, FCollection.of(name, output, DataType.ENTITY, inputCollection.getSchema()));
                     }
                     break;
                 }
@@ -189,49 +219,62 @@ public class PartitionTransform implements TransformModule {
 
     public static class Transform<T> extends PTransform<PCollection<T>, PCollectionTuple> {
 
-        private final List<KV<String, String>> conditionJsons;
-        private final Filter.Getter<T> getter;
+        private final List<KV<TupleTag<T>, String>> conditionJsons;
+        private final SchemaUtil.ValueGetter<T> valueGetter;
         private final boolean exclusive;
 
-        private final Map<String, TupleTag<T>> outputTags;
-        private final TupleTag<T> defaultOutputTag = new TupleTag<>("defaults"){};
 
-        private Transform(final List<KV<String, String>> conditionJsons,
-                          final Filter.Getter<T> getter,
-                          final boolean exclusive) {
+        private final TupleTag<T> defaultOutputTag = new TupleTag<>(){};
+        private final Map<TupleTag<T>, String> outputTags;
 
-            this.conditionJsons = conditionJsons;
-            this.getter = getter;
-            this.exclusive = exclusive;
+
+        public TupleTag<T> getDefaultOutputTag() {
+            return defaultOutputTag;
+        }
+
+        public Map<TupleTag<T>, String> getOutputTags() {
+            return outputTags;
+        }
+
+        private Transform(final List<String> conditionJsons,
+                          final SchemaUtil.ValueGetter<T> valueGetter,
+                          final boolean exclusive,
+                          final List<String> outputNames) {
 
             this.outputTags = new HashMap<>();
-            for(var kv : conditionJsons) {
-                outputTags.put(kv.getKey(), new TupleTag<>(kv.getKey()){});
+            this.conditionJsons = new ArrayList<>();
+            for(int i=0; i<conditionJsons.size(); i++) {
+                final TupleTag<T> tag = new TupleTag<>() {};
+                final String conditionJson = conditionJsons.get(i);
+                final String outputName = outputNames.get(i);
+                this.outputTags.put(tag, outputName);
+                this.conditionJsons.add(KV.of(tag, conditionJson));
             }
-            outputTags.put(defaultOutputTag.getId(), defaultOutputTag);
+            this.outputTags.put(defaultOutputTag, "defaults");
+
+            this.valueGetter = valueGetter;
+            this.exclusive = exclusive;
         }
 
         @Override
         public PCollectionTuple expand(final PCollection<T> input) {
             return input.apply("Partition", ParDo
-                    .of(new PartitionDoFn(conditionJsons, getter, exclusive))
-                    .withOutputTags(defaultOutputTag, TupleTagList.of(outputTags.values().stream()
-                            .filter(t -> !t.getId().equals(defaultOutputTag.getId()))
+                    .of(new PartitionDoFn(valueGetter, exclusive))
+                    .withOutputTags(defaultOutputTag, TupleTagList.of(conditionJsons.stream()
+                            .map(KV::getKey)
                             .collect(Collectors.toList()))));
         }
 
         private class PartitionDoFn extends DoFn<T, T> {
 
-            private final List<KV<String, String>> conditionJsons;
-            private final Filter.Getter<T> getter;
+            private final SchemaUtil.ValueGetter<T> getter;
             private final boolean exclusive;
 
-            private transient List<KV<String, Filter.ConditionNode>> conditions;
+            private transient List<KV<TupleTag<T>, Filter.ConditionNode>> conditions;
 
-            PartitionDoFn(final List<KV<String, String>> conditionJsons,
-                          final Filter.Getter<T> getter,
+            PartitionDoFn(final SchemaUtil.ValueGetter<T> getter,
                           final boolean exclusive) {
-                this.conditionJsons = conditionJsons;
+
                 this.getter = getter;
                 this.exclusive = exclusive;
             }
@@ -239,7 +282,9 @@ public class PartitionTransform implements TransformModule {
             @Setup
             public void setup() {
                 this.conditions = conditionJsons.stream()
-                        .map(kv -> KV.of(kv.getKey(), Filter.parse(new Gson().fromJson(kv.getValue(), JsonElement.class))))
+                        .map(kv -> KV.of(
+                                kv.getKey(),
+                                Filter.parse(new Gson().fromJson(kv.getValue(), JsonElement.class))))
                         .collect(Collectors.toList());
             }
 
@@ -247,11 +292,11 @@ public class PartitionTransform implements TransformModule {
             public void processElement(ProcessContext c) {
                 final T element = c.element();
                 boolean output = false;
-                for(KV<String, Filter.ConditionNode> condition : conditions) {
-                    if(Filter.filter(element, getter, condition.getValue())) {
-                        c.output(outputTags.get(condition.getKey()), element);
+                for (final KV<TupleTag<T>, Filter.ConditionNode> condition : conditions) {
+                    if (Filter.filter(element, getter, condition.getValue())) {
+                        c.output(condition.getKey(), element);
                         output = true;
-                        if(exclusive) {
+                        if (exclusive) {
                             return;
                         }
                     }

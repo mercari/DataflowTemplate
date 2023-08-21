@@ -19,6 +19,10 @@ import org.apache.beam.sdk.values.TupleTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -106,12 +110,21 @@ public class BeamSQLTransform implements TransformModule {
                 beamsqlInputs = beamsqlInputs.and(input.getKey().getId(), row);
             }
 
-            final String query;
+            String query;
             if(parameters.getSql().startsWith("gs://")) {
                 final String rawQuery = StorageUtil.readString(parameters.getSql());
                 query = TemplateUtil.executeStrictTemplate(rawQuery, templateArgs);
             } else {
-                query = parameters.getSql();
+                if(Files.exists(Paths.get(parameters.getSql())) && !Files.isDirectory(Paths.get(parameters.getSql()))) {
+                    try {
+                        final String rawQuery = Files.readString(Paths.get(parameters.getSql()), StandardCharsets.UTF_8);
+                        query = TemplateUtil.executeStrictTemplate(rawQuery, templateArgs);
+                    } catch (IOException e) {
+                        query = parameters.getSql();
+                    }
+                } else {
+                    query = parameters.getSql();
+                }
             }
 
             final SqlTransform transform;

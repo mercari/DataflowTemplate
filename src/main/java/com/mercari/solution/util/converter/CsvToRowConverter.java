@@ -1,5 +1,6 @@
 package com.mercari.solution.util.converter;
 
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 public class CsvToRowConverter {
@@ -28,11 +30,13 @@ public class CsvToRowConverter {
             final CSVRecord record = records.get(0);
             Row.Builder builder = Row.withSchema(schema);
             for(int i=0; i<schema.getFieldCount(); i++) {
+                final String value;
                 if(i >= record.size()) {
-                    builder.addValue(null);
-                    continue;
+                    value = null;
+                } else {
+                    value = record.get(i);
                 }
-                builder.addValue(convertValue(schema.getField(i).getType(), record.get(i)));
+                builder.addValue(convertValue(schema.getField(i).getType(), schema.getField(i).getOptions(), value));
             }
             return builder.build();
         } catch (IOException e) {
@@ -40,9 +44,12 @@ public class CsvToRowConverter {
         }
     }
 
-    private static Object convertValue(final Schema.FieldType fieldType, final String value) {
+    private static Object convertValue(final Schema.FieldType fieldType, final Schema.Options fieldOptions, final String value) {
         if(value == null) {
-            return null;
+            if(fieldType.getTypeName().isCollectionType()) {
+                return new ArrayList<>();
+            }
+            return RowSchemaUtil.getDefaultValue(fieldType, fieldOptions);
         }
         try {
             switch (fieldType.getTypeName()) {

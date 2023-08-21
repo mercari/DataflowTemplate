@@ -36,72 +36,60 @@ Below is an overview of these built-in modules.
 In the three types of modules, the contents of input, processing, and output are described as JSON parameters.
 The common settings of the three types of modules are as follows.
 
-| parameter | type | optional | description |
-| --- | --- | --- | --- |
-| name | String | required | Set unique name in Config JSON |
-| module | String | required | Set [module](module/README.md) name |
-| parameters | Map<String, Object\> | required | Specify the parameters defined in each module. |
-| skip | Boolean | optional | Specify true if you want to ignore this module. |
+| parameter  | type                 | optional | description                                     |
+|------------|----------------------|----------|-------------------------------------------------|
+| name       | String               | required | Set unique name in Config JSON                  |
+| module     | String               | required | Set [module](module/README.md) name             |
+| parameters | Map<String, Object\> | required | Specify the parameters defined in each module.  |
+| skip       | Boolean              | optional | Specify true if you want to ignore this module. |
 
 
 ## Source modules
 
-The source is a module that defines the source of the data you want to process in the pipeline.
+The source module defines the source of the data you want to process in the pipeline.
 Common configuration items in the source module are as follows.
 
-| parameter | type | optional | description |
-| --- | --- | --- | --- |
-| schema | [Schema](module/source/SCHEMA.md) | optional | Specifies the schema of the input resource. If the input resource has schema information, no specification is required. |
-| timestampAttribute | String | optional | Defines which fields of the source record should be treated as EventTime. The default is the time of input. |
-| microbatch | Boolean | optional | Specify true if you want to retrieve data in near real time using the Micorobatch method. Default is false. (You need to start Dataflow in streaming mode if microbatch mode.) |
+| parameter          | type                              | optional | description                                                                                                                                                                    |
+|--------------------|-----------------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| schema             | [Schema](module/source/SCHEMA.md) | optional | Specifies the schema of the input resource. If the input resource has schema information, no specification is required.                                                        |
+| timestampAttribute | String                            | optional | Defines which fields of the source record should be treated as EventTime. The default is the time of input.                                                                    |
+| microbatch         | Boolean                           | optional | Specify true if you want to retrieve data in near real time using the Micorobatch method. Default is false. (You need to start Dataflow in streaming mode if microbatch mode.) |
 
 
 ## Transform modules
 
-The transform is a module that defines what to do with the data.
+The transform module defines what to do with the data.
 The common settings of the transform module are as follows.
 
-| parameter | type | optional | description |
-| --- | --- | --- | --- |
-| inputs | Array<String\> | required | Specify the names of the module from which you want to process the data, including the name of the transform. |
+| parameter | type           | optional | description                                                                                                   |
+|-----------|----------------|----------|---------------------------------------------------------------------------------------------------------------|
+| inputs    | Array<String\> | required | Specify the names of the module from which you want to process the data, including the name of the transform. |
 
 
 ## Sink modules
 
-The sink is a module that defines the output destination of the data.
+The sink module defines the output destination of the data.
 The common settings of the sink module are as follows
 
-| parameter | type | optional | description |
-| --- | --- | --- | --- |
-| input | String | required | Specify the name of the module from which you want to output data. source or transform name. |
-| wait | Array<String\> | optional | If you want to wait for the completion of other steps and then start the output, assign a step Name to wait for completion. |
-| sideInputs | Array<String\> | optional | Specify the name of the input when additional information is needed for writing. |
+| parameter  | type           | optional | description                                                                                                                 |
+|------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------------------|
+| input      | String         | required | Specify the name of the module from which you want to output data. source or transform name.                                |
+| wait       | Array<String\> | optional | If you want to wait for the completion of other steps and then start the output, assign a step Name to wait for completion. |
+| sideInputs | Array<String\> | optional | Specify the name of the input when additional information is needed for writing.                                            |
 
 ## Settings
 
-settings is a module that defines common settings for all modules.
+The settings defines common settings for all modules.
 The following items can be defined as settings.
 
-| parameter | type | description |
-| --- | --- | --- |
-| aws.accessKey | String | Set aws accessKey to dataflow worker use. If read/write s3, required. |
-| aws.secretKey | String | Set aws secretKey to dataflow worker use. If read/write s3, required. |
-| aws.region | String | Set aws s3 region. If read/write s3, required. |
-| beamsql.plannerName | String | Choose BeamSQL planner class name. `org.apache.beam.sdk.extensions.sql.zetasql.ZetaSQLQueryPlanner` or `org.apache.beam.sdk.extensions.sql.impl.CalciteQueryPlanner`. default is zetasql. |
+See the [Settings page](module/setting/README.md) for details.
 
+| parameter | description                                                      |
+|-----------|------------------------------------------------------------------|
+| streaming | Specify whether the dataflow job starts in streaming mode or not |
+| dataflow  | Specify Cloud Dataflow runtime job parameters                    |
+| beamsql   | Specify Beam SQL common settings                                 |
 
-```JSON:settings
-"settings": {
-    "aws": {
-        "accessKey": "{AWS_ACCESSKEY}",
-        "secretKey": "{AWS_SECRETKEY}",
-        "region": "{AWS_REGION}"
-    },
-    "beamsql": {
-        "plannerName": "{beam planner class name}"
-    }
-}
-```
 
 ## Rewriting the configuration file at runtime
 

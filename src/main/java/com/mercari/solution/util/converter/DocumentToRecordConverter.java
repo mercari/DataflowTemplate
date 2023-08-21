@@ -12,11 +12,12 @@ import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
+import org.apache.beam.sdk.io.gcp.bigquery.AvroWriteRequest;
 
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class FirestoreDocumentToRecordConverter {
+public class DocumentToRecordConverter {
 
     public static GenericRecord convert(final RunQueryResponse response, final Schema schema) {
         return convert(schema, response.getDocument());
@@ -50,6 +51,10 @@ public class FirestoreDocumentToRecordConverter {
             builder.set(field, getValue(field.schema(), document.getFieldsMap().get(field.name())));
         }
         return builder.build();
+    }
+
+    public static GenericRecord convert(final AvroWriteRequest<Document> request) {
+        return convert(request.getSchema(), request.getElement());
     }
 
     private static Object getValue(final Schema schema, final Value value) {

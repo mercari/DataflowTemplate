@@ -5,6 +5,7 @@ import org.joda.time.Instant;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.time.LocalDate;
 import java.util.*;
 
 public class ExpressionUtilTest {
@@ -56,6 +57,52 @@ public class ExpressionUtilTest {
     }
 
     @Test
+    public void testTimestampToDate() {
+
+        {
+            final String expressionText = "timestamp_to_date(a, b)";
+            final Set<String> variables = ExpressionUtil.estimateVariables(expressionText);
+            Assert.assertEquals(2, variables.size());
+            Assert.assertTrue(variables.containsAll(Arrays.asList("a","b")));
+
+            final Map<String,Double> values = new HashMap<>();
+
+            Instant a = Instant.parse("2023-01-15T14:59:59.999Z");
+            values.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+            values.put("b", 9D);
+            Expression expression = ExpressionUtil.createDefaultExpression(expressionText, variables);
+            double result = expression.setVariables(values).evaluate();
+            Assert.assertEquals(LocalDate.of(2023,1,15).toEpochDay(), result, DELTA);
+
+            a = Instant.parse("2023-01-15T15:00:00.000Z");
+            values.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+            values.put("b", 9D);
+            expression = ExpressionUtil.createDefaultExpression(expressionText, variables);
+            result = expression.setVariables(values).evaluate();
+            Assert.assertEquals(LocalDate.of(2023,1,16).toEpochDay(), result, DELTA);
+        }
+
+        {
+            final String expressionText = "timestamp_to_date(a, b) - timestamp_to_date(c, d)";
+            final Set<String> variables = ExpressionUtil.estimateVariables(expressionText);
+            Assert.assertEquals(4, variables.size());
+            Assert.assertTrue(variables.containsAll(Arrays.asList("a","b","c","d")));
+
+            final Map<String,Double> values = new HashMap<>();
+
+            Instant a = Instant.parse("2023-01-15T15:00:00.000Z");
+            Instant b = Instant.parse("2023-01-14T14:59:59.999Z");
+            values.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+            values.put("b", 9D);
+            values.put("c", Long.valueOf(b.getMillis() * 1000L).doubleValue());
+            values.put("d", 9D);
+            final Expression expression = ExpressionUtil.createDefaultExpression(expressionText, variables);
+            final double result = expression.setVariables(values).evaluate();
+            Assert.assertEquals(2D, result, DELTA);
+        }
+    }
+
+    @Test
     public void testTimestampDiff() {
         // millisecond
         final String expressionText1 = "timestamp_diff_millisecond(a,b)";
@@ -65,11 +112,11 @@ public class ExpressionUtilTest {
         final Map<String,Double> values1 = new HashMap<>();
         Instant a = Instant.parse("2023-01-15T00:00:00.000Z");
         Instant b = Instant.parse("2023-01-17T12:32:12.543Z");
-        values1.put("a", Long.valueOf(a.getMillis()).doubleValue());
-        values1.put("b", Long.valueOf(b.getMillis()).doubleValue());
+        values1.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+        values1.put("b", Long.valueOf(b.getMillis() * 1000L).doubleValue());
         final Expression expression1 = ExpressionUtil.createDefaultExpression(expressionText1, variables1);
         final double result1 = expression1.setVariables(values1).evaluate();
-        Assert.assertEquals(a.getMillis() - b.getMillis(), result1, DELTA);
+        Assert.assertEquals((a.getMillis() - b.getMillis()), result1, DELTA);
 
         // second
         final String expressionText2 = "timestamp_diff_second(a,b)";
@@ -77,8 +124,8 @@ public class ExpressionUtilTest {
         Assert.assertEquals(2, variables2.size());
         Assert.assertTrue(variables2.containsAll(Arrays.asList("a","b")));
         final Map<String,Double> values2 = new HashMap<>();
-        values2.put("a", Long.valueOf(a.getMillis()).doubleValue());
-        values2.put("b", Long.valueOf(b.getMillis()).doubleValue());
+        values2.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+        values2.put("b", Long.valueOf(b.getMillis() * 1000L).doubleValue());
         final Expression expression2 = ExpressionUtil.createDefaultExpression(expressionText2, variables2);
         final double result2 = expression2.setVariables(values2).evaluate();
         Assert.assertEquals((a.getMillis() - b.getMillis()) / 1000, result2, DELTA);
@@ -89,8 +136,8 @@ public class ExpressionUtilTest {
         Assert.assertEquals(2, variables2.size());
         Assert.assertTrue(variables3.containsAll(Arrays.asList("a","b")));
         final Map<String,Double> values3 = new HashMap<>();
-        values3.put("a", Long.valueOf(a.getMillis()).doubleValue());
-        values3.put("b", Long.valueOf(b.getMillis()).doubleValue());
+        values3.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+        values3.put("b", Long.valueOf(b.getMillis() * 1000L).doubleValue());
         final Expression expression3 = ExpressionUtil.createDefaultExpression(expressionText3, variables3);
         final double result3 = expression3.setVariables(values3).evaluate();
         Assert.assertEquals((a.getMillis() - b.getMillis()) / (1000 * 60), result3, DELTA);
@@ -101,8 +148,8 @@ public class ExpressionUtilTest {
         Assert.assertEquals(2, variables4.size());
         Assert.assertTrue(variables4.containsAll(Arrays.asList("a","b")));
         final Map<String,Double> values4 = new HashMap<>();
-        values4.put("a", Long.valueOf(a.getMillis()).doubleValue());
-        values4.put("b", Long.valueOf(b.getMillis()).doubleValue());
+        values4.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+        values4.put("b", Long.valueOf(b.getMillis() * 1000L).doubleValue());
         final Expression expression4 = ExpressionUtil.createDefaultExpression(expressionText4, variables4);
         final double result4 = expression4.setVariables(values4).evaluate();
         Assert.assertEquals((a.getMillis() - b.getMillis()) / (1000 * 60 * 60), result4, DELTA);
@@ -113,8 +160,8 @@ public class ExpressionUtilTest {
         Assert.assertEquals(2, variables5.size());
         Assert.assertTrue(variables5.containsAll(Arrays.asList("a","b")));
         final Map<String,Double> values5 = new HashMap<>();
-        values5.put("a", Long.valueOf(a.getMillis()).doubleValue());
-        values5.put("b", Long.valueOf(b.getMillis()).doubleValue());
+        values5.put("a", Long.valueOf(a.getMillis() * 1000L).doubleValue());
+        values5.put("b", Long.valueOf(b.getMillis() * 1000L).doubleValue());
         final Expression expression5 = ExpressionUtil.createDefaultExpression(expressionText5, variables5);
         final double result5 = expression5.setVariables(values5).evaluate();
         Assert.assertEquals((a.getMillis() - b.getMillis()) / (1000 * 60 * 60 * 24), result5, DELTA);

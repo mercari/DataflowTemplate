@@ -62,14 +62,14 @@ public class EntityToRowConverter {
                 continue;
             }
             final Value value = entity.getPropertiesOrDefault(field.getName(), null);
-            values.put(field.getName(), convertEntityValue(value, field.getType(), depth + 1));
+            values.put(field.getName(), convertEntityValue(value, field.getType(), field.getOptions(), depth + 1));
         }
         return Row.withSchema(schema)
                 .withFieldValues(values)
                 .build();
     }
 
-    private static Object convertEntityValue(final Value value, final Schema.FieldType fieldType, final int depth) {
+    private static Object convertEntityValue(final Value value, final Schema.FieldType fieldType, final Schema.Options fieldOptions, final int depth) {
         if (value == null
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.VALUETYPE_NOT_SET)
                 || value.getValueTypeCase().equals(Value.ValueTypeCase.NULL_VALUE)) {
@@ -77,7 +77,7 @@ public class EntityToRowConverter {
             if(fieldType.getTypeName().isCollectionType()) {
                 return new ArrayList<>();
             }
-            return null;
+            return RowSchemaUtil.getDefaultValue(fieldType, fieldOptions);
         }
 
         switch (fieldType.getTypeName()) {
@@ -146,12 +146,8 @@ public class EntityToRowConverter {
                     }
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     switch (value.getValueTypeCase()) {
-                        case STRING_VALUE: {
-                            final Integer index = fieldType.getLogicalType(EnumerationType.class)
-                                    .getValuesMap()
-                                    .get(value.getStringValue());
-                            return new EnumerationType.Value(index);
-                        }
+                        case STRING_VALUE:
+                            return RowSchemaUtil.toEnumerationTypeValue(fieldType, value.getStringValue());
                         case INTEGER_VALUE: {
                             final Long longValue = value.getIntegerValue();
                             return new EnumerationType.Value(longValue.intValue());
@@ -170,7 +166,7 @@ public class EntityToRowConverter {
             case ITERABLE:
             case ARRAY:
                 return value.getArrayValue().getValuesList().stream()
-                        .map(v -> convertEntityValue(v, fieldType.getCollectionElementType(), depth))
+                        .map(v -> convertEntityValue(v, fieldType.getCollectionElementType(), fieldOptions, depth))
                         .collect(Collectors.toList());
             case MAP:
             default:

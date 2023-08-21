@@ -152,7 +152,8 @@
               <DATAFLOW_JAVA_COMMAND_SPEC>/template/FlexPipeline/resources/command-spec.json</DATAFLOW_JAVA_COMMAND_SPEC>
             </environment>
             <jvmFlags>
-              <jvmFlag>-Xms512m</jvmFlag>
+              <jvmFlag>-Xms2048m</jvmFlag>
+              <jvmFlag>-Xmx2048m</jvmFlag>
               <jvmFlag>-Xdebug</jvmFlag>
               <jvmFlag>-Xmy:flag=jib-rules</jvmFlag>
             </jvmFlags>

@@ -3,6 +3,7 @@ package com.mercari.solution.util;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.domain.math.ExpressionUtil;
+import com.mercari.solution.util.schema.SchemaUtil;
 import net.objecthunter.exp4j.Expression;
 import org.joda.time.Instant;
 
@@ -120,6 +121,7 @@ public class Filter implements Serializable {
         private JsonElement value;
 
         private Expression expression;
+        private Set<String> expressionVariables;
         private String expressionString;
 
         public String getKey() {
@@ -151,7 +153,7 @@ public class Filter implements Serializable {
             return String.format("%s %s %s", this.expression != null ? "(" + this.expressionString + ")" : this.key, this.op, this.value);
         }
 
-        public <T> Double evaluateExpression(final T input, final Getter<T> getter) {
+        public <T> Double evaluateExpression(final T input, final SchemaUtil.ValueGetter<T> getter) {
             final Map<String, Double> variables = new HashMap<>();
             for(final String variableName : this.expression.getVariableNames()) {
                 final Object fieldValue = getter.getValue(input, variableName);
@@ -160,7 +162,7 @@ public class Filter implements Serializable {
             return expression.setVariables(variables).evaluate();
         }
 
-        public <T> Double evaluateExpression(final T input, final Getter<T> getter, final Map<String, Object> values) {
+        public <T> Double evaluateExpression(final T input, final SchemaUtil.ValueGetter<T> getter, final Map<String, Object> values) {
             final Map<String, Double> variables = new HashMap<>();
             for(final String variableName : this.expression.getVariableNames()) {
                 final Object fieldValue;
@@ -256,11 +258,11 @@ public class Filter implements Serializable {
         return node;
     }
 
-    public static <T> boolean filter(final T element, final Getter<T> getter, final ConditionNode condition) {
+    public static <T> boolean filter(final T element, final SchemaUtil.ValueGetter<T> getter, final ConditionNode condition) {
         return filter(element, getter, condition, null);
     }
 
-    public static <T> boolean filter(final T element, final Getter<T> getter, final ConditionNode condition, final Map<String, Object> values) {
+    public static <T> boolean filter(final T element, final SchemaUtil.ValueGetter<T> getter, final ConditionNode condition, final Map<String, Object> values) {
         final List<Boolean> bits = new ArrayList<>();
 
         if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
@@ -296,8 +298,12 @@ public class Filter implements Serializable {
             for(ConditionLeaf leaf : condition.getLeaves()) {
                 final Object value;
                 if(leaf.expression != null) {
+                    if(!values.keySet().containsAll(leaf.expressionVariables)) {
+                        throw new IllegalArgumentException("filter conditions expression variables[" + leaf.expressionVariables + "] are not included all in values keys: " + values.keySet());
+                    }
                     final Map<String, Double> variables = values.entrySet()
                             .stream()
+                            .filter(e -> leaf.expressionVariables.contains(e.getKey()))
                             .collect(Collectors.toMap(
                                     Map.Entry::getKey,
                                     e -> ExpressionUtil.getAsDouble(e.getValue(), Double.NaN)));
@@ -431,18 +437,16 @@ public class Filter implements Serializable {
             }
             final String expression = jsonObject.get("expression").getAsString();
             leaf.key = expression;
-            leaf.expression = ExpressionUtil.createDefaultExpression(expression);
+            leaf.expressionVariables = ExpressionUtil.estimateVariables(expression);
+            leaf.expression = ExpressionUtil.createDefaultExpression(expression, leaf.expressionVariables);
             leaf.expressionString = expression;
         } else {
             leaf.key = jsonObject.get("key").getAsString();
             leaf.expression = null;
             leaf.expressionString = null;
+            leaf.expressionVariables = new HashSet<>();
         }
         return leaf;
-    }
-
-    public interface Getter<T> extends Serializable {
-        Object getValue(final T value, final String field);
     }
 
 }
