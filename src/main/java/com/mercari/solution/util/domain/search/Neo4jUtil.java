@@ -311,7 +311,7 @@ public class Neo4jUtil implements Serializable {
         final DatabaseLayout layout = Neo4jLayout.of(Path.of(neo4jHome)).databaseLayout(databaseName);
         final CompressionFormat format = DumpFormatSelector.selectFormat();
         final String lockFile = layout.databaseLockFile().getFileName().toString();
-        final String quarantineMarkerFile = layout.quarantineMarkerFile().getFileName().toString();
+        final String quarantineMarkerFile = layout.quarantineFile().getFileName().toString();
         LOG.info("dump databasePath: " + layout.databaseDirectory().toAbsolutePath()
                 + ", transactionLogsPath: " + layout.getTransactionLogsDirectory().toAbsolutePath()
                 + ", compressionFormat: " + format.getClass().getName());

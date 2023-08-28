@@ -1,9 +1,9 @@
 package com.mercari.solution.module.sink;
 
-import com.amazonaws.services.s3.AmazonS3;
 import com.google.api.services.storage.Storage;
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mercari.solution.config.SinkConfig;
@@ -16,7 +16,6 @@ import com.mercari.solution.util.gcp.StorageUtil;
 import freemarker.template.Template;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.io.aws.options.AwsOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -30,6 +29,7 @@ import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.*;
 import java.math.BigInteger;
@@ -46,7 +46,7 @@ public class TextSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(TextSink.class);
 
-    private class TextSinkParameters implements Serializable {
+    private static class TextSinkParameters implements Serializable {
 
         private String output;
         private String template;
@@ -61,6 +61,11 @@ public class TextSink implements SinkModule {
         private String contentLanguage;
         private String customTimeField;
         private Map<String, String> metadata;
+
+        // AWS S3 fields
+        private String s3AccessKey;
+        private String s3SecretKey;
+        private String s3Region;
 
         public String getOutput() {
             return output;
@@ -149,6 +154,18 @@ public class TextSink implements SinkModule {
         public void setMetadata(Map<String, String> metadata) {
             this.metadata = metadata;
         }
+
+        public String getS3AccessKey() {
+            return s3AccessKey;
+        }
+
+        public String getS3SecretKey() {
+            return s3SecretKey;
+        }
+
+        public String getS3Region() {
+            return s3Region;
+        }
     }
 
     public String getName() { return "text"; }
@@ -221,13 +238,13 @@ public class TextSink implements SinkModule {
             if(parameters.getTemplate().startsWith("gs://")) {
                 template = StorageUtil.readString(parameters.getTemplate());
             } else if(parameters.getTemplate().startsWith("s3://")) {
-                template = S3Util.readString(parameters.getTemplate(), inputP.getPipeline().getOptions().as(AwsOptions.class));
+                template = S3Util.readString(parameters.getTemplate(), parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region());
             } else {
                 throw new IllegalArgumentException("TextSink module parameter `template` must be GCS path.");
             }
 
             switch (collection.getDataType()) {
-                case AVRO: {
+                case AVRO -> {
                     final RecordFormatter<GenericRecord> formatter = RecordToMapConverter::convert;
                     return input
                             .apply("WriteText", ParDo.of(new TemplateDoFn<>(
@@ -235,11 +252,11 @@ public class TextSink implements SinkModule {
                                     parameters.getContentType(), parameters.getCharset(), parameters.getBom(),
                                     parameters.getCacheControl(), parameters.getContentDisposition(),
                                     parameters.getContentEncoding(), parameters.getContentLanguage(), parameters.getCustomTimeField(),
-                                    parameters.getMetadata(),
+                                    parameters.getMetadata(), parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region(),
                                     isIntervalWindow,
                                     formatter)));
                 }
-                case ROW: {
+                case ROW -> {
                     final RecordFormatter<Row> formatter = RowToMapConverter::convert;
                     return input
                             .apply("WriteText", ParDo.of(new TemplateDoFn<>(
@@ -247,11 +264,11 @@ public class TextSink implements SinkModule {
                                     parameters.getContentType(), parameters.getCharset(), parameters.getBom(),
                                     parameters.getCacheControl(), parameters.getContentDisposition(),
                                     parameters.getContentEncoding(), parameters.getContentLanguage(), parameters.getCustomTimeField(),
-                                    parameters.getMetadata(),
+                                    parameters.getMetadata(), parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region(),
                                     isIntervalWindow,
                                     formatter)));
                 }
-                case STRUCT: {
+                case STRUCT -> {
                     final RecordFormatter<Struct> formatter = StructToMapConverter::convert;
                     return input
                             .apply("WriteText", ParDo.of(new TemplateDoFn<>(
@@ -259,11 +276,23 @@ public class TextSink implements SinkModule {
                                     parameters.getContentType(), parameters.getCharset(), parameters.getBom(),
                                     parameters.getCacheControl(), parameters.getContentDisposition(),
                                     parameters.getContentEncoding(), parameters.getContentLanguage(), parameters.getCustomTimeField(),
-                                    parameters.getMetadata(),
+                                    parameters.getMetadata(), parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region(),
                                     isIntervalWindow,
                                     formatter)));
                 }
-                case ENTITY: {
+                case DOCUMENT -> {
+                    final RecordFormatter<Document> formatter = DocumentToMapConverter::convert;
+                    return input
+                            .apply("WriteText", ParDo.of(new TemplateDoFn<>(
+                                    parameters.getOutput(), template,
+                                    parameters.getContentType(), parameters.getCharset(), parameters.getBom(),
+                                    parameters.getCacheControl(), parameters.getContentDisposition(),
+                                    parameters.getContentEncoding(), parameters.getContentLanguage(), parameters.getCustomTimeField(),
+                                    parameters.getMetadata(), parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region(),
+                                    isIntervalWindow,
+                                    formatter)));
+                }
+                case ENTITY -> {
                     final RecordFormatter<Entity> formatter = EntityToMapConverter::convert;
                     return input
                             .apply("WriteText", ParDo.of(new TemplateDoFn<>(
@@ -271,13 +300,11 @@ public class TextSink implements SinkModule {
                                     parameters.getContentType(), parameters.getCharset(), parameters.getBom(),
                                     parameters.getCacheControl(), parameters.getContentDisposition(),
                                     parameters.getContentEncoding(), parameters.getContentLanguage(), parameters.getCustomTimeField(),
-                                    parameters.getMetadata(),
+                                    parameters.getMetadata(), parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region(),
                                     isIntervalWindow,
                                     formatter)));
                 }
-                default: {
-                    throw new IllegalArgumentException("Not supported csv input type: " + collection.getDataType());
-                }
+                default -> throw new IllegalArgumentException("Not supported csv input type: " + collection.getDataType());
             }
         }
 
@@ -322,6 +349,9 @@ public class TextSink implements SinkModule {
         private final String contentLanguage;
         private final String customTimeField;
         private final Map<String, String> metadata;
+        private final String s3AccessKey;
+        private final String s3SecretKey;
+        private final String s3Region;
 
         private final boolean inIntervalWindow;
 
@@ -330,7 +360,7 @@ public class TextSink implements SinkModule {
         private transient Charset _charset;
 
         private transient Storage storage;
-        private transient AmazonS3 s3;
+        private transient S3Client s3;
 
         private TemplateDoFn(final String templatePathString,
                              final String templateTextString,
@@ -343,6 +373,9 @@ public class TextSink implements SinkModule {
                              final String contentLanguage,
                              final String customTimeField,
                              final Map<String, String> metadata,
+                             final String s3AccessKey,
+                             final String s3SecretKey,
+                             final String s3Region,
                              final boolean inIntervalWindow,
                              final RecordFormatter formatter) {
 
@@ -358,6 +391,9 @@ public class TextSink implements SinkModule {
             this.contentLanguage = contentLanguage;
             this.customTimeField = customTimeField;
             this.metadata = metadata;
+            this.s3AccessKey = s3AccessKey;
+            this.s3SecretKey = s3SecretKey;
+            this.s3Region = s3Region;
 
             this.inIntervalWindow = inIntervalWindow;
             this.formatter = formatter;
@@ -377,10 +413,10 @@ public class TextSink implements SinkModule {
                 this.s3 = null;
             } else if(this.templatePathString.startsWith("s3://")) {
                 this.storage = null;
-                this.s3 = S3Util.storage(c.getPipelineOptions().as(AwsOptions.class));
+                this.s3 = S3Util.storage(s3AccessKey, s3SecretKey, s3Region);
             } else {
                 this.storage = StorageUtil.storage();
-                this.s3 = S3Util.storage(c.getPipelineOptions().as(AwsOptions.class));
+                //this.s3 = S3Util.storage(s3AccessKey, s3SecretKey, s3Region);
             }
         }
 
