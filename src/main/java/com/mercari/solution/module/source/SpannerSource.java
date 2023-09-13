@@ -10,9 +10,9 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
+import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.TemplateUtil;
-import com.mercari.solution.util.converter.DataTypeTransform;
 import com.mercari.solution.util.converter.StructToRecordConverter;
 import com.mercari.solution.util.converter.StructToRowConverter;
 import com.mercari.solution.util.gcp.SpannerUtil;
@@ -52,7 +52,7 @@ public class SpannerSource implements SourceModule {
     private static final String SQL_SPLITTER = "--SPLITTER--";
     private static final Logger LOG = LoggerFactory.getLogger(SpannerSource.class);
 
-    private class SpannerSourceParameters implements Serializable {
+    private static class SpannerSourceParameters implements Serializable {
 
         // common
         private Mode mode;
@@ -101,72 +101,36 @@ public class SpannerSource implements SourceModule {
             return mode;
         }
 
-        public void setMode(Mode mode) {
-            this.mode = mode;
-        }
-
         public String getProjectId() {
             return projectId;
-        }
-
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
         }
 
         public String getInstanceId() {
             return instanceId;
         }
 
-        public void setInstanceId(String instanceId) {
-            this.instanceId = instanceId;
-        }
-
         public String getDatabaseId() {
             return databaseId;
-        }
-
-        public void setDatabaseId(String databaseId) {
-            this.databaseId = databaseId;
         }
 
         public String getQuery() {
             return query;
         }
 
-        public void setQuery(String query) {
-            this.query = query;
-        }
-
         public String getTable() {
             return table;
-        }
-
-        public void setTable(String table) {
-            this.table = table;
         }
 
         public List<String> getFields() {
             return fields;
         }
 
-        public void setFields(List<String> fields) {
-            this.fields = fields;
-        }
-
         public List<KeyRangeParameter> getKeyRange() {
             return keyRange;
         }
 
-        public void setKeyRange(List<KeyRangeParameter> keyRange) {
-            this.keyRange = keyRange;
-        }
-
         public String getTimestampBound() {
             return timestampBound;
-        }
-
-        public void setTimestampBound(String timestampBound) {
-            this.timestampBound = timestampBound;
         }
 
         public Boolean getEnableDataBoost() {
@@ -181,16 +145,8 @@ public class SpannerSource implements SourceModule {
             return priority;
         }
 
-        public void setPriority(Options.RpcPriority priority) {
-            this.priority = priority;
-        }
-
         public Boolean getEmulator() {
             return emulator;
-        }
-
-        public void setEmulator(Boolean emulator) {
-            this.emulator = emulator;
         }
 
         public ChangeStreamMode getChangeStreamMode() {
@@ -201,85 +157,40 @@ public class SpannerSource implements SourceModule {
             return outputType;
         }
 
-        public void setOutputType(OutputType outputType) {
-            this.outputType = outputType;
-        }
-
-        public void setChangeStreamMode(ChangeStreamMode changeStreamMode) {
-            this.changeStreamMode = changeStreamMode;
-        }
-
         public String getChangeStreamName() {
             return changeStreamName;
-        }
-
-        public void setChangeStreamName(String changeStreamName) {
-            this.changeStreamName = changeStreamName;
         }
 
         public String getMetadataInstance() {
             return metadataInstance;
         }
 
-        public void setMetadataInstance(String metadataInstance) {
-            this.metadataInstance = metadataInstance;
-        }
-
         public String getMetadataDatabase() {
             return metadataDatabase;
-        }
-
-        public void setMetadataDatabase(String metadataDatabase) {
-            this.metadataDatabase = metadataDatabase;
         }
 
         public String getMetadataTable() {
             return metadataTable;
         }
 
-        public void setMetadataTable(String metadataTable) {
-            this.metadataTable = metadataTable;
-        }
-
         public String getInclusiveStartAt() {
             return inclusiveStartAt;
-        }
-
-        public void setInclusiveStartAt(String inclusiveStartAt) {
-            this.inclusiveStartAt = inclusiveStartAt;
         }
 
         public String getInclusiveEndAt() {
             return inclusiveEndAt;
         }
 
-        public void setInclusiveEndAt(String inclusiveEndAt) {
-            this.inclusiveEndAt = inclusiveEndAt;
-        }
-
         public Boolean getOutputChangeRecord() {
             return outputChangeRecord;
         }
-
-        public void setOutputChangeRecord(Boolean outputChangeRecord) {
-            this.outputChangeRecord = outputChangeRecord;
-        }
-
 
         public List<String> getTables() {
             return tables;
         }
 
-        public void setTables(List<String> tables) {
-            this.tables = tables;
-        }
-
         public Map<String, String> getRenameTables() {
             return renameTables;
-        }
-
-        public void setRenameTables(Map<String, String> renameTables) {
-            this.renameTables = renameTables;
         }
 
         public Boolean getApplyUpsertForInsert() {
@@ -294,59 +205,31 @@ public class SpannerSource implements SourceModule {
             return intervalSecond;
         }
 
-        public void setIntervalSecond(Integer intervalSecond) {
-            this.intervalSecond = intervalSecond;
-        }
-
         public Integer getGapSecond() {
             return gapSecond;
-        }
-
-        public void setGapSecond(Integer gapSecond) {
-            this.gapSecond = gapSecond;
         }
 
         public Integer getMaxDurationMinute() {
             return maxDurationMinute;
         }
 
-        public void setMaxDurationMinute(Integer maxDurationMinute) {
-            this.maxDurationMinute = maxDurationMinute;
-        }
-
         public Integer getCatchupIntervalSecond() {
             return catchupIntervalSecond;
-        }
-
-        public void setCatchupIntervalSecond(Integer catchupIntervalSecond) {
-            this.catchupIntervalSecond = catchupIntervalSecond;
         }
 
         public String getStartDatetime() {
             return startDatetime;
         }
 
-        public void setStartDatetime(String startDatetime) {
-            this.startDatetime = startDatetime;
-        }
-
         public String getOutputCheckpoint() {
             return outputCheckpoint;
-        }
-
-        public void setOutputCheckpoint(String outputCheckpoint) {
-            this.outputCheckpoint = outputCheckpoint;
         }
 
         public Boolean getUseCheckpointAsStartDatetime() {
             return useCheckpointAsStartDatetime;
         }
 
-        public void setUseCheckpointAsStartDatetime(Boolean useCheckpointAsStartDatetime) {
-            this.useCheckpointAsStartDatetime = useCheckpointAsStartDatetime;
-        }
-
-        private class KeyRangeParameter {
+        private static class KeyRangeParameter {
 
             private String startType;
             private String endType;
@@ -357,36 +240,21 @@ public class SpannerSource implements SourceModule {
                 return startType;
             }
 
-            public void setStartType(String startType) {
-                this.startType = startType;
-            }
-
             public String getEndType() {
                 return endType;
-            }
-
-            public void setEndType(String endType) {
-                this.endType = endType;
             }
 
             public JsonElement getStartKeys() {
                 return startKeys;
             }
 
-            public void setStartKeyValues(JsonElement startKeys) {
-                this.startKeys = startKeys;
-            }
-
             public JsonElement getEndKeys() {
                 return endKeys;
             }
 
-            public void setEndKeyValues(JsonElement endKeys) {
-                this.endKeys = endKeys;
-            }
         }
 
-        private class ChangeStreamFilterParameter {
+        private static class ChangeStreamFilterParameter {
 
             private String startType;
             private String endType;
@@ -397,33 +265,18 @@ public class SpannerSource implements SourceModule {
                 return startType;
             }
 
-            public void setStartType(String startType) {
-                this.startType = startType;
-            }
-
             public String getEndType() {
                 return endType;
-            }
-
-            public void setEndType(String endType) {
-                this.endType = endType;
             }
 
             public JsonElement getStartKeys() {
                 return startKeys;
             }
 
-            public void setStartKeyValues(JsonElement startKeys) {
-                this.startKeys = startKeys;
-            }
-
             public JsonElement getEndKeys() {
                 return endKeys;
             }
 
-            public void setEndKeyValues(JsonElement endKeys) {
-                this.endKeys = endKeys;
-            }
         }
 
         public void validateBatchParameters() {
@@ -433,7 +286,7 @@ public class SpannerSource implements SourceModule {
             }
 
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -444,7 +297,7 @@ public class SpannerSource implements SourceModule {
             }
 
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -454,7 +307,7 @@ public class SpannerSource implements SourceModule {
                 errorMessages.add("spanner source module config requires query parameter in microbatch mode");
             }
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -486,11 +339,11 @@ public class SpannerSource implements SourceModule {
                 this.inclusiveEndAt = Timestamp.MAX_VALUE.toString();
             }
 
-            if(this.getTables() == null) {
-                this.setTables(new ArrayList<>());
+            if(this.tables == null) {
+                this.tables = new ArrayList<>();
             }
-            if(this.getRenameTables() == null) {
-                this.setRenameTables(new HashMap<>());
+            if(this.renameTables == null) {
+                this.renameTables = new HashMap<>();
             }
             if(this.applyUpsertForInsert == null) {
                 this.applyUpsertForInsert = false;
@@ -512,19 +365,19 @@ public class SpannerSource implements SourceModule {
         private void setMicroBatchDefaultParameters() {
             this.setCommonDefaultParameters();
             if(intervalSecond == null) {
-                this.setIntervalSecond(60);
+                this.intervalSecond = 60;
             }
             if(gapSecond == null) {
-                this.setGapSecond(30);
+                this.gapSecond = 30;
             }
             if(maxDurationMinute == null) {
-                this.setMaxDurationMinute(60);
+                this.maxDurationMinute = 60;
             }
             if(catchupIntervalSecond == null) {
-                this.setCatchupIntervalSecond(this.getIntervalSecond());
+                this.catchupIntervalSecond = this.getIntervalSecond();
             }
             if(useCheckpointAsStartDatetime == null) {
-                this.setUseCheckpointAsStartDatetime(false);
+                this.useCheckpointAsStartDatetime = false;
             }
 
             if(this.outputType == null) {
@@ -550,10 +403,10 @@ public class SpannerSource implements SourceModule {
 
         private void setCommonDefaultParameters() {
             if (priority == null) {
-                this.setPriority(Options.RpcPriority.MEDIUM);
+                this.priority = Options.RpcPriority.MEDIUM;
             }
             if (emulator == null) {
-                this.setEmulator(false);
+                this.emulator = false;
             }
         }
     }
@@ -587,16 +440,12 @@ public class SpannerSource implements SourceModule {
                 .ofNullable(parameters.getMode())
                 .orElse(isStreaming ? (config.getMicrobatch() != null && config.getMicrobatch() ? Mode.microbatch : Mode.changestream) : Mode.batch);
 
-        switch (mode) {
-            case batch:
-                return Collections.singletonMap(config.getName(), batch(begin, config, parameters));
-            case microbatch:
-                return Collections.singletonMap(config.getName(), microbatch(beats, config, parameters));
-            case changestream:
-                return changestream(begin, config, parameters);
-            default:
-                throw new IllegalStateException("spanner source module does not support mode: " + mode);
-        }
+        return switch (mode) {
+            case batch -> Collections.singletonMap(config.getName(), batch(begin, config, parameters));
+            case microbatch -> Collections.singletonMap(config.getName(), microbatch(beats, config, parameters));
+            case changestream -> changestream(begin, config, parameters);
+            default -> throw new IllegalStateException("spanner source module does not support mode: " + mode);
+        };
     }
 
     public static FCollection<Struct> batch(final PBegin begin, final SourceConfig config, final SpannerSourceParameters parameters) {
@@ -618,9 +467,9 @@ public class SpannerSource implements SourceModule {
         final Map<String, Type> tableTypes = SpannerUtil
                 .getTypesFromDatabase(parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
         switch (parameters.getChangeStreamMode()) {
-            case struct: {
-                if(parameters.getTables().size() == 0) {
-                    parameters.setTables(new ArrayList<>(tableTypes.keySet()));
+            case struct -> {
+                if (parameters.getTables().size() == 0) {
+                    parameters.tables = new ArrayList<>(tableTypes.keySet());
                 }
                 final Map<String, Type> filteredTableTypes = tableTypes
                         .entrySet()
@@ -629,25 +478,24 @@ public class SpannerSource implements SourceModule {
                         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
                 switch (parameters.getOutputType()) {
-                    case row: {
+                    case row -> {
                         return createRowStream(begin, config.getName(), parameters, filteredTableTypes);
                     }
-                    case avro: {
+                    case avro -> {
                         return createAvroStream(begin, config.getName(), parameters, filteredTableTypes);
                     }
-                    default: {
-                        throw new IllegalStateException("spanner source module does not support outputType: " + parameters.getOutputType());
-                    }
+                    default ->
+                            throw new IllegalStateException("spanner source module does not support outputType: " + parameters.getOutputType());
                 }
             }
-            case mutation: {
-                final Schema dummySchema = StructSchemaUtil.createDataChangeRecordRowSchema();
+            case mutation -> {
+                final Schema dummySchema = StructSchemaUtil.createMutationSchema();
                 final PCollection<MutationGroup> output = begin
                         .apply(new SpannerChangeStreamMutationGroupRead(parameters, tableTypes))
                         .setCoder(SerializableCoder.of(MutationGroup.class));
                 return Collections.singletonMap(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATIONGROUP, dummySchema));
             }
-            default: {
+            default -> {
                 throw new IllegalStateException("Spanner source module does not support changeStreamMode: " + parameters.getChangeStreamMode());
             }
         }
@@ -807,13 +655,8 @@ public class SpannerSource implements SourceModule {
                 throw new IllegalArgumentException("spanner module support only query or table");
             }
 
-            if(timestampAttribute == null) {
-                return structs;
-            } else {
-                return structs.apply("WithTimestamp", DataTypeTransform
-                        .withTimestamp(DataType.STRUCT, timestampAttribute, timestampDefault));
-            }
-
+            return structs.apply("WithTimestamp", ParDo
+                    .of(new WithTimestampDoFn(timestampAttribute, DateTimeUtil.toJodaInstant(timestampDefault))));
         }
 
         private static Key createRangeKey(final List<Type.StructField> keyFields, final JsonElement keyValues) {
@@ -835,29 +678,14 @@ public class SpannerSource implements SourceModule {
 
         private static void setRangeKey(final Key.Builder key, final Type.StructField field, final JsonElement element) {
             switch (field.getType().getCode()) {
-                case STRING:
-                    key.append(element.getAsString());
-                    break;
-                case INT64:
-                    key.append(element.getAsLong());
-                    break;
-                case FLOAT64:
-                    key.append(element.getAsDouble());
-                    break;
-                case BOOL:
-                    key.append(element.getAsBoolean());
-                    break;
-                case DATE:
-                    key.append(Date.parseDate(element.getAsString()));
-                    break;
-                case TIMESTAMP:
-                    key.append(Timestamp.parseTimestamp(element.getAsString()));
-                    break;
-                case STRUCT:
-                case ARRAY:
-                case BYTES:
-                default:
-                    break;
+                case STRING -> key.append(element.getAsString());
+                case INT64 -> key.append(element.getAsLong());
+                case FLOAT64 -> key.append(element.getAsDouble());
+                case BOOL -> key.append(element.getAsBoolean());
+                case DATE -> key.append(Date.parseDate(element.getAsString()));
+                case TIMESTAMP -> key.append(Timestamp.parseTimestamp(element.getAsString()));
+                default -> {
+                }
             }
         }
 
@@ -1028,6 +856,31 @@ public class SpannerSource implements SourceModule {
             public void teardown() {
                 this.spanner.close();
                 LOG.info("ReadStructSpannerDoFn.teardown");
+            }
+
+        }
+
+        private static class WithTimestampDoFn extends DoFn<Struct, Struct> {
+
+            private final String timestampAttribute;
+            private final Instant timestampDefault;
+
+            private WithTimestampDoFn(final String timestampAttribute,
+                                      final Instant timestampDefault) {
+
+                this.timestampAttribute = timestampAttribute;
+                this.timestampDefault = timestampDefault == null ? Instant.ofEpochSecond(0L) : timestampDefault;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final Struct input = c.element();
+                if(timestampAttribute == null) {
+                    c.output(input);
+                } else {
+                    final Instant timestamp = StructSchemaUtil.getTimestamp(input, timestampAttribute, timestampDefault);
+                    c.outputWithTimestamp(input, timestamp);
+                }
             }
 
         }
