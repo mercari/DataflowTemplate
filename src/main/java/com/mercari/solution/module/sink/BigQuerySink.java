@@ -1,6 +1,7 @@
 package com.mercari.solution.module.sink;
 
 import com.google.api.services.bigquery.model.*;
+import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
 import com.google.firestore.v1.Document;
@@ -20,6 +21,7 @@ import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.bigquery.*;
+import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.transforms.*;
@@ -47,6 +49,7 @@ public class BigQuerySink implements SinkModule {
         private BigQueryIO.Write.WriteDisposition writeDisposition;
         private BigQueryIO.Write.CreateDisposition createDisposition;
         private BigQueryIO.Write.Method method;
+        private RowMutationInformation.MutationType mutationType;
 
         private String partitioning;
         private String partitioningField;
@@ -88,6 +91,10 @@ public class BigQuerySink implements SinkModule {
 
         public BigQueryIO.Write.Method getMethod() {
             return method;
+        }
+
+        public RowMutationInformation.MutationType getMutationType() {
+            return mutationType;
         }
 
         public String getPartitioning() {
@@ -342,6 +349,35 @@ public class BigQuerySink implements SinkModule {
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
             }
+            case MUTATION: {
+                final BigQueryWrite<Mutation> write = new BigQueryWrite<>(
+                        config.getName(),
+                        collection,
+                        parameters,
+                        MutationToRecordConverter::convert,
+                        MutationToRowConverter::convert,
+                        MutationToTableRowConverter::convert,
+                        s -> "",
+                        waitCollections);
+                final PCollection<Mutation> input = (PCollection<Mutation>) collection.getCollection();
+                final PCollection<GenericRecord> output = input.apply(config.getName(), write);
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+            }
+            case MUTATIONGROUP: {
+                final BigQueryWrite<Mutation> write = new BigQueryWrite<>(
+                        config.getName(),
+                        collection,
+                        parameters,
+                        MutationToRecordConverter::convertMutationRecord,
+                        MutationToRowConverter::convertMutationRecord,
+                        MutationToTableRowConverter::convertMutationRecord,
+                        s -> "",
+                        waitCollections);
+                final PCollection<MutationGroup> input = (PCollection<MutationGroup>) collection.getCollection();
+                final PCollection<Mutation> mutations = input.apply("FlattenGroup", ParDo.of(new FlattenGroupMutationDoFn()));
+                final PCollection<GenericRecord> output = mutations.apply(config.getName(), write);
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+            }
             default:
                 throw new IllegalArgumentException("Not supported type: " + inputType + " for BigQuerySink.");
         }
@@ -467,7 +503,7 @@ public class BigQuerySink implements SinkModule {
                     .withCreateDisposition(this.parameters.getCreateDisposition())
                     .withMethod(this.parameters.getMethod());
 
-            if(BigQueryIO.Write.CreateDisposition.CREATE_NEVER.CREATE_IF_NEEDED.equals(this.parameters.getCreateDisposition())) {
+            if(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED.equals(this.parameters.getCreateDisposition())) {
                 write = write.withSchema(tableSchema);
             }
 
@@ -770,6 +806,19 @@ public class BigQuerySink implements SinkModule {
         @Override
         public TableSchema getSchema(String destination) {
             return tableSchema;
+        }
+
+    }
+
+    private static class FlattenGroupMutationDoFn extends DoFn<MutationGroup, Mutation> {
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final MutationGroup mutationGroup = c.element();
+            c.output(mutationGroup.primary());
+            for(Mutation mutation : mutationGroup.attached()) {
+                c.output(mutation);
+            }
         }
 
     }

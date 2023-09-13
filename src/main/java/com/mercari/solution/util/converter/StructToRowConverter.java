@@ -57,45 +57,47 @@ public class StructToRowConverter {
             return null;
         }
         switch (fieldType.getTypeName()) {
-            case BOOLEAN:
+            case BOOLEAN -> {
                 return struct.getBoolean(fieldName);
-            case STRING:
+            }
+            case STRING -> {
                 return struct.getString(fieldName);
-            case DECIMAL:
+            }
+            case DECIMAL -> {
                 return struct.getBigDecimal(fieldName);
-            case BYTES:
+            }
+            case BYTES -> {
                 return struct.getBytes(fieldName).toByteArray();
-            case INT16:
-            case INT32:
-            case INT64:
+            }
+            case INT16, INT32, INT64 -> {
                 return struct.getLong(fieldName);
-            case FLOAT:
-            case DOUBLE:
+            }
+            case FLOAT, DOUBLE -> {
                 return struct.getDouble(fieldName);
-            case DATETIME:
+            }
+            case DATETIME -> {
                 return Instant.ofEpochMilli(struct.getTimestamp(fieldName).toSqlTimestamp().toInstant().toEpochMilli());
-            case LOGICAL_TYPE:
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     final Date date = struct.getDate(fieldName);
-                    //final DateTime dateTime = DateTime.parse(date.toString(), FORMATTER_YYYY_MM_DD);
                     return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return struct.getString(fieldName);
-                //} else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
                 }
-            case ROW:
+            }
+            case ROW -> {
                 return convert(fieldType.getRowSchema(), struct);
-            case ARRAY:
-            case ITERABLE:
+            }
+            case ARRAY, ITERABLE -> {
                 return getArray(fieldName, fieldType.getCollectionElementType(), struct);
-            case BYTE:
-            case MAP:
-            default:
-                return new IllegalArgumentException("");
+            }
+            default -> {
+                return new IllegalArgumentException("Unsupported field type: " + fieldType.getTypeName() + " for field: " + fieldName);
+            }
         }
     }
 
@@ -132,14 +134,10 @@ public class StructToRowConverter {
             case LOGICAL_TYPE:
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return struct.getDateList(fieldName).stream()
-                            //.map(Date::toString)
-                            //.map(s -> DateTime.parse(s, FORMATTER_YYYY_MM_DD))
                             .map(d -> LocalDate.of(d.getYear(), d.getMonth(), d.getDayOfMonth()))
                             .collect(Collectors.toList());
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return struct.getStringList(fieldName);
-                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
-
                 } else {
                     throw new IllegalArgumentException(
                             "Unsupported Beam logical type: " + fieldType.getLogicalType().getIdentifier());
@@ -159,32 +157,19 @@ public class StructToRowConverter {
     }
 
     private static Schema.FieldType convertFieldType(final Type type) {
-        switch (type.getCode()) {
-            case BYTES:
-                return Schema.FieldType.BYTES.withNullable(true);
-            case JSON:
-            case STRING:
-                return Schema.FieldType.STRING;
-            case INT64:
-                return Schema.FieldType.INT64.withNullable(true);
-            case FLOAT64:
-                return Schema.FieldType.DOUBLE;
-            case NUMERIC:
-            case PG_NUMERIC:
-                return Schema.FieldType.DECIMAL;
-            case BOOL:
-                return Schema.FieldType.BOOLEAN;
-            case DATE:
-                return CalciteUtils.DATE;
-            case TIMESTAMP:
-                return Schema.FieldType.DATETIME;
-            case STRUCT:
-                return Schema.FieldType.row(convertSchema(type));
-            case ARRAY:
-                return Schema.FieldType.array(convertFieldType(type.getArrayElementType()));
-            default:
-                throw new IllegalArgumentException("Spanner type: " + type + " not supported!");
-        }
+        return switch (type.getCode()) {
+            case BYTES -> Schema.FieldType.BYTES.withNullable(true);
+            case JSON, STRING -> Schema.FieldType.STRING;
+            case INT64 -> Schema.FieldType.INT64.withNullable(true);
+            case FLOAT64 -> Schema.FieldType.DOUBLE;
+            case NUMERIC, PG_NUMERIC -> Schema.FieldType.DECIMAL;
+            case BOOL -> Schema.FieldType.BOOLEAN;
+            case DATE -> CalciteUtils.DATE;
+            case TIMESTAMP -> Schema.FieldType.DATETIME;
+            case STRUCT -> Schema.FieldType.row(convertSchema(type));
+            case ARRAY -> Schema.FieldType.array(convertFieldType(type.getArrayElementType()));
+            default -> throw new IllegalArgumentException("Spanner type: " + type + " not supported!");
+        };
     }
 
     public static Row convert(final Schema schema, final DataChangeRecord record) {
@@ -213,52 +198,63 @@ public class StructToRowConverter {
             return null;
         }
         switch (fieldType.getTypeName()) {
-            case STRING:
+            case STRING -> {
                 return element.getAsString();
-            case BOOLEAN:
+            }
+            case BOOLEAN -> {
                 return element.getAsBoolean();
-            case BYTE:
+            }
+            case BYTE -> {
                 return element.getAsByte();
-            case INT16:
+            }
+            case INT16 -> {
                 return element.getAsShort();
-            case INT32:
+            }
+            case INT32 -> {
                 return element.getAsInt();
-            case INT64:
+            }
+            case INT64 -> {
                 return element.getAsLong();
-            case FLOAT:
+            }
+            case FLOAT -> {
                 return element.getAsFloat();
-            case DOUBLE:
+            }
+            case DOUBLE -> {
                 return element.getAsDouble();
-            case DECIMAL:
+            }
+            case DECIMAL -> {
                 return element.getAsBigDecimal();
-            case DATETIME:
+            }
+            case DATETIME -> {
                 return DateTimeUtil.toJodaInstant(element.getAsString());
-            case BYTES:
+            }
+            case BYTES -> {
                 return element.getAsString().getBytes();
-            case LOGICAL_TYPE:
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return DateTimeUtil.toLocalDate(element.getAsString());
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return DateTimeUtil.toLocalTime(element.getAsString());
-                } else if(RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTimestamp(fieldType)) {
                     return DateTimeUtil.toJodaInstant(element.getAsString());
-                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     return RowSchemaUtil.toEnumerationTypeValue(fieldType, element.getAsString());
                 } else {
                     return element.getAsString();
                 }
-            case ITERABLE:
-            case ARRAY: {
+            }
+            case ITERABLE, ARRAY -> {
                 final List<Object> array = new ArrayList<>();
-                for(final JsonElement e : element.getAsJsonArray()) {
+                for (final JsonElement e : element.getAsJsonArray()) {
                     array.add(getValue(fieldType.getCollectionElementType(), e));
                 }
                 return array;
             }
-            case ROW: {
+            case ROW -> {
                 final Map<String, Object> values = new HashMap<>();
                 final JsonObject object = element.getAsJsonObject();
-                for(final Map.Entry<String, JsonElement> entry : object.entrySet()) {
+                for (final Map.Entry<String, JsonElement> entry : object.entrySet()) {
                     final Schema.Field field = fieldType.getRowSchema().getField(entry.getKey());
                     values.put(field.getName(), getValue(field.getType(), entry.getValue()));
                 }
@@ -267,10 +263,7 @@ public class StructToRowConverter {
                         .withFieldValues(values)
                         .build();
             }
-            case MAP:
-            default:
-                throw new IllegalStateException();
-
+            default -> throw new IllegalStateException();
         }
     }
 
@@ -288,9 +281,10 @@ public class StructToRowConverter {
         for(final ColumnType columnType : record.getRowType()) {
             final Map<String, Object> rowTypeValues = new HashMap<>();
             rowTypeValues.put("name", columnType.getName());
-            rowTypeValues.put("type", RowSchemaUtil.toEnumerationTypeValue(rowTypeSchema
-                    .getField("type")
-                    .getType(), columnType.getType().getCode()));
+            final String code = StructSchemaUtil.convertChangeRecordTypeCode(columnType.getType().getCode());
+            rowTypeValues.put("Type", RowSchemaUtil.toEnumerationTypeValue(rowTypeSchema
+                    .getField("Type")
+                    .getType(), code));
             rowTypeValues.put("isPrimaryKey", columnType.isPrimaryKey());
             rowTypeValues.put("ordinalPosition", columnType.getOrdinalPosition());
             final Row rowType = Row.withSchema(rowTypeSchema)
