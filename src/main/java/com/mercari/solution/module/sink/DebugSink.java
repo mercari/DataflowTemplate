@@ -2,6 +2,7 @@ package com.mercari.solution.module.sink;
 
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
@@ -10,6 +11,7 @@ import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.*;
 import freemarker.template.Template;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
@@ -31,7 +33,7 @@ public class DebugSink  implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(DebugSink.class);
 
-    private class DebugSinkParameters implements Serializable {
+    private static class DebugSinkParameters implements Serializable {
 
         private LogLevel logLevel;
         private String logTemplate;
@@ -40,17 +42,16 @@ public class DebugSink  implements SinkModule {
             return logLevel;
         }
 
-        public void setLogLevel(LogLevel logLevel) {
-            this.logLevel = logLevel;
-        }
-
         public String getLogTemplate() {
             return logTemplate;
         }
 
-        public void setLogTemplate(String logTemplate) {
-            this.logTemplate = logTemplate;
+        private void setDefaults() {
+            if(this.logLevel == null) {
+               this.logLevel = LogLevel.debug;
+            }
         }
+
     }
 
     private enum LogLevel implements Serializable {
@@ -75,10 +76,10 @@ public class DebugSink  implements SinkModule {
 
     private FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waits) {
         final DebugSinkParameters parameters = new Gson().fromJson(config.getParameters(), DebugSinkParameters.class);
-        setDefaultParameters(parameters);
+        parameters.setDefaults();
 
         switch (input.getDataType()) {
-            case AVRO: {
+            case AVRO -> {
                 final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                 final PCollection output = inputCollection.getCollection()
                         .apply(config.getName(), ParDo.of(new DebugDoFn<>(
@@ -88,7 +89,7 @@ public class DebugSink  implements SinkModule {
                                 RecordToJsonConverter::convert)));
                 return FCollection.update(input, output);
             }
-            case ROW: {
+            case ROW -> {
                 final FCollection<Row> inputCollection = (FCollection<Row>) input;
                 final PCollection output = inputCollection.getCollection()
                         .apply(config.getName(), ParDo.of(new DebugDoFn<>(
@@ -98,7 +99,7 @@ public class DebugSink  implements SinkModule {
                                 RowToJsonConverter::convert)));
                 return FCollection.update(input, output);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
                 final PCollection output = inputCollection.getCollection()
                         .apply(config.getName(), ParDo.of(new DebugDoFn<>(
@@ -108,7 +109,17 @@ public class DebugSink  implements SinkModule {
                                 StructToJsonConverter::convert)));
                 return FCollection.update(input, output);
             }
-            case ENTITY: {
+            case DOCUMENT -> {
+                final FCollection<Document> inputCollection = (FCollection<Document>) input;
+                final PCollection output = inputCollection.getCollection()
+                        .apply(config.getName(), ParDo.of(new DebugDoFn<>(
+                                config.getName(),
+                                parameters.getLogTemplate(),
+                                parameters.getLogLevel(),
+                                DocumentToJsonConverter::convert)));
+                return FCollection.update(input, output);
+            }
+            case ENTITY -> {
                 final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
                 final PCollection output = inputCollection.getCollection()
                         .apply(config.getName(), ParDo.of(new DebugDoFn<>(
@@ -118,18 +129,19 @@ public class DebugSink  implements SinkModule {
                                 EntityToJsonConverter::convert)));
                 return FCollection.update(input, output);
             }
-            default: {
-                throw new IllegalArgumentException("Debug sink not supported data type: " + input.getDataType());
+            case MUTATIONGROUP -> {
+                final FCollection<MutationGroup> inputCollection = (FCollection<MutationGroup>) input;
+                final PCollection output = inputCollection.getCollection()
+                        .apply(config.getName(), ParDo.of(new DebugDoFn<>(
+                                config.getName(),
+                                parameters.getLogTemplate(),
+                                parameters.getLogLevel(),
+                                MutationToJsonConverter::convertJsonString)));
+                return FCollection.update(input, output);
             }
+            default -> throw new IllegalArgumentException("Debug sink not supported data type: " + input.getDataType());
         }
     }
-
-    private void setDefaultParameters(final DebugSinkParameters parameters) {
-        if(parameters.getLogLevel() == null) {
-            parameters.setLogLevel(LogLevel.debug);
-        }
-    }
-
 
     private static class DebugDoFn<T> extends DoFn<T, Void> {
 
@@ -193,21 +205,11 @@ public class DebugSink  implements SinkModule {
                 text = TemplateUtil.executeStrictTemplate(template, data);
             }
             switch (logLevel) {
-                case trace:
-                    LOG.trace(text);
-                    break;
-                case debug:
-                    LOG.debug(text);
-                    break;
-                case info:
-                    LOG.info(text);
-                    break;
-                case warn:
-                    LOG.warn(text);
-                    break;
-                case error:
-                    LOG.error(text);
-                    break;
+                case trace -> LOG.trace(text);
+                case debug -> LOG.debug(text);
+                case info -> LOG.info(text);
+                case warn -> LOG.warn(text);
+                case error -> LOG.error(text);
             }
         }
 
