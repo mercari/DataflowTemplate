@@ -12,11 +12,11 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.49.0</beam.version>
+    <beam.version>2.50.0</beam.version>
 
     <freemarker.version>2.3.32</freemarker.version>
-    <hadoop.version>3.3.5</hadoop.version>
-    <hbase.version>2.5.4</hbase.version>
+    <hadoop.version>3.3.6</hadoop.version>
+    <hbase.version>2.5.5</hbase.version>
     <onnxruntime.version>1.15.1</onnxruntime.version>
     <onnx.version>1.14.0-1.5.9</onnx.version>
     <solr.version>9.3.0</solr.version>
@@ -27,9 +27,9 @@
     <mysql-connector.version>8.0.33</mysql-connector.version>
     <postgresql-connector.version>42.6.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.11.1</jdbc-socket-factory.version>
-    <secretmanager.version>2.16.0</secretmanager.version>
-    <iamcredentials.version>2.16.0</iamcredentials.version>
+    <jdbc-socket-factory.version>1.12.0</jdbc-socket-factory.version>
+    <secretmanager.version>2.23.0</secretmanager.version>
+    <iamcredentials.version>2.23.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
     <junit.version>4.13.1</junit.version>
@@ -190,11 +190,6 @@
           <artifactId>beam-runners-direct-java</artifactId>
           <version>${beam.version}</version>
           <scope>runtime</scope>
-        </dependency>
-        <dependency>
-          <groupId>com.google.cloud</groupId>
-          <artifactId>google-cloud-spanner</artifactId>
-          <version>1.51.0</version>
         </dependency>
       </dependencies>
     </profile>
