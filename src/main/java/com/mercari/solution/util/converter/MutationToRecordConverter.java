@@ -27,7 +27,7 @@ public class MutationToRecordConverter {
         return convertMutationRecord(schema, mutation);
     }
 
-    private static GenericRecord convert(final Schema schema, final Mutation mutation) {
+    public static GenericRecord convert(final Schema schema, final Mutation mutation) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
             final Object value = convertRecordValue(mutation.asMap().get(field.name()));
@@ -36,7 +36,7 @@ public class MutationToRecordConverter {
         return builder.build();
     }
 
-    private static GenericRecord convertMutationRecord(final Schema schema, final Mutation mutation) {
+    public static GenericRecord convertMutationRecord(final Schema schema, final Mutation mutation) {
         return new GenericRecordBuilder(schema)
                 .set("table", mutation.getTable())
                 .set("op", mutation.getOperation())

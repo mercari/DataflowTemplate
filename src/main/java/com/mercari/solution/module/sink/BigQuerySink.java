@@ -15,10 +15,10 @@ import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.schema.DocumentSchemaUtil;
 import com.mercari.solution.util.schema.EntitySchemaUtil;
+import com.mercari.solution.util.schema.SchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
-import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.bigquery.*;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
@@ -43,7 +43,7 @@ public class BigQuerySink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BigQuerySink.class);
 
-    private static class BigQuerySinkParameters {
+    private static class BigQuerySinkParameters implements Serializable {
 
         private String table;
         private BigQueryIO.Write.WriteDisposition writeDisposition;
@@ -64,6 +64,7 @@ public class BigQuerySink implements SinkModule {
         private String dynamicDestination;
 
         private List<BigQueryIO.Write.SchemaUpdateOption> schemaUpdateOptions;
+        private Boolean autoSchemaUpdate;
 
         private String kmsKey;
 
@@ -135,6 +136,10 @@ public class BigQuerySink implements SinkModule {
 
         public List<BigQueryIO.Write.SchemaUpdateOption> getSchemaUpdateOptions() {
             return schemaUpdateOptions;
+        }
+
+        public Boolean getAutoSchemaUpdate() {
+            return autoSchemaUpdate;
         }
 
         public String getKmsKey() {
@@ -234,6 +239,12 @@ public class BigQuerySink implements SinkModule {
         retryTransientErrors
     }
 
+    private enum WriteDataType {
+        row,
+        avro,
+        tableRow
+    }
+
     public String getName() { return "bigquery"; }
 
     @Override
@@ -267,50 +278,48 @@ public class BigQuerySink implements SinkModule {
         } catch (Exception e) {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
+
         switch (inputType) {
-            case AVRO: {
+            case AVRO -> {
                 final BigQueryWrite<GenericRecord> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
-                        AvroWriteRequest::getElement,
-                        RecordToRowConverter::convert,
+                        (s, r) -> r,
                         RecordToTableRowConverter::convert,
                         s -> s.get(destinationField) == null ? "" : s.get(destinationField).toString(),
                         waitCollections);
                 final PCollection<GenericRecord> input = (PCollection<GenericRecord>) collection.getCollection();
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            case ROW: {
+            case ROW -> {
                 final BigQueryWrite<Row> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
                         RowToRecordConverter::convert,
-                        (s, r) -> r,
                         RowToTableRowConverter::convert,
                         s -> s.getValue(destinationField) == null ? "" : s.getValue(destinationField).toString(),
                         waitCollections);
                 final PCollection<Row> input = (PCollection<Row>) collection.getCollection();
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final BigQueryWrite<Struct> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
                         StructToRecordConverter::convert,
-                        StructToRowConverter::convert,
                         StructToTableRowConverter::convert,
                         s -> s.isNull(destinationField) ? "" : s.getString(destinationField),
                         waitCollections);
                 final PCollection<Struct> input = (PCollection<Struct>) collection.getCollection();
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final boolean withName = collection.getSchema().hasField("__name__");
                 final boolean withCreateTime = collection.getSchema().hasField("__createtime__");
                 final boolean withUpdateTime = collection.getSchema().hasField("__updatetime__");
@@ -321,15 +330,14 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         DocumentToRecordConverter::convert,
-                        DocumentToRowConverter::convert,
                         convertTableRowFunction,
                         s -> OptionUtil.ifnull(DocumentSchemaUtil.getAsString(s.getFieldsOrDefault(destinationField, null)), ""),
                         waitCollections);
                 final PCollection<Document> input = (PCollection<Document>) collection.getCollection();
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final SerializableFunction<Entity, TableRow> convertTableRowFunction;
                 if (collection.getSchema().hasField("__key__")) {
                     convertTableRowFunction = EntityToTableRowConverter::convertWithKey;
@@ -341,45 +349,41 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         EntityToRecordConverter::convert,
-                        EntityToRowConverter::convert,
                         convertTableRowFunction,
                         s -> OptionUtil.ifnull(EntitySchemaUtil.getAsString(s.getPropertiesOrDefault(destinationField, null)), ""),
                         waitCollections);
                 final PCollection<Entity> input = (PCollection<Entity>) collection.getCollection();
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            case MUTATION: {
+            case MUTATION -> {
                 final BigQueryWrite<Mutation> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
                         MutationToRecordConverter::convert,
-                        MutationToRowConverter::convert,
                         MutationToTableRowConverter::convert,
                         s -> "",
                         waitCollections);
                 final PCollection<Mutation> input = (PCollection<Mutation>) collection.getCollection();
                 final PCollection<GenericRecord> output = input.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            case MUTATIONGROUP: {
+            case MUTATIONGROUP -> {
                 final BigQueryWrite<Mutation> write = new BigQueryWrite<>(
                         config.getName(),
                         collection,
                         parameters,
                         MutationToRecordConverter::convertMutationRecord,
-                        MutationToRowConverter::convertMutationRecord,
                         MutationToTableRowConverter::convertMutationRecord,
                         s -> "",
                         waitCollections);
                 final PCollection<MutationGroup> input = (PCollection<MutationGroup>) collection.getCollection();
                 final PCollection<Mutation> mutations = input.apply("FlattenGroup", ParDo.of(new FlattenGroupMutationDoFn()));
                 final PCollection<GenericRecord> output = mutations.apply(config.getName(), write);
-                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder)output.getCoder()).getSchema());
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
-            default:
-                throw new IllegalArgumentException("Not supported type: " + inputType + " for BigQuerySink.");
+            default -> throw new IllegalArgumentException("Not supported type: " + inputType + " for BigQuerySink.");
         }
     }
 
@@ -387,8 +391,7 @@ public class BigQuerySink implements SinkModule {
 
         private final String name;
         private final BigQuerySinkParameters parameters;
-        private final SerializableFunction<AvroWriteRequest<T>, GenericRecord> convertAvroFunction;
-        private final RowConverter<T> convertRowFunction;
+        private final SchemaUtil.DataConverter<Schema,T,GenericRecord> converter;
         private final SerializableFunction<T, TableRow> convertTableRowFunction;
         private final SerializableFunction<T, String> destinationFunction;
         private final List<FCollection<?>> waitCollections;
@@ -398,8 +401,7 @@ public class BigQuerySink implements SinkModule {
         private BigQueryWrite(final String name,
                               final FCollection<?> collection,
                               final BigQuerySinkParameters parameters,
-                              final SerializableFunction<AvroWriteRequest<T>, GenericRecord> convertAvroFunction,
-                              final RowConverter<T> convertRowFunction,
+                              final SchemaUtil.DataConverter<Schema,T,GenericRecord> converter,
                               final SerializableFunction<T, TableRow> convertTableRowFunction,
                               final SerializableFunction<T, String> destinationFunction,
                               final List<FCollection<?>> waitCollections) {
@@ -407,8 +409,7 @@ public class BigQuerySink implements SinkModule {
             this.name = name;
             this.collection = collection;
             this.parameters = parameters;
-            this.convertAvroFunction = convertAvroFunction;
-            this.convertRowFunction = convertRowFunction;
+            this.converter = converter;
             this.convertTableRowFunction = convertTableRowFunction;
             this.destinationFunction = destinationFunction;
             this.waitCollections = waitCollections;
@@ -418,46 +419,58 @@ public class BigQuerySink implements SinkModule {
             this.parameters.validate();
             this.parameters.setDefaults(input);
 
+            final PCollection<T> waited;
+            if(waitCollections == null) {
+                waited = input;
+            } else {
+                final List<PCollection<?>> waits = waitCollections.stream()
+                        .map(FCollection::getCollection)
+                        .collect(Collectors.toList());
+                waited = input
+                        .apply("Wait", Wait.on(waits))
+                        .setCoder(input.getCoder());
+            }
+
             final boolean isStreaming = OptionUtil.isStreaming(input);
-            final boolean useRow = BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())
-                    || BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE.equals(parameters.getMethod());
+            final TableSchema tableSchema = collection.getTableSchema();
+            final String destinationField = parameters.getDynamicDestination();
 
             final WriteResult writeResult;
-            if(useRow) {
-                final String destinationField = parameters.getDynamicDestination();
-                final ToRowDoFn<T> dofn = new ToRowDoFn(collection.getSchema(), convertRowFunction);
-                final PCollection<Row> rows = input
-                        .apply("ToBeamRow", ParDo.of(dofn))
-                        .setCoder(RowCoder.of(collection.getSchema()))
-                        .setRowSchema(collection.getSchema());
-                final BigQueryIO.Write<Row> write = createWrite(
-                        isStreaming, null, null,
-                        s -> s.getValue(destinationField) == null ? "" : s.getValue(destinationField).toString());
-                if(waitCollections == null) {
-                    writeResult = rows.apply("WriteBigQuery", write);
-                } else {
-                    final List<PCollection<?>> waits = waitCollections.stream()
-                            .map(FCollection::getCollection)
-                            .collect(Collectors.toList());
-                    writeResult = rows
-                            .apply("Wait", Wait.on(waits))
-                            .setCoder(rows.getCoder())
-                            .apply("WriteTable", write);
+            final WriteDataType writeDataType = writeDataType(parameters.getMethod(), collection.getDataType(), isStreaming);
+            switch (writeDataType) {
+                case row -> {
+                    BigQueryIO.Write<Row> write = BigQueryIO
+                            .<Row>write()
+                            .useBeamSchema();
+                    final SerializableFunction<Row, String> destinationFunction = s -> s.getValue(destinationField) == null ? "" : s.getValue(destinationField).toString();
+                    write = applyParameters(write, parameters, tableSchema, isStreaming, destinationFunction);
+                    writeResult = ((PCollection<Row>)waited)
+                            .apply("WriteRow", write);
                 }
-            } else {
-                final BigQueryIO.Write<T> write = createWrite(
-                        isStreaming, convertAvroFunction, convertTableRowFunction, destinationFunction);
-                if(waitCollections == null) {
-                    writeResult = input.apply("WriteBigQuery", write);
-                } else {
-                    final List<PCollection<?>> waits = waitCollections.stream()
-                            .map(FCollection::getCollection)
-                            .collect(Collectors.toList());
-                    writeResult = input
-                            .apply("Wait", Wait.on(waits))
-                            .setCoder(input.getCoder())
-                            .apply("WriteTable", write);
+                case avro -> {
+                    BigQueryIO.Write<GenericRecord> write = BigQueryIO
+                            .writeGenericRecords()
+                            .useAvroLogicalTypes();
+                    final SerializableFunction<GenericRecord, String> destinationFunction = (s) -> s.get(destinationField) == null ? "" : s.get(destinationField).toString();
+                    write = applyParameters(write, parameters, tableSchema, isStreaming, destinationFunction);
+                    if(DataType.AVRO.equals(collection.getDataType())) {
+                        writeResult = ((PCollection<GenericRecord>)waited)
+                                .apply("WriteAvro", write);
+                    } else {
+                        writeResult = waited
+                                .apply("ConvertToAvro", ParDo.of(new ToRecordDoFn<>(collection.getAvroSchema().toString(), converter)))
+                                .setCoder(AvroCoder.of(collection.getAvroSchema()))
+                                .apply("WriteAvro", write);
+                    }
                 }
+                case tableRow -> {
+                    BigQueryIO.Write<T> write = BigQueryIO
+                            .<T>write()
+                            .withFormatFunction(convertTableRowFunction);
+                    write = applyParameters(write, parameters, tableSchema, isStreaming, destinationFunction);
+                    writeResult = waited.apply("WriteTableRow", write);
+                }
+                default -> throw new IllegalArgumentException();
             }
 
             final boolean isStreamingInsert =
@@ -488,53 +501,82 @@ public class BigQuerySink implements SinkModule {
             }
         }
 
-        private <T> BigQueryIO.Write<T> createWrite(
+        private static WriteDataType writeDataType(
+                final BigQueryIO.Write.Method method,
+                final DataType inputDataType,
+                final boolean isStreaming) {
+
+            if(isStreaming &&
+                    (BigQueryIO.Write.Method.STREAMING_INSERTS.equals(method)
+                            || BigQueryIO.Write.Method.DEFAULT.equals(method))) {
+
+                return WriteDataType.tableRow;
+            } else if(!isStreaming &&
+                    (BigQueryIO.Write.Method.FILE_LOADS.equals(method)
+                            || BigQueryIO.Write.Method.DEFAULT.equals(method))) {
+
+                return WriteDataType.avro;
+            } else if(DataType.ROW.equals(inputDataType)) {
+                return WriteDataType.row;
+            } else {
+                return WriteDataType.avro;
+            }
+        }
+
+        private static <InputT> BigQueryIO.Write<InputT> applyParameters(
+                final BigQueryIO.Write<InputT> base,
+                final BigQuerySinkParameters parameters,
+                final TableSchema tableSchema,
                 final boolean isStreaming,
-                final SerializableFunction<AvroWriteRequest<T>, GenericRecord> convertAvroFunction,
-                final SerializableFunction<T, TableRow> convertTableRowFunction,
-                final SerializableFunction<T, String> destinationFunction ) {
+                final SerializableFunction<InputT, String> destinationFunction ) {
 
-            final String table = this.parameters.getTable();
-            final TableSchema tableSchema = collection.getTableSchema();
+            final String table = parameters.getTable();
 
-            BigQueryIO.Write<T> write = BigQueryIO.<T>write()
+            BigQueryIO.Write<InputT> write = base
                     .withTableDescription("Auto Generated at " + Instant.now())
-                    .withWriteDisposition(this.parameters.getWriteDisposition())
-                    .withCreateDisposition(this.parameters.getCreateDisposition())
-                    .withMethod(this.parameters.getMethod());
+                    .withWriteDisposition(parameters.getWriteDisposition())
+                    .withCreateDisposition(parameters.getCreateDisposition())
+                    .withMethod(parameters.getMethod());
 
-            if(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED.equals(this.parameters.getCreateDisposition())) {
+            if(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED.equals(parameters.getCreateDisposition())) {
                 write = write.withSchema(tableSchema);
             }
 
-            if(this.parameters.getPartitioning() != null) {
-                final String partitioningType = this.parameters.getPartitioning().trim();
-                final String partitioningField = this.parameters.getPartitioningField();
+            if(parameters.getPartitioning() != null) {
+                final String partitioningType = parameters.getPartitioning().trim();
+                final String partitioningField = parameters.getPartitioningField();
                 final TimePartitioning timePartitioning = new TimePartitioning().setType(partitioningType).setField(partitioningField);
                 write = write.withTimePartitioning(timePartitioning);
             }
 
-            if(this.parameters.getClustering() != null) {
-                final List<String> clusteringFields = Arrays.asList(this.parameters.getClustering().trim().split(","));
+            if(parameters.getClustering() != null) {
+                final List<String> clusteringFields = Arrays.asList(parameters.getClustering().trim().split(","));
                 final Clustering clustering = new Clustering().setFields(clusteringFields);
                 write = write.withClustering(clustering);
             }
-            if(this.parameters.getKmsKey() != null) {
-                write = write.withKmsKey(this.parameters.getKmsKey().trim());
+            if(parameters.getKmsKey() != null) {
+                write = write.withKmsKey(parameters.getKmsKey().trim());
             }
 
-            if(this.parameters.getDynamicDestination() != null) {
-                write = write.to(new DynamicDestinationFunc<>(table, tableSchema, this.parameters.getDynamicDestination(), destinationFunction));
+            if(parameters.getDynamicDestination() != null) {
+                write = write.to(new DynamicDestinationFunc<>(table, tableSchema, parameters.getDynamicDestination(), destinationFunction));
             } else {
                 write = write.to(table);
             }
 
-            if(this.parameters.getOptimizedWrites()) {
+            if(parameters.getOptimizedWrites()) {
                 write = write.optimizedWrites();
             }
 
             if(parameters.getSchemaUpdateOptions() != null && parameters.getSchemaUpdateOptions().size() > 0) {
                 write = write.withSchemaUpdateOptions(new HashSet<>(parameters.getSchemaUpdateOptions()));
+            }
+            if(parameters.getAutoSchemaUpdate() != null) {
+                if(BigQueryIO.Write.Method.STORAGE_WRITE_API.equals(parameters.getMethod())) {
+                    write = write.withAutoSchemaUpdate(parameters.getAutoSchemaUpdate());
+                } else {
+                    LOG.warn("BigQuery sink autoSchemaUpdate parameter is applicable for only STORAGE_WRITE_API method");
+                }
             }
 
             if(parameters.getWithoutValidation() != null && parameters.getWithoutValidation()) {
@@ -566,64 +608,28 @@ public class BigQuerySink implements SinkModule {
                 }
 
                 switch (parameters.getMethod()) {
-                    case FILE_LOADS:
-                    case STORAGE_WRITE_API: {
+                    case FILE_LOADS, STORAGE_WRITE_API -> {
                         write = write
-                                .withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()))
-                                .useBeamSchema();
-                        if(parameters.getAutoSharding()) {
+                                .withTriggeringFrequency(Duration.standardSeconds(parameters.getTriggeringFrequencySecond()));
+                        if (parameters.getAutoSharding()) {
                             write = write.withAutoSharding();
-                        } else if(parameters.getNumStorageWriteApiStreams() != null) {
+                        } else if (parameters.getNumStorageWriteApiStreams() != null) {
                             write = write.withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams());
                         }
-                        break;
                     }
-                    case STORAGE_API_AT_LEAST_ONCE: {
-                        write = write.useBeamSchema();
-                        break;
-                    }
-                    case DEFAULT:
-                    case STREAMING_INSERTS: {
-                        write = write.withFormatFunction(convertTableRowFunction);
-                        if(parameters.getAutoSharding()) {
+                    case DEFAULT, STREAMING_INSERTS -> {
+                        if (parameters.getAutoSharding()) {
                             write = write.withAutoSharding();
                         }
-                        break;
                     }
                 }
 
             } else {
                 // For batch mode options
-                if(AvroSchemaUtil.isNestedSchema(collection.getAvroSchema())) {
-                    LOG.info("BigQuerySink: TableRowWrite mode.");
-                    write = write
-                            .withFormatFunction(convertTableRowFunction);
-                } else {
-                    LOG.info("BigQuerySink: AvroWrite mode.");
-                    switch (parameters.getMethod()) {
-                        case FILE_LOADS:
-                            write = write
-                                    .withAvroSchemaFactory(TableRowToRecordConverter::convertSchema)
-                                    .withAvroFormatFunction(convertAvroFunction)
-                                    .useAvroLogicalTypes();
-                            break;
-                        case STORAGE_WRITE_API:
-                        case STORAGE_API_AT_LEAST_ONCE: {
-                            write = write.useBeamSchema();
-                            if(parameters.getAutoSharding()) {
-                                write = write.withAutoSharding();
-                            } else if(parameters.getNumStorageWriteApiStreams() != null) {
-                                write = write.withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams());
-                            }
-                            break;
-                        }
-                        case DEFAULT:
-                        case STREAMING_INSERTS: {
-                            write = write.withFormatFunction(convertTableRowFunction);
-                            if(parameters.getAutoSharding()) {
-                                write = write.withAutoSharding();
-                            }
-                            break;
+                switch (parameters.getMethod()) {
+                    case STORAGE_WRITE_API, STORAGE_API_AT_LEAST_ONCE -> {
+                        if (parameters.getNumStorageWriteApiStreams() != null) {
+                            write = write.withNumStorageWriteApiStreams(parameters.getNumStorageWriteApiStreams());
                         }
                     }
                 }
@@ -632,21 +638,52 @@ public class BigQuerySink implements SinkModule {
             return write;
         }
 
-        private static class ToRowDoFn<T> extends DoFn<T, Row> {
+        private static <InputT> SerializableFunction<InputT, RowMutationInformation> createRowMutationInformationFunction(
+                final RowMutationInformation.MutationType mutationType,
+                final SchemaUtil.StringGetter<InputT> stringGetter,
+                final SchemaUtil.LongGetter<InputT> longGetter,
+                final String typeField,
+                final String sequenceField) {
 
-            private final org.apache.beam.sdk.schemas.Schema schema;
-            private final RowConverter<T> rowConverter;
+            return (InputT input) -> {
+                final RowMutationInformation.MutationType type;
+                if(mutationType != null) {
+                    type = mutationType;
+                } else if(typeField != null) {
+                    final String typeString = stringGetter.getAsString(input, typeField);
+                    type = RowMutationInformation.MutationType.valueOf(typeString);
+                } else {
+                    throw new IllegalStateException();
+                }
 
-            ToRowDoFn(final org.apache.beam.sdk.schemas.Schema schema, final RowConverter<T> rowConverter) {
-                this.schema = schema;
-                this.rowConverter = rowConverter;
+                final long sequenceNumber = longGetter.getAsLong(input, sequenceField);
+
+                return RowMutationInformation.of(type, sequenceNumber);
+            };
+        }
+
+        private static class ToRecordDoFn<T> extends DoFn<T, GenericRecord> {
+
+            private final String schemaString;
+            private final SchemaUtil.DataConverter<Schema,T,GenericRecord> converter;
+
+            private transient Schema schema;
+
+            ToRecordDoFn(final String schemaString, final SchemaUtil.DataConverter<Schema,T,GenericRecord> converter) {
+                this.schemaString = schemaString;
+                this.converter = converter;
+            }
+
+            @Setup
+            public void setup() {
+                this.schema = AvroSchemaUtil.convertSchema(schemaString);
             }
 
             @ProcessElement
             public void processElement(ProcessContext c) {
                 final T element = c.element();
-                final Row row = rowConverter.convert(schema, element);
-                c.output(row);
+                final GenericRecord record = converter.convert(schema, element);
+                c.output(record);
             }
 
         }
@@ -821,10 +858,6 @@ public class BigQuerySink implements SinkModule {
             }
         }
 
-    }
-
-    private interface RowConverter<T> extends Serializable {
-        Row convert(final org.apache.beam.sdk.schemas.Schema schema, final T element);
     }
 
 }
