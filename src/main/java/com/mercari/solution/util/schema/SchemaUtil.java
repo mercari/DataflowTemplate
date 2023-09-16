@@ -52,6 +52,10 @@ public class SchemaUtil {
         byte[] getAsBytes(ElementT element, String field);
     }
 
+    public interface LongGetter<ElementT> extends Serializable {
+        Long getAsLong(ElementT element, String field);
+    }
+
     public interface FloatGetter<ElementT> extends Serializable {
         Float getAsFloat(ElementT element, String field);
     }
