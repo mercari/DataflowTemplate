@@ -48,7 +48,7 @@
 | [pubsub](sink/pubsub.md)                 | ○     | ○         | Publish data to specified PubSub topic                     |
 | [text](sink/text.md)                     | ○     | ○(TODO)   | Create text files with the template specified for each row |
 | [copyfile](sink/copyfile.md)             | ○     | ○(TODO)   | Copy files between storage services                        |
-| [solrindex](sink/solrindex.md)           | ○     | -         | Create solr index file to Cloud Storage                    |
+| [localSolr](sink/localsolr.md)           | ○     | -         | Create solr index file to Cloud Storage                    |
 | [localNeo4j](sink/localneo4j.md)         | ○     | -         | Create Neo4j graph database file to Cloud Storage          |
 | [matchingEngine](sink/matchingengine.md) | ○     | ○         | Inserting vector data into VertexAI Matching Engine Index  |
 | [debug](sink/debug.md)                   | ○     | ○         | Outputting data to the log                                 |

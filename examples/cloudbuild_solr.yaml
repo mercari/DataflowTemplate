@@ -1,0 +1,23 @@
+steps:
+  - name: 'us.gcr.io/google.com/cloudsdktool/google-cloud-cli:slim'
+    args: ["gsutil", "cp", "gs://example-bucket/path/to/index.zip", "myindex.zip"]
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: "unzip"
+    args: ["myindex.zip"]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["build", "-f", "Dockerfile_solr", "-t", "$_REGION-docker.pkg.dev/$PROJECT_ID/solr/myindex", "."]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["push", "$_REGION-docker.pkg.dev/$PROJECT_ID/solr/myindex"]
+  - name: 'us.gcr.io/google.com/cloudsdktool/google-cloud-cli:slim'
+    args: ["gcloud", "run", "deploy", "myindex",
+           "--image", "$_REGION-docker.pkg.dev/$PROJECT_ID/solr/myindex",
+           "--platform", "managed",
+           "--region", "$_REGION",
+           "--execution-environment", "gen1",
+           "--memory", "2Gi",
+           "--port", "80",
+           "--min-instances", "1",
+           "--no-allow-unauthenticated"]
+timeout: 3600s
+substitutions:
+  _REGION: us-central1
