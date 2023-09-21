@@ -3,6 +3,7 @@ package com.mercari.solution.module.sink;
 import com.google.api.gax.longrunning.OperationFuture;
 import com.google.cloud.spanner.*;
 import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.spanner.admin.instance.v1.UpdateInstanceMetadata;
@@ -39,7 +40,7 @@ public class SpannerSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(SpannerSink.class);
 
-    private class SpannerSinkParameters implements Serializable {
+    private static class SpannerSinkParameters implements Serializable {
 
         private String projectId;
         private String instanceId;
@@ -50,25 +51,24 @@ public class SpannerSink implements SinkModule {
         private List<String> commitTimestampFields;
         private Boolean failFast;
         private Boolean flattenFailures;
+        private Boolean flattenGroup;
 
         private Boolean emulator;
-
-        private Boolean createTable;
-        private Boolean emptyTable;
-        private String interleavedIn;
-        private Boolean cascade;
-        private Boolean recreate;
-
-        private List<String> fields;
-        private List<String> maskFields;
-        private Boolean exclude;
-
         private Long maxNumRows;
         private Long maxNumMutations;
         private Long batchSizeBytes;
         private Integer groupingFactor;
         private Options.RpcPriority priority;
 
+        private List<String> fields;
+        private List<String> maskFields;
+        private Boolean exclude;
+
+        private Boolean createTable;
+        private Boolean emptyTable;
+        private String interleavedIn;
+        private Boolean cascade;
+        private Boolean recreate;
         private Integer nodeCount;
         private Integer revertNodeCount;
         private Integer rebalancingMinite;
@@ -82,221 +82,118 @@ public class SpannerSink implements SinkModule {
             return projectId;
         }
 
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
-        }
-
         public String getInstanceId() {
             return instanceId;
-        }
-
-        public void setInstanceId(String instanceId) {
-            this.instanceId = instanceId;
         }
 
         public String getDatabaseId() {
             return databaseId;
         }
 
-        public void setDatabaseId(String databaseId) {
-            this.databaseId = databaseId;
-        }
-
         public String getTable() {
             return table;
-        }
-
-        public void setTable(String table) {
-            this.table = table;
         }
 
         public String getMutationOp() {
             return mutationOp;
         }
 
-        public void setMutationOp(String mutationOp) {
-            this.mutationOp = mutationOp;
-        }
-
         public Boolean getFailFast() {
             return failFast;
-        }
-
-        public void setFailFast(Boolean failFast) {
-            this.failFast = failFast;
         }
 
         public Boolean getFlattenFailures() {
             return flattenFailures;
         }
 
-        public Boolean getEmulator() {
-            return emulator;
+        public Boolean getFlattenGroup() {
+            return flattenGroup;
         }
 
-        public void setEmulator(Boolean emulator) {
-            this.emulator = emulator;
+        public Boolean getEmulator() {
+            return emulator;
         }
 
         public Boolean getCreateTable() {
             return createTable;
         }
 
-        public void setCreateTable(Boolean createTable) {
-            this.createTable = createTable;
-        }
-
         public Boolean getEmptyTable() {
             return emptyTable;
-        }
-
-        public void setEmptyTable(Boolean emptyTable) {
-            this.emptyTable = emptyTable;
         }
 
         public List<String> getKeyFields() {
             return keyFields;
         }
 
-        public void setKeyFields(List<String> keyFields) {
-            this.keyFields = keyFields;
-        }
-
         public List<String> getCommitTimestampFields() {
             return commitTimestampFields;
-        }
-
-        public void setCommitTimestampFields(List<String> commitTimestampFields) {
-            this.commitTimestampFields = commitTimestampFields;
         }
 
         public String getInterleavedIn() {
             return interleavedIn;
         }
 
-        public void setInterleavedIn(String interleavedIn) {
-            this.interleavedIn = interleavedIn;
-        }
-
         public Boolean getCascade() {
             return cascade;
-        }
-
-        public void setCascade(Boolean cascade) {
-            this.cascade = cascade;
         }
 
         public Boolean getRecreate() {
             return recreate;
         }
 
-        public void setRecreate(Boolean recreate) {
-            this.recreate = recreate;
-        }
-
         public List<String> getFields() {
             return fields;
-        }
-
-        public void setFields(List<String> fields) {
-            this.fields = fields;
         }
 
         public List<String> getMaskFields() {
             return maskFields;
         }
 
-        public void setMaskFields(List<String> maskFields) {
-            this.maskFields = maskFields;
-        }
-
         public Boolean getExclude() {
             return exclude;
-        }
-
-        public void setExclude(Boolean exclude) {
-            this.exclude = exclude;
         }
 
         public Long getMaxNumRows() {
             return maxNumRows;
         }
 
-        public void setMaxNumRows(Long maxNumRows) {
-            this.maxNumRows = maxNumRows;
-        }
-
         public Long getMaxNumMutations() {
             return maxNumMutations;
-        }
-
-        public void setMaxNumMutations(Long maxNumMutations) {
-            this.maxNumMutations = maxNumMutations;
         }
 
         public Long getBatchSizeBytes() {
             return batchSizeBytes;
         }
 
-        public void setBatchSizeBytes(Long batchSizeBytes) {
-            this.batchSizeBytes = batchSizeBytes;
-        }
-
         public Integer getGroupingFactor() {
             return groupingFactor;
-        }
-
-        public void setGroupingFactor(Integer groupingFactor) {
-            this.groupingFactor = groupingFactor;
         }
 
         public Options.RpcPriority getPriority() {
             return priority;
         }
 
-        public void setPriority(Options.RpcPriority priority) {
-            this.priority = priority;
-        }
-
         public Integer getNodeCount() {
             return nodeCount;
-        }
-
-        public void setNodeCount(Integer nodeCount) {
-            this.nodeCount = nodeCount;
         }
 
         public Integer getRevertNodeCount() {
             return revertNodeCount;
         }
 
-        public void setRevertNodeCount(Integer revertNodeCount) {
-            this.revertNodeCount = revertNodeCount;
-        }
-
         public Integer getRebalancingMinite() {
             return rebalancingMinite;
-        }
-
-        public void setRebalancingMinite(Integer rebalancingMinite) {
-            this.rebalancingMinite = rebalancingMinite;
         }
 
         public Boolean getDirectRunner() {
             return isDirectRunner;
         }
 
-        public void setDirectRunner(Boolean directRunner) {
-            isDirectRunner = directRunner;
-        }
-
         public String getPrimaryKeyFields() {
             return primaryKeyFields;
         }
 
-        public void setPrimaryKeyFields(String primaryKeyFields) {
-            this.primaryKeyFields = primaryKeyFields;
-        }
 
         public void validate(final PInput input, final DataType dataType, final Boolean isTuple) {
             // check required parameters filled
@@ -331,72 +228,82 @@ public class SpannerSink implements SinkModule {
             }
 
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
         public void setDefaults(final PInput input) {
             //
             if(this.keyFields == null && this.primaryKeyFields != null) {
-                this.setKeyFields(Arrays
+                this.keyFields = Arrays
                         .stream(this.getPrimaryKeyFields().split(","))
                         .map(String::trim)
-                        .collect(Collectors.toList()));
+                        .toList();
             }
 
             //
-            if(this.getMutationOp() == null) {
-                this.setMutationOp(Mutation.Op.INSERT_OR_UPDATE.name());
+            if(this.mutationOp == null) {
+                this.mutationOp = Mutation.Op.INSERT_OR_UPDATE.name();
             }
-            if(this.getFailFast() == null) {
-                this.setFailFast(true);
-            }
-            if(this.getRebalancingMinite() == null) {
-                this.setRebalancingMinite(0);
-            }
-            if(this.getEmulator() == null) {
-                this.setEmulator(false);
-            }
-            if(this.getCreateTable() == null) {
-                this.setCreateTable(false);
-            }
-            if(this.getEmptyTable() == null) {
-                this.setEmptyTable(false);
-            }
-            if(this.getCascade() == null) {
-                this.setCascade(true);
-            }
-            if(this.getRecreate() == null) {
-                this.setRecreate(false);
-            }
-            if(this.getExclude() == null) {
-                this.setExclude(false);
+            if(this.priority == null) {
+                this.priority = Options.RpcPriority.MEDIUM;
             }
 
-            if(this.getMaxNumRows() == null) {
-                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L381
-                this.setMaxNumRows(500L);
+            if(this.emulator == null) {
+                this.emulator = false;
             }
-            if(this.getMaxNumMutations() == null) {
-                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L379
-                this.setMaxNumMutations(5000L);
+            if(this.commitTimestampFields == null) {
+                this.commitTimestampFields = new ArrayList<>();
             }
-            if(this.getBatchSizeBytes() == null) {
-                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L377
-                this.setBatchSizeBytes(1024L * 1024L);
+            if(this.failFast == null) {
+                this.failFast = true;
             }
-            if(this.getGroupingFactor() == null) {
-                // https://github.com/apache/beam/blob/v2.42.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L383
-                this.setGroupingFactor(1000);
+
+            if(this.maxNumRows == null) {
+                // https://github.com/apache/beam/blob/v2.49.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L383
+                this.maxNumRows = 500L;
             }
-            if(this.getNodeCount() == null) {
-                this.setNodeCount(-1);
+            if(this.maxNumMutations == null) {
+                // https://github.com/apache/beam/blob/v2.49.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L381
+                this.maxNumMutations = 5000L;
             }
-            if(this.getPriority() == null) {
-                this.setPriority(Options.RpcPriority.MEDIUM);
+            if(this.batchSizeBytes == null) {
+                // https://github.com/apache/beam/blob/v2.49.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L379
+                this.batchSizeBytes = 1024L * 1024L;
             }
+            if(this.groupingFactor == null) {
+                // https://github.com/apache/beam/blob/v2.49.0/sdks/java/io/google-cloud-platform/src/main/java/org/apache/beam/sdk/io/gcp/spanner/SpannerIO.java#L385
+                this.groupingFactor = 1000;
+            }
+
             if(this.flattenFailures == null) {
                 this.flattenFailures = true;
             }
+            if(this.flattenGroup == null) {
+                this.flattenGroup = false;
+            }
+
+            if(this.createTable == null) {
+                this.createTable = false;
+            }
+            if(this.emptyTable == null) {
+                this.emptyTable = false;
+            }
+            if(this.cascade == null) {
+                this.cascade = true;
+            }
+            if(this.recreate == null) {
+                this.recreate = false;
+            }
+            if(this.exclude == null) {
+                this.exclude = false;
+            }
+            if(this.nodeCount == null) {
+                this.nodeCount = -1;
+            }
+            if(this.rebalancingMinite == null) {
+                this.rebalancingMinite = 0;
+            }
+
         }
     }
 
@@ -434,7 +341,7 @@ public class SpannerSink implements SinkModule {
         }
     }
 
-    public static FCollection<?> writeSingle(final FCollection<?> collection,
+    private static FCollection<?> writeSingle(final FCollection<?> collection,
                                              final SinkConfig config,
                                              final SpannerSinkParameters parameters,
                                              final List<FCollection<?>> waits) {
@@ -445,9 +352,8 @@ public class SpannerSink implements SinkModule {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
 
-        final PCollection output;
-        switch (collection.getDataType()) {
-            case AVRO: {
+        final PCollection output = switch (collection.getDataType()) {
+            case AVRO -> {
                 final PCollection<GenericRecord> input = (PCollection<GenericRecord>) collection.getCollection();
                 final SpannerWriteSingle<String, org.apache.avro.Schema, GenericRecord> write = new SpannerWriteSingle<>(
                         collection.getSchema(),
@@ -456,10 +362,9 @@ public class SpannerSink implements SinkModule {
                         AvroSchemaUtil::convertSchema,
                         RecordToMutationConverter::convert,
                         waits);
-                output = input.apply(config.getName(), write);
-                break;
+                yield input.apply(config.getName(), write);
             }
-            case ROW: {
+            case ROW -> {
                 final PCollection<Row> input = (PCollection<Row>) collection.getCollection();
                 final SpannerWriteSingle<Schema, Schema, Row> write = new SpannerWriteSingle<>(
                         collection.getSchema(),
@@ -468,10 +373,9 @@ public class SpannerSink implements SinkModule {
                         s -> s,
                         RowToMutationConverter::convert,
                         waits);
-                output = input.apply(config.getName(), write);
-                break;
+                yield input.apply(config.getName(), write);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final PCollection<Struct> input = (PCollection<Struct>) collection.getCollection();
                 final SpannerWriteSingle<Schema, Schema, Struct> write = new SpannerWriteSingle<>(
                         collection.getSchema(),
@@ -480,10 +384,20 @@ public class SpannerSink implements SinkModule {
                         s -> s,
                         StructToMutationConverter::convert,
                         waits);
-                output = input.apply(config.getName(), write);
-                break;
+                yield input.apply(config.getName(), write);
             }
-            case ENTITY: {
+            case DOCUMENT -> {
+                final PCollection<Document> input = (PCollection<Document>) collection.getCollection();
+                final SpannerWriteSingle<Type, Type, Document> write = new SpannerWriteSingle<>(
+                        collection.getSchema(),
+                        parameters,
+                        collection.getSpannerType(),
+                        s -> s,
+                        DocumentToMutationConverter::convert,
+                        waits);
+                yield input.apply(config.getName(), write);
+            }
+            case ENTITY -> {
                 final PCollection<Entity> input = (PCollection<Entity>) collection.getCollection();
                 final SpannerWriteSingle<Type, Type, Entity> write = new SpannerWriteSingle<>(
                         collection.getSchema(),
@@ -492,10 +406,9 @@ public class SpannerSink implements SinkModule {
                         s -> s,
                         EntityToMutationConverter::convert,
                         waits);
-                output = input.apply(config.getName(), write);
-                break;
+                yield input.apply(config.getName(), write);
             }
-            case MUTATION: {
+            case MUTATION -> {
                 final PCollection<Mutation> input = (PCollection<Mutation>) collection.getCollection();
                 final SpannerWriteSingle<Type, Type, Mutation> write = new SpannerWriteSingle<>(
                         collection.getSchema(),
@@ -504,18 +417,15 @@ public class SpannerSink implements SinkModule {
                         s -> s,
                         StructSchemaUtil::convert,
                         waits);
-                output = input.apply(config.getName(), write);
-                break;
+                yield input.apply(config.getName(), write);
             }
-            default: {
-                throw new IllegalArgumentException();
-            }
-        }
+            default -> throw new IllegalArgumentException();
+        };
 
         return FCollection.update(collection, output);
     }
 
-    public static FCollection<?> writeMulti(final FCollection<?> collection,
+    private static FCollection<?> writeMulti(final FCollection<?> collection,
                                             final SinkConfig config,
                                             final SpannerSinkParameters parameters,
                                             final List<FCollection<?>> waits) {
@@ -526,7 +436,7 @@ public class SpannerSink implements SinkModule {
         return FCollection.of(config.getName(), output, DataType.MUTATION, schema);
     }
 
-    public static Map<String, FCollection<?>> writeMutationGroup(
+    private static Map<String, FCollection<?>> writeMutationGroup(
             final FCollection<MutationGroup> collection,
             final SinkConfig config,
             final SpannerSinkParameters parameters) {
@@ -757,19 +667,6 @@ public class SpannerSink implements SinkModule {
                 }
             }
             return createTableDdl;
-        }
-
-        private PCollection<String> createWait(final Pipeline pipeline,
-                                               final Iterable<List<String>> ddls,
-                                               final String projectId,
-                                               final String instanceId,
-                                               final String databaseId,
-                                               final boolean emulator) {
-            return pipeline
-                    .apply("SupplyDDL", Create.of(ddls))
-                    .setCoder(ListCoder.of(StringUtf8Coder.of()))
-                    .apply("PrepareTable", ParDo.of(new TablePrepareDoFn(projectId, instanceId, databaseId, emulator)))
-                    .setCoder(StringUtf8Coder.of());
         }
 
     }
@@ -1136,15 +1033,24 @@ public class SpannerSink implements SinkModule {
 
             PCollectionTuple tuple = PCollectionTuple.empty(input.getPipeline());
             final SpannerIO.Write write = createWrite(parameters);
-            final SpannerWriteResult writeResult;
+            final PCollection<MutationGroup> withCommitTimestamp;
             if(parameters.getCommitTimestampFields() != null && parameters.getCommitTimestampFields().size() > 0)  {
-                writeResult = input
-                        .apply("WithCommitTimestampFields", ParDo.of(new WithCommitTimestampDoFn(parameters.getCommitTimestampFields())))
-                        .apply("WriteMutationGroup", write.grouped());
+                withCommitTimestamp = input
+                        .apply("WithCommitTimestamp", ParDo.of(new WithCommitTimestampDoFn(parameters.getCommitTimestampFields())));
             } else {
-                writeResult = input
+                withCommitTimestamp = input;
+            }
+
+            final SpannerWriteResult writeResult;
+            if(parameters.getFlattenGroup()) {
+                writeResult = withCommitTimestamp
+                        .apply("FlattenMutationGroup", ParDo.of(new FlattenGroupDoFn()))
+                        .apply("WriteMutation", write);
+            } else {
+                writeResult = withCommitTimestamp
                         .apply("WriteMutationGroup", write.grouped());
             }
+
             final TupleTag<Void> tag = new TupleTag<>() {};
             final PCollection<Void> output = writeResult.getOutput();
             tuple = tuple.and(tag, output);
@@ -1174,8 +1080,7 @@ public class SpannerSink implements SinkModule {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 final MutationGroup input = c.element();
-                if(Mutation.Op.DELETE.equals(input.primary().getOperation())) {
-                    c.output(input);
+                if(input == null) {
                     return;
                 }
                 final Mutation withCommitTimestampPrimary = addCommitTimestampFields(input.primary());
@@ -1189,30 +1094,51 @@ public class SpannerSink implements SinkModule {
             }
 
             private Mutation addCommitTimestampFields(final Mutation input) {
-                final Mutation.WriteBuilder builder;
-                switch (input.getOperation()) {
-                    case UPDATE:
-                        builder = Mutation.newUpdateBuilder(input.getTable());
-                        break;
-                    case INSERT:
-                        builder = Mutation.newInsertBuilder(input.getTable());
-                        break;
-                    case INSERT_OR_UPDATE:
-                        builder = Mutation.newInsertOrUpdateBuilder(input.getTable());
-                        break;
-                    case REPLACE:
-                        builder = Mutation.newReplaceBuilder(input.getTable());
-                        break;
-                    case DELETE:
-                    default:
-                        return input;
+                if(Mutation.Op.DELETE.equals(input.getOperation())) {
+                    return input;
+                } else {
+                    return addWriteCommitTimestampFields(input);
                 }
+            }
+
+            private Mutation addWriteCommitTimestampFields(final Mutation input) {
+                final Mutation.WriteBuilder builder = switch (input.getOperation()) {
+                    case UPDATE:
+                        yield Mutation.newUpdateBuilder(input.getTable());
+                    case INSERT:
+                        yield Mutation.newInsertBuilder(input.getTable());
+                    case INSERT_OR_UPDATE:
+                        yield Mutation.newInsertOrUpdateBuilder(input.getTable());
+                    case REPLACE:
+                        yield Mutation.newReplaceBuilder(input.getTable());
+                    case DELETE:
+                        throw new IllegalStateException("Not supported writeCommitTimestampFields for DELETE OP");
+                };
                 for(final Map.Entry<String, Value> entry : input.asMap().entrySet()) {
                     builder.set(entry.getKey()).to(entry.getValue());
                 }
                 for(final String commitTimestampField : commitTimestampFields) {
                     builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);                }
                 return builder.build();
+            }
+
+        }
+
+        private static class FlattenGroupDoFn extends DoFn<MutationGroup, Mutation> {
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final MutationGroup mutationGroup = c.element();
+                if(mutationGroup == null) {
+                    return;
+                }
+
+                final Mutation primary = mutationGroup.primary();
+                c.output(primary);
+
+                for(final Mutation attached : mutationGroup.attached()) {
+                    c.output(attached);
+                }
             }
 
         }
@@ -1235,16 +1161,11 @@ public class SpannerSink implements SinkModule {
             write = write.withFailureMode(SpannerIO.FailureMode.REPORT_FAILURES);
         }
 
-        switch (parameters.getPriority()) {
-            case LOW: {
-                write = write.withLowPriority();
-                break;
-            }
-            case HIGH: {
-                write = write.withHighPriority();
-                break;
-            }
-        }
+        write = switch (parameters.getPriority()) {
+            case LOW -> write.withLowPriority();
+            case HIGH -> write.withHighPriority();
+            default -> write;
+        };
 
         return write;
     }

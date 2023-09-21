@@ -1,0 +1,5 @@
+FROM solr:9.3.0
+USER solr
+COPY --chown=solr:solr myCore1/ /var/solr/data/myCore1/
+COPY --chown=solr:solr myCore2/ /var/solr/data/myCore2/
+ENV SOLR_PORT=80

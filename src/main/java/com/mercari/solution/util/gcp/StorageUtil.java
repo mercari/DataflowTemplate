@@ -8,6 +8,7 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.storage.Storage;
+import com.google.api.services.storage.model.RewriteResponse;
 import com.google.api.services.storage.model.StorageObject;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpCredentialsAdapter;
@@ -237,7 +238,30 @@ public class StorageUtil {
             }
         }
 
-        storage.objects().copy(sourcePaths[0], sourcePaths[1], destinationPaths[0], destinationPaths[1], object);
+        final StorageObject storageObject = storage.objects().copy(sourcePaths[0], sourcePaths[1], destinationPaths[0], destinationPaths[1], object).execute();
+    }
+
+    public static void rewrite(final Storage storage, final String sourceGcsPath, final String destinationGcsPath, long a) throws IOException {
+        rewrite(storage, sourceGcsPath, destinationGcsPath, null, a);
+    }
+
+    public static void rewrite(final Storage storage, final String sourceGcsPath, final String destinationGcsPath, final Map<String, Object> attributes, long a) throws IOException {
+        if(sourceGcsPath == null || !sourceGcsPath.startsWith("gs://")) {
+            throw new IllegalArgumentException();
+        }
+        if(destinationGcsPath == null || !destinationGcsPath.startsWith("gs://")) {
+            throw new IllegalArgumentException();
+        }
+        final String[] sourcePaths = parseGcsPath(sourceGcsPath);
+        final String[] destinationPaths = parseGcsPath(destinationGcsPath);
+
+        final StorageObject object = new StorageObject();
+
+        object.setBucket(destinationPaths[0]);
+        object.setName(destinationPaths[1]);
+        object.setGeneration(a + 1L);
+
+        final RewriteResponse rewriteResponse = storage.objects().rewrite(sourcePaths[0], sourcePaths[1], destinationPaths[0], destinationPaths[1], object).execute();
     }
 
     public static String addFilePrefix(String output, String prefix) {
@@ -354,7 +378,7 @@ public class StorageUtil {
     public static class ParquetStream implements InputFile {
         private final byte[] data;
 
-        public class SeekableByteArrayInputStream extends ByteArrayInputStream {
+        public static class SeekableByteArrayInputStream extends ByteArrayInputStream {
 
             public SeekableByteArrayInputStream(byte[] buf) {
                 super(buf);
@@ -384,12 +408,12 @@ public class StorageUtil {
 
                 @Override
                 public void seek(long newPos) {
-                    ((SeekableByteArrayInputStream) this.getStream()).setPos(new Long(newPos).intValue());
+                    ((SeekableByteArrayInputStream) this.getStream()).setPos(Long.valueOf(newPos).intValue());
                 }
 
                 @Override
                 public long getPos() {
-                    return new Integer(((SeekableByteArrayInputStream) this.getStream()).getPos()).longValue();
+                    return Integer.valueOf(((SeekableByteArrayInputStream) this.getStream()).getPos()).longValue();
                 }
             };
         }

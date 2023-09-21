@@ -1,4 +1,4 @@
-FROM neo4j:4.4.21
+FROM neo4j:5.12.0
 USER neo4j
 COPY --chown=neo4j:neo4j data/ /data/
 COPY --chown=neo4j:neo4j logs/ /logs/

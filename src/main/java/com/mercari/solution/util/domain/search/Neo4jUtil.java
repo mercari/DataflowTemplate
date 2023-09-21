@@ -119,18 +119,18 @@ public class Neo4jUtil implements Serializable {
         public List<String> validate(int index) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.input == null) {
-                errorMessages.add("neo4jIndex.relationships[" + index + "].input parameter must not be null.");
+                errorMessages.add("localNeo4j.relationships[" + index + "].input parameter must not be null.");
             }
             if(this.type == null) {
-                errorMessages.add("neo4jIndex.relationships[" + index + "].type parameter must not be null.");
+                errorMessages.add("localNeo4j.relationships[" + index + "].type parameter must not be null.");
             }
             if(this.source == null) {
-                errorMessages.add("neo4jIndex.relationships[" + index + "].source parameter must not be null.");
+                errorMessages.add("localNeo4j.relationships[" + index + "].source parameter must not be null.");
             } else {
                 errorMessages.addAll(this.source.validate("source", index));
             }
             if(this.target == null) {
-                errorMessages.add("neo4jIndex.relationships[" + index + "].target parameter must not be null.");
+                errorMessages.add("localNeo4j.relationships[" + index + "].target parameter must not be null.");
             } else {
                 errorMessages.addAll(this.target.validate("target", index));
             }
@@ -174,10 +174,10 @@ public class Neo4jUtil implements Serializable {
         public List<String> validate(final String type, int index) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.label == null) {
-                errorMessages.add("neo4jIndex.relationships[" + index + "]." + type + ".label parameter must not be null.");
+                errorMessages.add("localNeo4j.relationships[" + index + "]." + type + ".label parameter must not be null.");
             }
             if(this.keyFields == null || keyFields.size() == 0) {
-                errorMessages.add("neo4jIndex.relationships[" + index + "]." + type + ".keyFields parameter must not be null and must not be size zero.");
+                errorMessages.add("localNeo4j.relationships[" + index + "]." + type + ".keyFields parameter must not be null and must not be size zero.");
             }
 
             return errorMessages;
@@ -192,6 +192,11 @@ public class Neo4jUtil implements Serializable {
             }
         }
 
+    }
+
+    public enum Format {
+        dump,
+        zip
     }
 
     public static void query(final HttpClient client, final String username, final String password, final String endpoint, final String database, final String cypher) {
@@ -311,7 +316,7 @@ public class Neo4jUtil implements Serializable {
         final DatabaseLayout layout = Neo4jLayout.of(Path.of(neo4jHome)).databaseLayout(databaseName);
         final CompressionFormat format = DumpFormatSelector.selectFormat();
         final String lockFile = layout.databaseLockFile().getFileName().toString();
-        final String quarantineMarkerFile = layout.quarantineMarkerFile().getFileName().toString();
+        final String quarantineMarkerFile = layout.quarantineFile().getFileName().toString();
         LOG.info("dump databasePath: " + layout.databaseDirectory().toAbsolutePath()
                 + ", transactionLogsPath: " + layout.getTransactionLogsDirectory().toAbsolutePath()
                 + ", compressionFormat: " + format.getClass().getName());

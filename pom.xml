@@ -12,24 +12,24 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.47.0</beam.version>
+    <beam.version>2.50.0</beam.version>
 
     <freemarker.version>2.3.32</freemarker.version>
-    <hadoop.version>3.3.5</hadoop.version>
-    <hbase.version>2.5.4</hbase.version>
-    <onnxruntime.version>1.15.1</onnxruntime.version>
+    <hadoop.version>3.3.6</hadoop.version>
+    <hbase.version>2.5.5</hbase.version>
+    <onnxruntime.version>1.16.0</onnxruntime.version>
     <onnx.version>1.14.0-1.5.9</onnx.version>
-    <solr.version>9.2.1</solr.version>
-    <lucene.version>9.4.2</lucene.version>
-    <neo4j.version>4.4.21</neo4j.version>
-    <pdfbox.version>2.0.28</pdfbox.version>
+    <solr.version>9.3.0</solr.version>
+    <lucene.version>9.7.0</lucene.version>
+    <neo4j.version>5.12.0</neo4j.version>
+    <pdfbox.version>2.0.29</pdfbox.version>
     <jts.version>1.19.0</jts.version>
     <mysql-connector.version>8.0.33</mysql-connector.version>
     <postgresql-connector.version>42.6.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.11.1</jdbc-socket-factory.version>
-    <secretmanager.version>2.16.0</secretmanager.version>
-    <iamcredentials.version>2.16.0</iamcredentials.version>
+    <jdbc-socket-factory.version>1.12.0</jdbc-socket-factory.version>
+    <secretmanager.version>2.24.0</secretmanager.version>
+    <iamcredentials.version>2.24.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
     <junit.version>4.13.1</junit.version>
@@ -64,8 +64,8 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>${maven-compiler-plugin.version}</version>
         <configuration>
-          <source>11</source>
-          <target>11</target>
+          <source>17</source>
+          <target>17</target>
         </configuration>
       </plugin>
 
@@ -143,7 +143,7 @@
         </executions>
         <configuration>
           <from>
-            <image>gcr.io/dataflow-templates-base/java11-template-launcher-base:latest</image>
+            <image>gcr.io/dataflow-templates-base/java17-template-launcher-base:latest</image>
           </from>
           <container>
             <appRoot>/template/FlexPipeline</appRoot>
@@ -190,11 +190,6 @@
           <artifactId>beam-runners-direct-java</artifactId>
           <version>${beam.version}</version>
           <scope>runtime</scope>
-        </dependency>
-        <dependency>
-          <groupId>com.google.cloud</groupId>
-          <artifactId>google-cloud-spanner</artifactId>
-          <version>1.51.0</version>
         </dependency>
       </dependencies>
     </profile>
@@ -247,10 +242,10 @@
       <version>${beam.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-amazon-web-services -->
+    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-amazon-web-services2 -->
     <dependency>
       <groupId>org.apache.beam</groupId>
-      <artifactId>beam-sdks-java-io-amazon-web-services</artifactId>
+      <artifactId>beam-sdks-java-io-amazon-web-services2</artifactId>
       <version>${beam.version}</version>
     </dependency>
 

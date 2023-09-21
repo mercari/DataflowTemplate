@@ -1,7 +1,5 @@
 package com.mercari.solution;
 
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
 import com.mercari.solution.config.*;
 import com.mercari.solution.module.*;
 import com.mercari.solution.util.gcp.StorageUtil;
@@ -10,7 +8,6 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.sql.impl.BeamSqlPipelineOptions;
 import org.apache.beam.sdk.io.GenerateSequence;
-import org.apache.beam.sdk.io.aws.options.AwsOptions;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.StreamingOptions;
@@ -22,6 +19,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,7 +29,7 @@ public class FlexPipeline {
 
     private static final Logger LOG = LoggerFactory.getLogger(FlexPipeline.class);
 
-    public interface FlexPipelineOptions extends BeamSqlPipelineOptions, GcpOptions, AwsOptions, StreamingOptions {
+    public interface FlexPipelineOptions extends BeamSqlPipelineOptions, GcpOptions, StreamingOptions {
 
         @Description("Config json text body or gcs path.")
         String getConfig();
@@ -187,10 +185,18 @@ public class FlexPipeline {
                     }
                 }
                 if(dataflow.getDataflowServiceOptions() != null && dataflow.getDataflowServiceOptions().size() > 0) {
-                    options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(dataflow.getDataflowServiceOptions());
+                    final List<String> existingDataflowServiceOptions = Optional
+                            .ofNullable(options.as(DataflowPipelineOptions.class).getDataflowServiceOptions())
+                            .orElseGet(ArrayList::new);
+                    existingDataflowServiceOptions.addAll(dataflow.getDataflowServiceOptions());
+                    options.as(DataflowPipelineOptions.class).setDataflowServiceOptions(existingDataflowServiceOptions.stream().distinct().toList());
                 }
                 if(dataflow.getExperiments() != null && dataflow.getExperiments().size() > 0) {
-                    options.as(DataflowPipelineOptions.class).setExperiments(dataflow.getExperiments());
+                    final List<String> existingExperiments = Optional
+                            .ofNullable(options.as(DataflowPipelineOptions.class).getExperiments())
+                            .orElseGet(ArrayList::new);
+                    existingExperiments.addAll(dataflow.getExperiments());
+                    options.as(DataflowPipelineOptions.class).setExperiments(existingExperiments.stream().distinct().toList());
                 }
             } else {
                 if(options.isStreaming()) {
@@ -208,22 +214,6 @@ public class FlexPipeline {
                 }
                 if(beamsql.getVerifyRowValues() != null) {
                     options.setVerifyRowValues(beamsql.getVerifyRowValues());
-                }
-            }
-
-            if(settings.getAws() != null) {
-                final Settings.AWSSettings aws = settings.getAws();
-                if(aws.getAccessKey() != null && aws.getSecretKey() != null) {
-                    final BasicAWSCredentials credentials = new BasicAWSCredentials(
-                            aws.getAccessKey(),
-                            aws.getSecretKey()
-                    );
-                    options.as(AwsOptions.class).setAwsCredentialsProvider(new AWSStaticCredentialsProvider(credentials));
-                } else {
-                    LOG.warn("settings.aws not contains accessKey and secretKey");
-                }
-                if(aws.getRegion() != null) {
-                    options.as(AwsOptions.class).setAwsRegion(aws.getRegion());
                 }
             }
         } else {
@@ -280,11 +270,22 @@ public class FlexPipeline {
 
         final String jsonText;
         if(configParam.startsWith("gs://")) {
+            LOG.info("config parameter is GCS path: " + configParam);
             jsonText = StorageUtil.readString(configParam);
-        } else if(Files.exists(Paths.get(configParam)) && !Files.isDirectory(Paths.get(configParam))) {
-            jsonText = Files.readString(Paths.get(configParam), StandardCharsets.UTF_8);
-        } else {
-            jsonText = configParam;
+        } else  {
+            Path path;
+            try {
+                path = Paths.get(configParam);
+            } catch (Throwable e) {
+                path = null;
+            }
+            if(path != null && Files.exists(path) && !Files.isDirectory(path)) {
+                LOG.info("config parameter is local file path: " + configParam);
+                jsonText = Files.readString(path, StandardCharsets.UTF_8);
+            } else {
+                LOG.info("config parameter is json body: " + configParam);
+                jsonText = configParam;
+            }
         }
         return Config.parse(jsonText, args);
     }

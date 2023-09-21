@@ -43,7 +43,7 @@ public class StructSchemaUtil {
 
     private static final Logger LOG = LoggerFactory.getLogger(StructSchemaUtil.class);
     private static final Pattern PATTERN_ARRAY_ELEMENT = Pattern.compile("(?<=\\<).*?(?=\\>)");
-
+    private static final Pattern PATTERN_CHANGE_RECORD_TYPE_CODE = Pattern.compile("\"code\":\"([A-Z][A-Z0-9]*)\"");
 
     public static boolean hasField(final Struct struct, final String fieldName) {
         if(struct == null || fieldName == null) {
@@ -1074,7 +1074,7 @@ public class StructSchemaUtil {
     public static Schema createDataChangeRecordRowSchema() {
         final Schema rowTypeSchema = Schema.builder()
                 .addField(Schema.Field.of("name", Schema.FieldType.STRING))
-                .addField(Schema.Field.of("type", Schema.FieldType.logicalType(EnumerationType
+                .addField(Schema.Field.of("Type", Schema.FieldType.logicalType(EnumerationType
                         .create("TYPE_CODE_UNSPECIFIED", "BOOL", "INT64", "FLOAT64",
                                 "TIMESTAMP", "DATE", "STRING", "BYTES", "ARRAY", "STRUCT",
                                 "NUMERIC", "JSON"))))
@@ -1184,6 +1184,23 @@ public class StructSchemaUtil {
                 .name("metadata").type(org.apache.avro.Schema.createUnion(
                         metadataSchema, org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL))).noDefault()
                 .endRecord();
+    }
+
+    public static Schema createMutationSchema() {
+        return Schema.builder()
+                .addField("table", Schema.FieldType.STRING)
+                .addField("op", Schema.FieldType.logicalType(EnumerationType.create(Arrays.asList(
+                        Mutation.Op.DELETE.name(),
+                        Mutation.Op.INSERT.name(),
+                        Mutation.Op.UPDATE.name(),
+                        Mutation.Op.REPLACE.name(),
+                        Mutation.Op.INSERT_OR_UPDATE.name()))))
+                .addField("timestamp", Schema.FieldType.DATETIME)
+                .addField("keys", Schema.FieldType.array(Schema.FieldType.STRING))
+                .addField(Schema.Field
+                        .of("mutation", Schema.FieldType.STRING.withNullable(true))
+                        .withOptions(Schema.Options.builder().setOption("sqlType", Schema.FieldType.STRING, "JSON").build()))
+                .build();
     }
 
     private static Schema.FieldType convertFieldType(final String t) {
@@ -2190,6 +2207,24 @@ public class StructSchemaUtil {
                                    final Set<String> excludeFields,
                                    final Set<String> hideFields) {
         return mutation;
+    }
+
+    public static List<String> getKeys(final Mutation mutation) {
+        final List<String> keys = new ArrayList<>();
+        if(Mutation.Op.DELETE.equals(mutation.getOperation()) && mutation.getKeySet() != null) {
+            for (final Key key : mutation.getKeySet().getKeys()) {
+                keys.add(key.toString());
+            }
+        }
+        return keys;
+    }
+
+    public static String convertChangeRecordTypeCode(String code) {
+        final Matcher m = PATTERN_CHANGE_RECORD_TYPE_CODE.matcher(code);
+        if(m.find()) {
+            return m.group(1);
+        }
+        return null;
     }
 
     private static List<Type.StructField> flattenFields(final Type type, final List<String> paths, final String prefix, final boolean addPrefix) {

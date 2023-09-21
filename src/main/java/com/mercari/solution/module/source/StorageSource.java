@@ -5,8 +5,8 @@ import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SourceModule;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.aws.S3Util;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.generic.GenericRecord;
@@ -14,67 +14,85 @@ import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.TextIO;
-import org.apache.beam.sdk.io.aws.options.AwsOptions;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
-import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.stream.Collectors;
 
 
 public class StorageSource implements SourceModule {
 
-    private class StorageSourceParameters implements Serializable {
+    private static class StorageSourceParameters implements Serializable {
 
         private String input;
-        private String format;
+        private Format format;
         private String compression;
         private String filterPrefix;
         private String targetFormat;
+
+        // for AWS S3
+        private String s3AccessKey;
+        private String s3SecretKey;
+        private String s3Region;
 
         public String getInput() {
             return input;
         }
 
-        public void setInput(String input) {
-            this.input = input;
-        }
-
-        public String getFormat() {
+        public Format getFormat() {
             return format;
-        }
-
-        public void setFormat(String format) {
-            this.format = format;
         }
 
         public String getCompression() {
             return compression;
         }
 
-        public void setCompression(String compression) {
-            this.compression = compression;
-        }
-
         public String getFilterPrefix() {
             return filterPrefix;
-        }
-
-        public void setFilterPrefix(String filterPrefix) {
-            this.filterPrefix = filterPrefix;
         }
 
         public String getTargetFormat() {
             return targetFormat;
         }
 
-        public void setTargetFormat(String targetFormat) {
-            this.targetFormat = targetFormat;
+        public String getS3AccessKey() {
+            return s3AccessKey;
         }
+
+        public String getS3SecretKey() {
+            return s3SecretKey;
+        }
+
+        public String getS3Region() {
+            return s3Region;
+        }
+
+        public void validate(String name) {
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.format == null) {
+                errorMessages.add("Storage module: " + name + " requires parameter format");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
+            }
+        }
+
+        public void setDefaults() {
+
+        }
+    }
+
+    public enum Format implements Serializable {
+        avro,
+        parquet,
+        csv,
+        json
     }
 
     public String getName() { return "storage"; }
@@ -90,17 +108,22 @@ public class StorageSource implements SourceModule {
 
     public static FCollection batch(final PBegin begin, final SourceConfig config) {
         final StorageSourceParameters parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
-        validateParameters(parameters);
-        switch (parameters.getFormat().toLowerCase()) {
-            case "avro":
-            case "parquet": {
-                final StorageAvroBatchSource sourceAvro = new StorageAvroBatchSource(config);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Storage source module: " + config.getName() + " parameter must not be empty!");
+        }
+        parameters.validate(config.getName());
+        parameters.setDefaults();
+
+        switch (parameters.getFormat()) {
+            case avro:
+            case parquet: {
+                final StorageAvroBatchSource sourceAvro = new StorageAvroBatchSource(config, parameters);
                 final PCollection<GenericRecord> outputAvro = begin.apply(config.getName(), sourceAvro);
                 return FCollection.of(config.getName(), outputAvro, DataType.AVRO, sourceAvro.schema);
             }
-            case "csv":
-            case "json": {
-                if(parameters.getTargetFormat() != null && "row".equals(parameters.getTargetFormat().trim().toLowerCase())) {
+            case csv:
+            case json: {
+                if(parameters.getTargetFormat() != null && "row".equalsIgnoreCase(parameters.getTargetFormat().trim())) {
                     final StorageTextRowBatchSource sourceText = new StorageTextRowBatchSource(config);
                     final PCollection<Row> outputText = begin.apply(config.getName(), sourceText);
                     return FCollection.of(config.getName(), outputText, DataType.ROW, sourceText.schema);
@@ -113,32 +136,6 @@ public class StorageSource implements SourceModule {
             default:
                 throw new IllegalArgumentException("Storage module not support format: " + parameters.getFormat());
         }
-    }
-
-    private static void validateParameters(final StorageSourceParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("Storage SourceConfig must not be empty!");
-        }
-
-        // check required parameters filled
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getFormat() == null) {
-            errorMessages.add("Parameter must contain query or table");
-        }
-        if(!"avro".equals(parameters.getFormat().toLowerCase())
-                && !"parquet".equals(parameters.getFormat().toLowerCase())
-                && !"csv".equals(parameters.getFormat().toLowerCase())
-                && !"json".equals(parameters.getFormat().toLowerCase())) {
-            errorMessages.add("Parameter not support format: " + parameters.getFormat());
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-        }
-    }
-
-    private static void setDefaultParameters(final StorageSourceParameters parameters) {
-
     }
 
     public static StorageMicrobatchRead microbatch(final SourceConfig config) {
@@ -159,39 +156,37 @@ public class StorageSource implements SourceModule {
             return parameters;
         }
 
-        private StorageAvroBatchSource(final SourceConfig config) {
+        private StorageAvroBatchSource(final SourceConfig config, final StorageSourceParameters parameters) {
             this.inputSchema = config.getSchema();
-            this.parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
+            this.parameters = parameters;
             this.timestampAttribute = config.getTimestampAttribute();
             this.timestampDefault = config.getTimestampDefault();
         }
 
         public PCollection<GenericRecord> expand(final PBegin begin) {
 
-            final PipelineOptions options = begin.getPipeline().getOptions();
             final String input = parameters.getInput();
-            final String format = parameters.getFormat();
+            final Format format = parameters.getFormat();
 
             final PCollection<GenericRecord> records;
-            switch (format.trim().toLowerCase()) {
-                case "avro": {
-                    this.schema = getAvroSchema(parameters.getInput(), inputSchema, options);
+            switch (format) {
+                case avro -> {
+                    this.schema = getAvroSchema(parameters.getInput(), inputSchema,
+                            parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region());
                     records = begin
                             .apply("ReadAvro", AvroIO
                                     .readGenericRecords(this.schema)
                                     .from(input));
-                    break;
                 }
-                case "parquet": {
-                    this.schema = getParquetSchema(parameters.getInput(), inputSchema, options);
+                case parquet -> {
+                    this.schema = getParquetSchema(parameters.getInput(), inputSchema,
+                            parameters.getS3AccessKey(), parameters.getS3SecretKey(), parameters.getS3Region());
                     records = begin
                             .apply("ReadParquet", ParquetIO
                                     .read(this.schema)
                                     .from(input));
-                    break;
                 }
-                default:
-                    throw new IllegalArgumentException("Storage module not support format: " + format);
+                default -> throw new IllegalArgumentException("Storage module not support format: " + format);
             }
 
             if(timestampAttribute == null) {
@@ -226,15 +221,15 @@ public class StorageSource implements SourceModule {
 
         public PCollection<GenericRecord> expand(final PBegin begin) {
 
-            final String format = parameters.getFormat();
+            final Format format = parameters.getFormat();
 
             final PCollection<GenericRecord> records;
-            switch (format.trim().toLowerCase()) {
-                case "csv":
-                case "json": {
+            switch (format) {
+                case csv:
+                case json: {
                     if (this.inputSchema == null || (inputSchema.getAvroSchema() == null && inputSchema.getFields() == null)) {
                         this.schema = TextToRecordConverter.DEFAULT_SCHEMA;
-                    } else if ("csv".equals(format.trim().toLowerCase())) {
+                    } else if (Format.csv.equals(format)) {
                         this.schema = SourceConfig.convertAvroSchema(inputSchema);
                     } else {
                         this.schema = SourceConfig.convertAvroSchema(inputSchema);
@@ -298,16 +293,16 @@ public class StorageSource implements SourceModule {
 
         public PCollection<Row> expand(final PBegin begin) {
 
-            final String format = parameters.getFormat();
+            final Format format = parameters.getFormat();
 
-            switch (format.trim().toLowerCase()) {
-                case "csv":
-                case "json": {
+            switch (format) {
+                case csv:
+                case json: {
                     final SerializableFunction<String, Row> func;
                     if (this.inputSchema == null || (inputSchema.getAvroSchema() == null && inputSchema.getFields() == null)) {
                         this.schema = TextToRowConverter.DEFAULT_SCHEMA;
                         func = TextToRowConverter::convert;
-                    } else if ("csv".equals(format.trim().toLowerCase())) {
+                    } else if (Format.csv.equals(format)) {
                         this.schema = SourceConfig.convertSchema(inputSchema);
                         func = r -> CsvToRowConverter.convert(schema, r);
                     } else {
@@ -364,13 +359,13 @@ public class StorageSource implements SourceModule {
 
     private static class ToRecordDoFn extends DoFn<String, GenericRecord> {
 
-        private final String format;
+        private final Format format;
         private final String schemaString;
 
         private transient org.apache.avro.Schema schema;
 
-        ToRecordDoFn(final String format, final String schemaString) {
-            if(!"csv".equals(format.trim().toLowerCase()) && !"json".equals(format.trim().toLowerCase())) {
+        ToRecordDoFn(final Format format, final String schemaString) {
+            if(!Format.csv.equals(format) && !Format.json.equals(format)) {
                 throw new IllegalArgumentException("Storage module not support text format: " + format);
             }
             this.format = format;
@@ -384,7 +379,7 @@ public class StorageSource implements SourceModule {
 
         @ProcessElement
         public void processElement(ProcessContext c) {
-            if("csv".equals(format)) {
+            if(Format.csv.equals(format)) {
                 c.output(CsvToRecordConverter.convert(schema, c.element()));
             } else {
                 c.output(JsonToRecordConverter.convert(schema, c.element()));
@@ -395,7 +390,7 @@ public class StorageSource implements SourceModule {
 
     private static org.apache.avro.Schema getAvroSchema(
             final SourceConfig.InputSchema inputSchema,
-            final AwsOptions awsOptions) {
+            final String accessKey, final String secretKey, final String region) {
 
         if(inputSchema != null) {
             if(inputSchema.getAvroSchema() != null) {
@@ -403,7 +398,7 @@ public class StorageSource implements SourceModule {
                     final String schemaString = StorageUtil.readString(inputSchema.getAvroSchema());
                     return AvroSchemaUtil.convertSchema(schemaString);
                 } else if(inputSchema.getAvroSchema().startsWith("s3://")) {
-                    final String schemaString = S3Util.readString(inputSchema.getAvroSchema(), awsOptions);
+                    final String schemaString = S3Util.readString(inputSchema.getAvroSchema(), accessKey, secretKey, region);
                     return AvroSchemaUtil.convertSchema(schemaString);
                 }
             } else if(inputSchema.getFields() != null && inputSchema.getFields().size() > 0) {
@@ -416,11 +411,9 @@ public class StorageSource implements SourceModule {
     private static org.apache.avro.Schema getAvroSchema(
             final String input,
             final SourceConfig.InputSchema inputSchema,
-            final PipelineOptions options) {
+            final String accessKey, final String secretKey, final String region) {
 
-        final AwsOptions awsOptions = options.as(AwsOptions.class);
-
-        org.apache.avro.Schema avroSchema = getAvroSchema(inputSchema, awsOptions);
+        org.apache.avro.Schema avroSchema = getAvroSchema(inputSchema, accessKey, secretKey, region);
         if(avroSchema != null) {
             return avroSchema;
         }
@@ -437,13 +430,15 @@ public class StorageSource implements SourceModule {
                     .findAny()
                     .orElseThrow(() -> new IllegalStateException("Avro schema not found!"));
         } else if(input.startsWith("s3://")) {
-            avroSchema = S3Util.getAvroSchema(input, awsOptions);
+            final S3Client client = S3Util.storage(accessKey, secretKey, region);
+            avroSchema = S3Util.getAvroSchema(client, input);
             if(avroSchema != null) {
                 return avroSchema;
             }
-            return S3Util.listFiles(input, awsOptions)
+            final String bucket = S3Util.getBucketName(input);
+            return S3Util.listFiles(client, input)
                     .stream()
-                    .map(path -> S3Util.getAvroSchema(path, awsOptions))
+                    .map(object -> S3Util.getAvroSchema(client, bucket, object))
                     .filter(Objects::nonNull)
                     .findAny()
                     .orElseThrow(() -> new IllegalStateException("Avro schema not found!"));
@@ -456,11 +451,9 @@ public class StorageSource implements SourceModule {
     private static org.apache.avro.Schema getParquetSchema(
             final String input,
             final SourceConfig.InputSchema inputSchema,
-            final PipelineOptions options) {
+            final String accessKey, final String secretKey, final String region) {
 
-        final AwsOptions awsOptions = options.as(AwsOptions.class);
-
-        org.apache.avro.Schema avroSchema = getAvroSchema(inputSchema, awsOptions);
+        org.apache.avro.Schema avroSchema = getAvroSchema(inputSchema, accessKey, secretKey, region);
         if(avroSchema != null) {
             return avroSchema;
         }
@@ -477,13 +470,15 @@ public class StorageSource implements SourceModule {
                     .findAny()
                     .orElseThrow(() -> new IllegalStateException("Avro schema not found!"));
         } else if(input.startsWith("s3://")) {
-            avroSchema = S3Util.getParquetSchema(input, awsOptions);
+            final S3Client client = S3Util.storage(accessKey, secretKey, region);
+            avroSchema = S3Util.getParquetSchema(client, input);
             if(avroSchema != null) {
                 return avroSchema;
             }
-            return S3Util.listFiles(input, awsOptions)
+            final String bucket = S3Util.getBucketName(input);
+            return S3Util.listFiles(client, input)
                     .stream()
-                    .map(path -> S3Util.getParquetSchema(path, awsOptions))
+                    .map(path -> S3Util.getParquetSchema(client, bucket, path))
                     .filter(Objects::nonNull)
                     .findAny()
                     .orElseThrow(() -> new IllegalStateException("Avro schema not found!"));

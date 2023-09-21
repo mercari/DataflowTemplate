@@ -1,0 +1,56 @@
+{
+  "sources": [
+    {
+      "name": "bigqueryInput1",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT Field1, Field2, Field3, PDFFileGCSPath FROM `myproject.mydataset.mytable1`"
+      }
+    },
+    {
+      "name": "bigqueryInput2",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT Field1, Field2, Field3, PDFFileGCSPath FROM `myproject.mydataset.mytable2`"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "pdfextract",
+      "module": "pdfextract",
+      "inputs": [
+        "bigqueryInput1"
+      ],
+      "parameters": {
+        "field": "PDFFileGCSPath"
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "localSolr",
+      "module": "localSolr",
+      "inputs": ["pdfextract", "bigqueryInput2"],
+      "parameters": {
+        "output": "gs://mybucket/index.zip",
+        "cores": [
+          {
+            "name": "myCore1",
+            "input": "pdfextract",
+            "schema": "gs://mybucket/solr_schema1.xml"
+          },
+          {
+            "name": "myCore2",
+            "input": "bigqueryInput2",
+            "schema": "gs://mybucket/solr_schema2.xml",
+            "customConfigFiles": [
+              { "input": "gs://mybucket/userdict.txt" },
+              { "input": "gs://mybucket/synonyms.txt" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

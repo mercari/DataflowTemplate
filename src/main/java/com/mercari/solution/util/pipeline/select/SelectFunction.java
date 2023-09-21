@@ -27,6 +27,7 @@ public interface SelectFunction extends Serializable {
         constant,
         rename,
         expression,
+        concat,
         hash,
         current_timestamp
     }
@@ -82,31 +83,15 @@ public interface SelectFunction extends Serializable {
             ignore = false;
         }
 
-        final SelectFunction selectFunction;
-        switch (func) {
-            case pass:
-                selectFunction = Pass.of(name, outputType, inputFields, ignore);
-                break;
-            case rename:
-                selectFunction = Rename.of(name, jsonObject, outputType, inputFields, ignore);
-                break;
-            case constant:
-                selectFunction = Constant.of(name, jsonObject, ignore);
-                break;
-            case expression:
-                selectFunction = Expression.of(name, jsonObject, ignore);
-                break;
-            case hash:
-                selectFunction = Hash.of(name, jsonObject, ignore);
-                break;
-            case current_timestamp:
-                selectFunction = CurrentTimestamp.of(name, ignore);
-                break;
-            default:
-                throw new IllegalArgumentException("Not supported select function: " + func);
-        }
-
-        return selectFunction;
+        return switch (func) {
+            case pass -> Pass.of(name, outputType, inputFields, ignore);
+            case rename -> Rename.of(name, jsonObject, outputType, inputFields, ignore);
+            case constant -> Constant.of(name, jsonObject, ignore);
+            case expression -> Expression.of(name, jsonObject, ignore);
+            case concat -> Concat.of(name, inputFields, jsonObject, ignore);
+            case hash -> Hash.of(name, jsonObject, ignore);
+            case current_timestamp -> CurrentTimestamp.of(name, ignore);
+        };
     }
 
     static Schema createSchema(List<SelectFunction> selectFunctions) {
@@ -126,26 +111,16 @@ public interface SelectFunction extends Serializable {
         final Map<String, Object> values = new HashMap<>();
         for(final SelectFunction selectFunction : selectFunctions) {
             for(final Schema.Field inputField : selectFunction.getInputFields()) {
-                final Object value;
-                switch (inputType) {
-                    case ROW:
-                        value = RowSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                        break;
-                    case AVRO:
-                        value = AvroSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                        break;
-                    case STRUCT:
-                        value = StructSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                        break;
-                    case DOCUMENT:
-                        value = DocumentSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                        break;
-                    case ENTITY:
-                        value = EntitySchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                        break;
-                    default:
-                        throw new IllegalArgumentException("SelectFunction not supported input data type: " + inputType);
-                }
+                final Object value = switch (inputType) {
+                    case ROW -> RowSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                    case AVRO -> AvroSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                    case STRUCT -> StructSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                    case DOCUMENT ->
+                            DocumentSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                    case ENTITY -> EntitySchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                    default ->
+                            throw new IllegalArgumentException("SelectFunction not supported input data type: " + inputType);
+                };
                 values.put(inputField.getName(), value);
             }
         }
@@ -159,26 +134,15 @@ public interface SelectFunction extends Serializable {
             }
             final Schema.FieldType fieldType = selectFunction.getOutputFieldType();
             final Object primitiveValue = selectFunction.apply(values);
-            final Object value;
-            switch (outputType) {
-                case ROW:
-                    value = RowSchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                    break;
-                case AVRO:
-                    value = AvroSchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                    break;
-                case STRUCT:
-                    value = StructSchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                    break;
-                case DOCUMENT:
-                    value = DocumentSchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                    break;
-                case ENTITY:
-                    value = EntitySchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                    break;
-                default:
-                    throw new IllegalArgumentException("SelectFunction not supported input data type: " + outputType);
-            }
+            final Object value = switch (outputType) {
+                case ROW -> RowSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                case AVRO -> AvroSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                case STRUCT -> StructSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                case DOCUMENT -> DocumentSchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                case ENTITY -> EntitySchemaUtil.convertPrimitive(fieldType, primitiveValue);
+                default ->
+                        throw new IllegalArgumentException("SelectFunction not supported input data type: " + outputType);
+            };
             values.put(selectFunction.getName(), value);
         }
         return values;
@@ -192,17 +156,16 @@ public interface SelectFunction extends Serializable {
                 final String[] fields = field.split("\\.", 2);
                 final Schema.FieldType parentFieldType = getInputFieldType(fields[0], inputFields);
                 switch (parentFieldType.getTypeName()) {
-                    case ROW:
+                    case ROW -> {
                         return getInputFieldType(fields[1], parentFieldType.getRowSchema().getFields());
-                    case ARRAY:
-                    case ITERABLE: {
-                        if(!Schema.TypeName.ROW.equals(parentFieldType.getCollectionElementType().getTypeName())) {
+                    }
+                    case ARRAY, ITERABLE -> {
+                        if (!Schema.TypeName.ROW.equals(parentFieldType.getCollectionElementType().getTypeName())) {
                             throw new IllegalArgumentException();
                         }
                         return getInputFieldType(fields[1], parentFieldType.getCollectionElementType().getRowSchema().getFields());
                     }
-                    default:
-                        throw new IllegalArgumentException();
+                    default -> throw new IllegalArgumentException();
                 }
             }
         }
