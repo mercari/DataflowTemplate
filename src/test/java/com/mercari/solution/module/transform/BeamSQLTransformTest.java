@@ -45,7 +45,7 @@ public class BeamSQLTransformTest {
 
     private void testMathUDFs(final String planner) {
         final TransformConfig configBeamSql = new TransformConfig();
-        configBeamSql.setName("beamsql");
+        configBeamSql.setName("beamsqlTestMathUDFs");
         configBeamSql.setModule("beamsql");
         configBeamSql.setInputs(Arrays.asList("withWindow"));
 
@@ -137,7 +137,7 @@ public class BeamSQLTransformTest {
 
     private void testArrayUDFs(final String planner) {
         final TransformConfig configBeamSql = new TransformConfig();
-        configBeamSql.setName("beamsql");
+        configBeamSql.setName("beamsqlTestArrayUDFs");
         configBeamSql.setModule("beamsql");
         configBeamSql.setInputs(Arrays.asList("withWindow"));
 
@@ -236,7 +236,7 @@ public class BeamSQLTransformTest {
 
     private void testUDAFs(final String planner) {
         final TransformConfig configBeamSql = new TransformConfig();
-        configBeamSql.setName("beamsql");
+        configBeamSql.setName("beamsqlTestUDAFs");
         configBeamSql.setModule("beamsql");
         configBeamSql.setInputs(Arrays.asList("withWindow"));
 
