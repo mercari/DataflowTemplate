@@ -33,9 +33,10 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
     private final List<Neo4jUtil.NodeConfig> nodes;
     private final List<Neo4jUtil.RelationshipConfig> relationships;
     private final List<String> setupCyphers;
+    private final List<String> teardownCyphers;
     private final Integer bufferSize;
     private final String conf;
-    private final Boolean dump;
+    private final Neo4jUtil.Format format;
     private final List<String> inputNames;
 
     private final Counter counter;
@@ -51,8 +52,9 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
                       final List<Neo4jUtil.NodeConfig> nodes,
                       final List<Neo4jUtil.RelationshipConfig> relationships,
                       final List<String> setupCyphers,
+                      final List<String> teardownCyphers,
                       final Integer bufferSize,
-                      final Boolean dump,
+                      final Neo4jUtil.Format format,
                       final List<String> inputNames) {
 
         this.name = name;
@@ -62,8 +64,9 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
         this.nodes = nodes;
         this.relationships = relationships;
         this.setupCyphers = setupCyphers;
+        this.teardownCyphers = teardownCyphers;
         this.bufferSize = bufferSize;
-        this.dump = dump;
+        this.format = format;
         this.inputNames = inputNames;
 
         this.counter = Metrics.counter(name, "processedCount");
@@ -77,11 +80,12 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
             final List<Neo4jUtil.NodeConfig> nodes,
             final List<Neo4jUtil.RelationshipConfig> relationships,
             final List<String> setupCyphers,
+            final List<String> teardownCyphers,
             final Integer bufferSize,
-            final Boolean dump,
+            final Neo4jUtil.Format format,
             final List<String> inputNames) {
 
-        return new Neo4jSink(name, input, database, conf, nodes, relationships, setupCyphers, bufferSize, dump, inputNames);
+        return new Neo4jSink(name, input, database, conf, nodes, relationships, setupCyphers, teardownCyphers, bufferSize, format, inputNames);
     }
 
     @Override
@@ -137,10 +141,11 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
     @Override
     public void flush() throws IOException {
         flushBuffer();
-        if(dump) {
-            Neo4jUtil.dump(NEO4J_HOME, database, outputStream);
-        } else {
-            ZipFileUtil.writeZipFile(outputStream, NEO4J_HOME);
+        teardown();
+        switch (format) {
+            case dump -> Neo4jUtil.dump(NEO4J_HOME, database, outputStream);
+            case zip -> ZipFileUtil.writeZipFile(outputStream, NEO4J_HOME);
+            default -> throw new IllegalArgumentException("Not supported neo4j format: " + format);
         }
         LOG.info("Finished to upload documents!");
     }
@@ -153,6 +158,19 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
             for(final String setupCypher : setupCyphers) {
                 final Result result = tx.execute(setupCypher);
                 LOG.info("setup cypher query: " + setupCypher + ". result: " + result.resultAsString());
+            }
+            tx.commit();
+        }
+    }
+
+    private void teardown() {
+        if(teardownCyphers == null || teardownCyphers.size() == 0) {
+            return;
+        }
+        try(final Transaction tx = graphDB.beginTx()) {
+            for(final String teardownCypher : teardownCyphers) {
+                final Result result = tx.execute(teardownCypher);
+                LOG.info("teardown cypher query: " + teardownCypher + ". result: " + result.resultAsString());
             }
             tx.commit();
         }

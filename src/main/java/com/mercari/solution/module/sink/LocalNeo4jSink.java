@@ -35,8 +35,9 @@ public class LocalNeo4jSink implements SinkModule {
         private List<Neo4jUtil.NodeConfig> nodes;
         private List<Neo4jUtil.RelationshipConfig> relationships;
         private List<String> setupCyphers;
+        private List<String> teardownCyphers;
         private Integer bufferSize;
-        private Boolean dump;
+        private Neo4jUtil.Format format;
 
         private List<String> groupFields;
         private String tempDirectory;
@@ -69,12 +70,16 @@ public class LocalNeo4jSink implements SinkModule {
             return setupCyphers;
         }
 
+        public List<String> getTeardownCyphers() {
+            return teardownCyphers;
+        }
+
         public Integer getBufferSize() {
             return bufferSize;
         }
 
-        public Boolean getDump() {
-            return dump;
+        public Neo4jUtil.Format getFormat() {
+            return format;
         }
 
         public List<String> getGroupFields() {
@@ -116,7 +121,7 @@ public class LocalNeo4jSink implements SinkModule {
             }
 
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -145,11 +150,14 @@ public class LocalNeo4jSink implements SinkModule {
             if(this.setupCyphers == null) {
                 this.setupCyphers = new ArrayList<>();
             }
+            if(this.teardownCyphers == null) {
+                this.teardownCyphers = new ArrayList<>();
+            }
             if(this.bufferSize == null) {
                 this.bufferSize = 1000;
             }
-            if(this.dump == null) {
-                this.dump = false;
+            if(this.format == null) {
+                this.format = Neo4jUtil.Format.dump;
             }
         }
 
@@ -245,7 +253,8 @@ public class LocalNeo4jSink implements SinkModule {
                                     name,
                                     parameters.getInput(), parameters.getDatabase(), parameters.getConf(),
                                     parameters.getNodes(), parameters.getRelationships(),
-                                    parameters.getSetupCyphers(), parameters.getBufferSize(), parameters.getDump(),
+                                    parameters.getSetupCyphers(), parameters.getTeardownCyphers(),
+                                    parameters.getBufferSize(), parameters.getFormat(),
                                     inputNames)));
 
             return writeResult.getPerDestinationOutputFilenames();

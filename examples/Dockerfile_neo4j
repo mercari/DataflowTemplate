@@ -1,0 +1,6 @@
+FROM neo4j:5.12.0
+USER neo4j
+COPY --chown=neo4j:neo4j neo4j.dump /temp/neo4j.dump
+RUN neo4j-admin database load neo4j --from-path=/tmp --overwrite-destination=true
+    && rm /tmp/neo4j.dump
+ENV NEO4J_AUTH=neo4j/password

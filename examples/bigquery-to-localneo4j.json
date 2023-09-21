@@ -26,11 +26,15 @@
         "BigQueryInputTransactions"
       ],
       "parameters": {
-        "output": "gs://example-bucket/neo4j/transactions.zip",
+        "output": "gs://example-bucket/neo4j/db/neo4j.dump",
+        "format": "dump",
         "bufferSize": 1000,
         "setupCyphers": [
-          "CREATE CONSTRAINT UserUniqueConstraint IF NOT EXISTS FOR (u:User) REQUIRE (u.UserID) IS UNIQUE",
-          "CREATE CONSTRAINT ShopUniqueConstraint IF NOT EXISTS FOR (s:Shop) REQUIRE (s.ShopID) IS UNIQUE"
+          "CREATE CONSTRAINT UserNodeUniqueConstraint IF NOT EXISTS FOR (u:User) REQUIRE (u.UserID) IS UNIQUE",
+          "CREATE CONSTRAINT ShopNodeUniqueConstraint IF NOT EXISTS FOR (s:Shop) REQUIRE (s.ShopID) IS UNIQUE"
+        ],
+        "teardownCyphers": [
+          "CREATE CONSTRAINT BuyRelationshipUniqueConstraint IF NOT EXISTS FOR ()-[r:BUY]-() REQUIRE (r.ShopID, r.TransactionID) IS UNIQUE"
         ],
         "nodes": [],
         "relationships": [
@@ -45,7 +49,7 @@
               "label": "Shop",
               "keyFields": ["ShopID"]
             },
-            "propertyFields": ["Pay"]
+            "propertyFields": ["ShopID","TransactionID","Pay"]
           }
         ]
       }

@@ -1,0 +1,22 @@
+steps:
+  - name: 'asia.gcr.io/google.com/cloudsdktool/google-cloud-cli:slim'
+    args: ["gsutil", "cp", "gs://examble-bucket/neo4j/db/neo4j.dump", "."]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["build",
+           "-f", "Dockerfile_neo4j",
+           "-t", "$_REGION-docker.pkg.dev/$PROJECT_ID/neo4j/graph",
+           "."]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ["push", "$_REGION-docker.pkg.dev/$PROJECT_ID/neo4j/graph"]
+  - name: 'asia.gcr.io/google.com/cloudsdktool/google-cloud-cli:slim'
+    args: ["gcloud", "run", "deploy", "graph",
+           "--image", "$_REGION-docker.pkg.dev/$PROJECT_ID/neo4j/graph",
+           "--platform", "managed",
+           "--region", "$_REGION",
+           "--memory", "2Gi",
+           "--port", "7474",
+           "--min-instances", "1",
+           "--no-allow-unauthenticated"]
+timeout: 600s
+substitutions:
+  _REGION: asia-northeast1
