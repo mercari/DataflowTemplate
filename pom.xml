@@ -24,10 +24,10 @@
     <neo4j.version>5.12.0</neo4j.version>
     <pdfbox.version>2.0.29</pdfbox.version>
     <jts.version>1.19.0</jts.version>
-    <mysql-connector.version>8.0.33</mysql-connector.version>
+    <mysql-connector.version>8.1.0</mysql-connector.version>
     <postgresql-connector.version>42.6.0</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.12.0</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.14.0</jdbc-socket-factory.version>
     <secretmanager.version>2.24.0</secretmanager.version>
     <iamcredentials.version>2.24.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
@@ -425,7 +425,7 @@
     <!-- https://mvnrepository.com/artifact/com.google.cloud.sql/mysql-socket-factory -->
     <dependency>
       <groupId>com.google.cloud.sql</groupId>
-      <artifactId>mysql-socket-factory</artifactId>
+      <artifactId>mysql-socket-factory-connector-j-8</artifactId>
       <version>${jdbc-socket-factory.version}</version>
     </dependency>
 
@@ -443,11 +443,12 @@
       <version>${jdbc-socket-factory.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/mysql/mysql-connector-java -->
+    <!-- https://mvnrepository.com/artifact/com.mysql/mysql-connector-j -->
     <dependency>
-      <groupId>mysql</groupId>
-      <artifactId>mysql-connector-java</artifactId>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
       <version>${mysql-connector.version}</version>
+      <scope>runtime</scope>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.postgresql/postgresql -->
@@ -455,6 +456,7 @@
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <version>${postgresql-connector.version}</version>
+      <scope>runtime</scope>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/com.microsoft.sqlserver/mssql-jdbc -->
@@ -462,6 +464,7 @@
       <groupId>com.microsoft.sqlserver</groupId>
       <artifactId>mssql-jdbc</artifactId>
       <version>${sqlserver-connector.version}</version>
+      <scope>runtime</scope>
     </dependency>
 
     <!-- Utils -->
