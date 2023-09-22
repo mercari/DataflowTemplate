@@ -19,6 +19,7 @@ import com.mercari.solution.util.schema.SchemaUtil;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
+import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.bigquery.*;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
@@ -73,6 +74,7 @@ public class BigQuerySink implements SinkModule {
         private Long triggeringFrequencySecond;
         private Integer numStorageWriteApiStreams;
         private Boolean withoutValidation;
+        private Boolean useRow;
 
         public String getTable() {
             return table;
@@ -166,6 +168,10 @@ public class BigQuerySink implements SinkModule {
             return withoutValidation;
         }
 
+        public Boolean getUseRow() {
+            return useRow;
+        }
+
         private void validate() {
             if(this.getTable() == null) {
                 throw new IllegalArgumentException("BigQuery output module requires table parameter!");
@@ -229,6 +235,9 @@ public class BigQuerySink implements SinkModule {
             if(this.withoutValidation == null) {
                 this.withoutValidation = false;
             }
+            if(this.useRow == null) {
+                this.useRow = false;
+            }
 
         }
     }
@@ -286,6 +295,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         (s, r) -> r,
+                        RecordToRowConverter::convert,
                         RecordToTableRowConverter::convert,
                         s -> s.get(destinationField) == null ? "" : s.get(destinationField).toString(),
                         waitCollections);
@@ -299,6 +309,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         RowToRecordConverter::convert,
+                        (s, r) -> r,
                         RowToTableRowConverter::convert,
                         s -> s.getValue(destinationField) == null ? "" : s.getValue(destinationField).toString(),
                         waitCollections);
@@ -312,6 +323,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         StructToRecordConverter::convert,
+                        StructToRowConverter::convert,
                         StructToTableRowConverter::convert,
                         s -> s.isNull(destinationField) ? "" : s.getString(destinationField),
                         waitCollections);
@@ -330,6 +342,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         DocumentToRecordConverter::convert,
+                        DocumentToRowConverter::convert,
                         convertTableRowFunction,
                         s -> OptionUtil.ifnull(DocumentSchemaUtil.getAsString(s.getFieldsOrDefault(destinationField, null)), ""),
                         waitCollections);
@@ -349,6 +362,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         EntityToRecordConverter::convert,
+                        EntityToRowConverter::convert,
                         convertTableRowFunction,
                         s -> OptionUtil.ifnull(EntitySchemaUtil.getAsString(s.getPropertiesOrDefault(destinationField, null)), ""),
                         waitCollections);
@@ -362,6 +376,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         MutationToRecordConverter::convert,
+                        MutationToRowConverter::convert,
                         MutationToTableRowConverter::convert,
                         s -> "",
                         waitCollections);
@@ -375,6 +390,7 @@ public class BigQuerySink implements SinkModule {
                         collection,
                         parameters,
                         MutationToRecordConverter::convertMutationRecord,
+                        MutationToRowConverter::convertMutationRecord,
                         MutationToTableRowConverter::convertMutationRecord,
                         s -> "",
                         waitCollections);
@@ -392,6 +408,7 @@ public class BigQuerySink implements SinkModule {
         private final String name;
         private final BigQuerySinkParameters parameters;
         private final SchemaUtil.DataConverter<Schema,T,GenericRecord> converter;
+        private final SchemaUtil.DataConverter<org.apache.beam.sdk.schemas.Schema,T,Row> rowConverter;
         private final SerializableFunction<T, TableRow> convertTableRowFunction;
         private final SerializableFunction<T, String> destinationFunction;
         private final List<FCollection<?>> waitCollections;
@@ -402,6 +419,7 @@ public class BigQuerySink implements SinkModule {
                               final FCollection<?> collection,
                               final BigQuerySinkParameters parameters,
                               final SchemaUtil.DataConverter<Schema,T,GenericRecord> converter,
+                              final SchemaUtil.DataConverter<org.apache.beam.sdk.schemas.Schema,T,Row> rowConverter,
                               final SerializableFunction<T, TableRow> convertTableRowFunction,
                               final SerializableFunction<T, String> destinationFunction,
                               final List<FCollection<?>> waitCollections) {
@@ -410,6 +428,7 @@ public class BigQuerySink implements SinkModule {
             this.collection = collection;
             this.parameters = parameters;
             this.converter = converter;
+            this.rowConverter = rowConverter;
             this.convertTableRowFunction = convertTableRowFunction;
             this.destinationFunction = destinationFunction;
             this.waitCollections = waitCollections;
@@ -436,7 +455,7 @@ public class BigQuerySink implements SinkModule {
             final String destinationField = parameters.getDynamicDestination();
 
             final WriteResult writeResult;
-            final WriteDataType writeDataType = writeDataType(parameters.getMethod(), collection.getDataType(), isStreaming);
+            final WriteDataType writeDataType = writeDataType(parameters.getMethod(), collection.getDataType(), isStreaming, parameters.getUseRow());
             switch (writeDataType) {
                 case row -> {
                     BigQueryIO.Write<Row> write = BigQueryIO
@@ -444,8 +463,15 @@ public class BigQuerySink implements SinkModule {
                             .useBeamSchema();
                     final SerializableFunction<Row, String> destinationFunction = s -> s.getValue(destinationField) == null ? "" : s.getValue(destinationField).toString();
                     write = applyParameters(write, parameters, tableSchema, isStreaming, destinationFunction);
-                    writeResult = ((PCollection<Row>)waited)
-                            .apply("WriteRow", write);
+                    if(DataType.ROW.equals(collection.getDataType())) {
+                        writeResult = ((PCollection<Row>)waited)
+                                .apply("WriteRow", write);
+                    } else {
+                        writeResult = waited
+                                .apply("ConvertToRow", ParDo.of(new ToRowDoFn<>(collection.getSchema(), rowConverter)))
+                                .setCoder(RowCoder.of(collection.getSchema()))
+                                .apply("WriteRow", write);
+                    }
                 }
                 case avro -> {
                     BigQueryIO.Write<GenericRecord> write = BigQueryIO
@@ -504,7 +530,8 @@ public class BigQuerySink implements SinkModule {
         private static WriteDataType writeDataType(
                 final BigQueryIO.Write.Method method,
                 final DataType inputDataType,
-                final boolean isStreaming) {
+                final boolean isStreaming,
+                final boolean useRow) {
 
             if(isStreaming &&
                     (BigQueryIO.Write.Method.STREAMING_INSERTS.equals(method)
@@ -516,7 +543,7 @@ public class BigQuerySink implements SinkModule {
                             || BigQueryIO.Write.Method.DEFAULT.equals(method))) {
 
                 return WriteDataType.avro;
-            } else if(DataType.ROW.equals(inputDataType)) {
+            } else if(DataType.ROW.equals(inputDataType) || useRow) {
                 return WriteDataType.row;
             } else {
                 return WriteDataType.avro;
@@ -684,6 +711,25 @@ public class BigQuerySink implements SinkModule {
                 final T element = c.element();
                 final GenericRecord record = converter.convert(schema, element);
                 c.output(record);
+            }
+
+        }
+
+        private static class ToRowDoFn<T> extends DoFn<T, Row> {
+
+            private final org.apache.beam.sdk.schemas.Schema schema;
+            private final SchemaUtil.DataConverter<org.apache.beam.sdk.schemas.Schema,T,Row> converter;
+
+            ToRowDoFn(final org.apache.beam.sdk.schemas.Schema schema, final SchemaUtil.DataConverter<org.apache.beam.sdk.schemas.Schema,T,Row> converter) {
+                this.schema = schema;
+                this.converter = converter;
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final T element = c.element();
+                final Row row = converter.convert(schema, element);
+                c.output(row);
             }
 
         }
