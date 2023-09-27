@@ -108,44 +108,41 @@ public interface SelectFunction extends Serializable {
     }
 
     static Map<String, Object> apply(List<SelectFunction> selectFunctions, Object element, DataType inputType, DataType outputType) {
-        final Map<String, Object> values = new HashMap<>();
+        final Map<String, Object> primitiveValues = new HashMap<>();
         for(final SelectFunction selectFunction : selectFunctions) {
             for(final Schema.Field inputField : selectFunction.getInputFields()) {
-                final Object value = switch (inputType) {
+                final Object primitiveValue = switch (inputType) {
                     case ROW -> RowSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
                     case AVRO -> AvroSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
                     case STRUCT -> StructSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                    case DOCUMENT ->
-                            DocumentSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
+                    case DOCUMENT -> DocumentSchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
                     case ENTITY -> EntitySchemaUtil.getAsPrimitive(element, inputField.getType(), inputField.getName());
-                    default ->
-                            throw new IllegalArgumentException("SelectFunction not supported input data type: " + inputType);
+                    default -> throw new IllegalArgumentException("SelectFunction not supported input data type: " + inputType);
                 };
-                values.put(inputField.getName(), value);
+                primitiveValues.put(inputField.getName(), primitiveValue);
             }
         }
-        return apply(selectFunctions, values, outputType);
+        return apply(selectFunctions, primitiveValues, outputType);
     }
 
-    static Map<String, Object> apply(List<SelectFunction> selectFunctions, Map<String, Object> values, DataType outputType) {
+    static Map<String, Object> apply(List<SelectFunction> selectFunctions, Map<String, Object> primitiveValues, DataType outputType) {
         for(final SelectFunction selectFunction : selectFunctions) {
             if(selectFunction.ignore()) {
                 continue;
             }
             final Schema.FieldType fieldType = selectFunction.getOutputFieldType();
-            final Object primitiveValue = selectFunction.apply(values);
+            final Object primitiveValue = selectFunction.apply(primitiveValues);
             final Object value = switch (outputType) {
                 case ROW -> RowSchemaUtil.convertPrimitive(fieldType, primitiveValue);
                 case AVRO -> AvroSchemaUtil.convertPrimitive(fieldType, primitiveValue);
                 case STRUCT -> StructSchemaUtil.convertPrimitive(fieldType, primitiveValue);
                 case DOCUMENT -> DocumentSchemaUtil.convertPrimitive(fieldType, primitiveValue);
                 case ENTITY -> EntitySchemaUtil.convertPrimitive(fieldType, primitiveValue);
-                default ->
-                        throw new IllegalArgumentException("SelectFunction not supported input data type: " + outputType);
+                default -> throw new IllegalArgumentException("SelectFunction not supported input data type: " + outputType);
             };
-            values.put(selectFunction.getName(), value);
+            primitiveValues.put(selectFunction.getName(), value);
         }
-        return values;
+        return primitiveValues;
     }
 
     static Schema.FieldType getInputFieldType(String field, List<Schema.Field> inputFields) {

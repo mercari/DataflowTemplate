@@ -658,6 +658,14 @@ public class AvroSchemaUtil {
         return builder;
     }
 
+    public static GenericData.EnumSymbol createEnumSymbol(final String name, final List<String> symbols, final String symbol) {
+        if(symbol == null || !symbols.contains(symbol)) {
+            return null;
+        }
+        final Schema enumSchema = Schema.createEnum(name, null, null, symbols);
+        return new GenericData.EnumSymbol(enumSchema, symbol);
+    }
+
     public static Schema createMapRecordSchema(final String name, final Schema keySchema, final Schema valueSchema) {
 
         final Schema.Field keyField = new Schema.Field("key", keySchema, null, (Object)null);
@@ -1338,57 +1346,52 @@ public class AvroSchemaUtil {
             return null;
         }
         switch (fieldType.getTypeName()) {
-            case INT32:
-            case INT64:
-            case FLOAT:
-            case DOUBLE:
-            case BOOLEAN:
-                return fieldValue;
-            case STRING:
-                return fieldValue.toString();
-            case DATETIME: {
+            case INT32, INT64, FLOAT, DOUBLE, BOOLEAN, DATETIME -> {
                 return fieldValue;
             }
-            case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+            case STRING -> {
+                return fieldValue.toString();
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return fieldValue;
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     return fieldValue;
-                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     return fieldValue;
                 } else {
                     throw new IllegalStateException();
                 }
             }
-            case ITERABLE:
-            case ARRAY: {
+            case ITERABLE, ARRAY -> {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case INT32:
-                    case INT64:
-                    case FLOAT:
-                    case DOUBLE:
-                    case BOOLEAN:
-                        return fieldValue;
-                    case STRING:
-                        return ((List<Object>) fieldValue).stream().map(Object::toString).collect(Collectors.toList());
-                    case DATETIME: {
+                    case INT32, INT64, FLOAT, DOUBLE, BOOLEAN, DATETIME -> {
                         return fieldValue;
                     }
-                    case LOGICAL_TYPE:
-                        return fieldValue;
-                    case ITERABLE:
-                    case ARRAY:
-                    case ROW:
-                    case BYTES:
-                    case MAP:
-                    case BYTE:
-                    case DECIMAL:
-                    default:
-                        throw new IllegalStateException();
+                    case STRING -> {
+                        return ((List<Object>) fieldValue).stream()
+                                .map(Object::toString)
+                                .collect(Collectors.toList());
+                    }
+                    case LOGICAL_TYPE -> {
+                        return ((List<Object>) fieldValue).stream()
+                                .map(o -> {
+                                    if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                                        return o;
+                                    } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                                        return o;
+                                    } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException();
                 }
             }
-            default:
-                throw new IllegalStateException();
+            default -> throw new IllegalStateException();
         }
     }
 
