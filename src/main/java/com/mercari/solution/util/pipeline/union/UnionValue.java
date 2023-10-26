@@ -204,6 +204,36 @@ public class UnionValue {
         }
     }
 
+    public static Map<String, Object> asPrimitiveMap(final UnionValue unionValue) {
+        if(unionValue.value == null) {
+            return new HashMap<>();
+        }
+        switch (unionValue.type) {
+            case ROW: {
+                final Row row = (Row) unionValue.value;
+                return RowSchemaUtil.asPrimitiveMap(row);
+            }
+            case AVRO: {
+                final GenericRecord record = (GenericRecord) unionValue.value;
+                return AvroSchemaUtil.asPrimitiveMap(record);
+            }
+            case STRUCT: {
+                final Struct struct = (Struct) unionValue.value;
+                return StructSchemaUtil.asPrimitiveMap(struct);
+            }
+            case DOCUMENT: {
+                final Document document = (Document) unionValue.value;
+                return DocumentSchemaUtil.asPrimitiveMap(document);
+            }
+            case ENTITY: {
+                final Entity entity = (Entity) unionValue.value;
+                return EntitySchemaUtil.asPrimitiveMap(entity);
+            }
+            default:
+                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+        }
+    }
+
     public static Map<String, Double> getAsDoubleMap(final UnionValue unionValue, final Collection<String> fields) {
         final Map<String, Double> doubles = new HashMap<>();
         if(unionValue.value == null) {

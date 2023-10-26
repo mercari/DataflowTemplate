@@ -1088,6 +1088,18 @@ public class RowSchemaUtil {
         return null;
     }
 
+    public static Map<String, Object> asPrimitiveMap(final Row row) {
+        final Map<String, Object> primitiveMap = new HashMap<>();
+        if(row == null) {
+            return primitiveMap;
+        }
+        for(final Schema.Field field : row.getSchema().getFields()) {
+            final Object value = getAsPrimitive(row, field.getType(), field.getName());
+            primitiveMap.put(field.getName(), value);
+        }
+        return primitiveMap;
+    }
+
     public static Instant toInstant(final Object value) {
         return (Instant) value;
     }

@@ -12,15 +12,15 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.50.0</beam.version>
+    <beam.version>2.51.0</beam.version>
 
     <freemarker.version>2.3.32</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>
     <hbase.version>2.5.5</hbase.version>
-    <onnxruntime.version>1.16.0</onnxruntime.version>
+    <onnxruntime.version>1.16.1</onnxruntime.version>
     <onnx.version>1.14.0-1.5.9</onnx.version>
-    <solr.version>9.3.0</solr.version>
-    <lucene.version>9.7.0</lucene.version>
+    <solr.version>9.4.0</solr.version>
+    <lucene.version>9.8.0</lucene.version>
     <neo4j.version>5.12.0</neo4j.version>
     <pdfbox.version>2.0.29</pdfbox.version>
     <jts.version>1.19.0</jts.version>
@@ -32,6 +32,7 @@
     <iamcredentials.version>2.24.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
+    <socketio.version>2.1.0</socketio.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -310,6 +311,12 @@
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-common</artifactId>
       <version>${hbase.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.sun.jersey</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- Machine Learning -->
@@ -381,6 +388,10 @@
         <exclusion>
           <groupId>org.apache.lucene</groupId>
           <artifactId>lucene-backward-codecs</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.eclipse.jetty</groupId>
+          <artifactId>jetty-webapp</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -480,6 +491,13 @@
       <groupId>net.objecthunter</groupId>
       <artifactId>exp4j</artifactId>
       <version>${exp4j.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/io.socket/socket.io-client -->
+    <dependency>
+      <groupId>io.socket</groupId>
+      <artifactId>socket.io-client</artifactId>
+      <version>${socketio.version}</version>
     </dependency>
 
     <!-- Log -->

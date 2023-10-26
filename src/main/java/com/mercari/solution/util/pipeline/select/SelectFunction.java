@@ -94,6 +94,11 @@ public interface SelectFunction extends Serializable {
         };
     }
 
+    static Schema createSchema(final JsonArray select, List<Schema.Field> outputFields) {
+        final List<SelectFunction> selectFunctions = SelectFunction.of(select, outputFields, null);
+        return SelectFunction.createSchema(selectFunctions);
+    }
+
     static Schema createSchema(List<SelectFunction> selectFunctions) {
         final List<Schema.Field> selectOutputFields = new ArrayList<>();
         for(final SelectFunction selectFunction : selectFunctions) {

@@ -10,6 +10,7 @@ import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.DocumentToMapConverter;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.joda.time.Instant;
@@ -517,6 +518,28 @@ public class DocumentSchemaUtil {
         }
     }
 
+    public static Object getAsPrimitive(final Value value) {
+        if(value == null) {
+            return null;
+        }
+        return switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> value.getBooleanValue();
+            case STRING_VALUE -> value.getStringValue();
+            case INTEGER_VALUE -> value.getIntegerValue();
+            case DOUBLE_VALUE -> value.getDoubleValue();
+            case BYTES_VALUE -> value.getBytesValue().toByteArray();
+            case TIMESTAMP_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+            case GEO_POINT_VALUE -> value.getGeoPointValue().toString();
+            case REFERENCE_VALUE -> value.getReferenceValue();
+            case MAP_VALUE -> DocumentToMapConverter.convert(value.getMapValue().getFieldsMap());
+            case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+            case ARRAY_VALUE -> value.getArrayValue().getValuesList().stream()
+                    .map(DocumentSchemaUtil::getAsPrimitive)
+                    .collect(Collectors.toList());
+            default -> throw new IllegalStateException();
+        };
+    }
+
     public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
         if (primitiveValue == null) {
             return null;
@@ -577,6 +600,18 @@ public class DocumentSchemaUtil {
             default:
                 throw new IllegalStateException();
         }
+    }
+
+    public static Map<String, Object> asPrimitiveMap(final Document document) {
+        final Map<String, Object> primitiveMap = new HashMap<>();
+        if(document == null) {
+            return primitiveMap;
+        }
+        for(final Map.Entry<String, Value> entry : document.getFieldsMap().entrySet()) {
+            final Object value = getAsPrimitive(entry.getValue());
+            primitiveMap.put(entry.getKey(), value);
+        }
+        return primitiveMap;
     }
 
     public static Document merge(final Schema schema, Document document, final Map<String, ? extends Object> values) {

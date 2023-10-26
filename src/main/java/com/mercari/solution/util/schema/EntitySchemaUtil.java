@@ -10,6 +10,7 @@ import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.EntityToMapConverter;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -474,6 +475,27 @@ public class EntitySchemaUtil {
         }
     }
 
+    public static Object getAsPrimitive(final Value value) {
+        if(value == null) {
+            return null;
+        }
+        return switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> value.getBooleanValue();
+            case STRING_VALUE -> value.getStringValue();
+            case INTEGER_VALUE -> value.getIntegerValue();
+            case DOUBLE_VALUE -> value.getDoubleValue();
+            case BLOB_VALUE -> value.getBlobValue().toByteArray();
+            case TIMESTAMP_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+            case GEO_POINT_VALUE -> value.getGeoPointValue().toString();
+            case ENTITY_VALUE -> EntityToMapConverter.convert(value.getEntityValue());
+            case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+            case ARRAY_VALUE -> value.getArrayValue().getValuesList().stream()
+                    .map(EntitySchemaUtil::getAsPrimitive)
+                    .collect(Collectors.toList());
+            default -> throw new IllegalStateException();
+        };
+    }
+
     public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
         if (primitiveValue == null) {
             return null;
@@ -534,6 +556,18 @@ public class EntitySchemaUtil {
             default:
                 throw new IllegalStateException();
         }
+    }
+
+    public static Map<String, Object> asPrimitiveMap(final Entity entity) {
+        final Map<String, Object> primitiveMap = new HashMap<>();
+        if(entity == null) {
+            return primitiveMap;
+        }
+        for(final Map.Entry<String, Value> entry : entity.getPropertiesMap().entrySet()) {
+            final Object value = getAsPrimitive(entry.getValue());
+            primitiveMap.put(entry.getKey(), value);
+        }
+        return primitiveMap;
     }
 
     public static Date convertDate(final Value value) {

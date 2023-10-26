@@ -1244,57 +1244,53 @@ public class AvroSchemaUtil {
             return null;
         }
         switch (fieldType.getTypeName()) {
-            case INT32:
-            case INT64:
-            case FLOAT:
-            case DOUBLE:
-            case BOOLEAN:
+            case INT32, INT64, FLOAT, DOUBLE, BOOLEAN -> {
                 return value;
-            case STRING:
+            }
+            case STRING -> {
                 return value.toString();
-            case DATETIME: {
-                final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
+            }
+            case DATETIME -> {
+                final Schema fieldSchema = unnestUnion(((GenericRecord) record).getSchema().getField(field).schema());
                 if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
                     return (Long) value * 1000L;
                 } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
                     return value;
                 }
-                throw new IllegalStateException();
+                throw new IllegalStateException("field: " + field + " is illegal timestamp logicalType: " + fieldSchema + ", value: " + value);
             }
-            case LOGICAL_TYPE: {
-                final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+            case LOGICAL_TYPE -> {
+                final Schema fieldSchema = unnestUnion(((GenericRecord) record).getSchema().getField(field).schema());
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
                         return (Long) value * 1000L;
                     } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
                         return value;
                     }
                     throw new IllegalStateException();
-                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     return fieldSchema.getEnumSymbols().get((Integer) value);
                 } else {
-                    throw new IllegalStateException();
+                    throw new IllegalStateException("field: " + field + " is illegal logicalType: " + fieldSchema + ", value: " + value);
                 }
             }
-            case ITERABLE:
-            case ARRAY: {
+            case ITERABLE, ARRAY -> {
+                final Schema elementSchema = unnestUnion(unnestUnion(((GenericRecord) record).getSchema().getField(field).schema()).getElementType());
                 switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case INT32:
-                    case INT64:
-                    case FLOAT:
-                    case DOUBLE:
-                    case BOOLEAN:
+                    case INT32, INT64, FLOAT, DOUBLE, BOOLEAN -> {
                         return value;
-                    case STRING:
+                    }
+                    case STRING -> {
                         return ((List<Object>) value).stream().map(Object::toString).collect(Collectors.toList());
-                    case DATETIME: {
-                        final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
+                    }
+                    case DATETIME -> {
+
                         final long m;
-                        if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
+                        if (LogicalTypes.timestampMillis().equals(elementSchema.getLogicalType())) {
                             m = 1000L;
-                        } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
+                        } else if (LogicalTypes.timestampMicros().equals(elementSchema.getLogicalType())) {
                             m = 1L;
                         } else {
                             m = 1L;
@@ -1303,15 +1299,14 @@ public class AvroSchemaUtil {
                                 .map(l -> l * m)
                                 .collect(Collectors.toList());
                     }
-                    case LOGICAL_TYPE: {
-                        final Schema fieldSchema = ((GenericRecord) record).getSchema().getField(field).schema();
-                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
                             return value;
-                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
                             final long m;
-                            if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
+                            if (LogicalTypes.timeMillis().equals(elementSchema.getLogicalType())) {
                                 m = 1000L;
-                            } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
+                            } else if (LogicalTypes.timeMicros().equals(elementSchema.getLogicalType())) {
                                 m = 1L;
                             } else {
                                 m = 1L;
@@ -1319,25 +1314,16 @@ public class AvroSchemaUtil {
                             return ((List<Long>) value).stream()
                                     .map(l -> l * m)
                                     .collect(Collectors.toList());
-                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
                             throw new IllegalStateException();
                         } else {
                             throw new IllegalStateException();
                         }
                     }
-                    case ITERABLE:
-                    case ARRAY:
-                    case ROW:
-                    case BYTES:
-                    case MAP:
-                    case BYTE:
-                    case DECIMAL:
-                    default:
-                        throw new IllegalStateException();
+                    default -> throw new IllegalStateException();
                 }
             }
-            default:
-                throw new IllegalStateException();
+            default -> throw new IllegalStateException();
         }
     }
 
@@ -1512,6 +1498,18 @@ public class AvroSchemaUtil {
             default:
                 throw new IllegalStateException();
         }
+    }
+
+    public static Map<String, Object> asPrimitiveMap(final GenericRecord record) {
+        final Map<String, Object> primitiveMap = new HashMap<>();
+        if(record == null) {
+            return primitiveMap;
+        }
+        for(final Schema.Field field : record.getSchema().getFields()) {
+            final Object value = record.get(field.name());
+            primitiveMap.put(field.name(), value);
+        }
+        return primitiveMap;
     }
 
     public static Instant toInstant(final Object value) {
