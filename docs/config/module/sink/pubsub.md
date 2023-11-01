@@ -4,20 +4,20 @@ PubSub sink module publishes record to the specified PubSub topic.
 
 ## Sink module common parameters
 
-| parameter        | optional | type                | description                                                                             |
-|------------------|----------|---------------------|-----------------------------------------------------------------------------------------|
-| name             | required | String              | Step name. specified to be unique in config file.                                       |
-| module           | required | String              | Specified `pubsub`                                                                      |
-| input            | required | String              | Step name whose data you want to write from                                             |
-| parameters       | required | Map<String,Object\> | Specify the following individual parameters.                                            |
-| outputAvroSchema | optional | String              | Save the schema of the output as an Avro Schema file in the path of GCS specified here. |
+| parameter         | optional | type                     | description                                                                                                                                                                                              |
+|-------------------|----------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| name              | required | String                   | Step name. specified to be unique in config file.                                                                                                                                                        |
+| module            | required | String                   | Specified `pubsub`                                                                                                                                                                                       |
+| input (or inputs) | required | String or Array<String\> | Step name whose data you want to write from. If you want to write multiple inputs with the same schema to the same topic, use the `inputs` parameter instead of `input` to specify multiple input names. |
+| parameters        | required | Map<String,Object\>      | Specify the following individual parameters.                                                                                                                                                             |
+| outputAvroSchema  | optional | String                   | Save the schema of the output as an Avro Schema file in the path of GCS specified here.                                                                                                                  |
 
 ## PubSub sink module parameters
 
 | parameter           | optional | type           | description                                                                                                                                                                                                                                                                         |
 |---------------------|----------|----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | topic               | required | String         | Specify the PubSub topic name of the destination in the following format. `projects/{gcp project}/topics/{topic name}`                                                                                                                                                              |
-| format              | required | String         | Specifies the format of the message to publish. Currently supporting `json`, `avro` and `protobuf`.                                                                                                                                                                                 |
+| format              | required | Enum           | Specifies the format of the message to publish. Currently supporting `json`, `avro` and `protobuf`.                                                                                                                                                                                 |
 | attributes          | optional | Array<String\> | Specify the field names you want to register as attributes in the message.                                                                                                                                                                                                          |
 | idAttribute         | optional | String         | Specify the attribute name when you want to give an [ID](https://cloud.google.com/dataflow/docs/concepts/streaming-with-cloud-pubsub#efficient_deduplication) to a message as attribute value. The value of the record of the field with the name specified here is used as the ID. |
 | timestampAttribute  | optional | String         | Specify the attribute name when you want to save the event time of the record as attribute value.                                                                                                                                                                                   |
