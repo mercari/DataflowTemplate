@@ -46,7 +46,7 @@ public class SpannerBackupSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(SpannerBackupSource.class);
 
-    private class SpannerBackupSourceParameters implements Serializable {
+    private static class SpannerBackupSourceParameters implements Serializable {
 
         // common
         private BackupType backupType;
@@ -71,48 +71,24 @@ public class SpannerBackupSource implements SourceModule {
             return backupType;
         }
 
-        public void setBackupType(BackupType backupType) {
-            this.backupType = backupType;
-        }
-
         public OutputType getOutputType() {
             return outputType;
-        }
-
-        public void setOutputType(OutputType outputType) {
-            this.outputType = outputType;
         }
 
         public String getSnapshotBackupInput() {
             return snapshotBackupInput;
         }
 
-        public void setSnapshotBackupInput(String snapshotBackupInput) {
-            this.snapshotBackupInput = snapshotBackupInput;
-        }
-
         public String getChangeStreamBackupInput() {
             return changeStreamBackupInput;
-        }
-
-        public void setChangeStreamBackupInput(String changeStreamBackupInput) {
-            this.changeStreamBackupInput = changeStreamBackupInput;
         }
 
         public String getChangeStreamBackupStartAt() {
             return changeStreamBackupStartAt;
         }
 
-        public void setChangeStreamBackupStartAt(String changeStreamBackupStartAt) {
-            this.changeStreamBackupStartAt = changeStreamBackupStartAt;
-        }
-
         public BackupFormat getChangeStreamBackupFormat() {
             return changeStreamBackupFormat;
-        }
-
-        public void setChangeStreamBackupFormat(BackupFormat changeStreamBackupFormat) {
-            this.changeStreamBackupFormat = changeStreamBackupFormat;
         }
 
 
@@ -120,32 +96,16 @@ public class SpannerBackupSource implements SourceModule {
             return tables;
         }
 
-        public void setTables(List<String> tables) {
-            this.tables = tables;
-        }
-
         public String getProjectId() {
             return projectId;
-        }
-
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
         }
 
         public String getInstanceId() {
             return instanceId;
         }
 
-        public void setInstanceId(String instanceId) {
-            this.instanceId = instanceId;
-        }
-
         public String getDatabaseId() {
             return databaseId;
-        }
-
-        public void setDatabaseId(String databaseId) {
-            this.databaseId = databaseId;
         }
 
         public void validate() {
@@ -207,7 +167,6 @@ public class SpannerBackupSource implements SourceModule {
 
     private enum BackupFormat implements Serializable {
         avro,
-        parquet,
         bigquery
     }
 
@@ -260,7 +219,7 @@ public class SpannerBackupSource implements SourceModule {
                             Map.Entry::getKey,
                             e -> DataType.MUTATION));
             final FCollection collection = FCollection
-                    .of(config.getName(), mutationsTuple, dataTypes, avroSchemas);
+                    .of(config.getName(), new HashMap<>(), mutationsTuple, dataTypes, avroSchemas);
             return Map.of(config.getName(), collection);
         } else if(OutputType.record.equals(parameters.getOutputType())) {
             final Map<String, FCollection<?>> output = new HashMap<>();
@@ -353,8 +312,7 @@ public class SpannerBackupSource implements SourceModule {
                         .apply("EmptyChangeRecord", Create.empty(AvroCoder.of(changeRecordAvroSchema)));
             } else {
                 switch (parameters.getChangeStreamBackupFormat()) {
-                    case avro:
-                    case parquet: {
+                    case avro: {
                         final PCollection<FileIO.ReadableFile> files = begin
                                 .apply("SupplyChangeRecordPath", Create
                                         .of(parameters.getChangeStreamBackupInput()))
@@ -448,7 +406,7 @@ public class SpannerBackupSource implements SourceModule {
             return outputTuple;
         }
 
-        private class ChangeRecordWithKeyDoFn extends DoFn<GenericRecord, KV<KV<String, String>, GenericRecord>> {
+        private static class ChangeRecordWithKeyDoFn extends DoFn<GenericRecord, KV<KV<String, String>, GenericRecord>> {
 
             private final Map<String, String> tableSchemasStrings;
             private final Map<String, TupleTag<KV<KV<String, String>, GenericRecord>>> tags;

@@ -24,6 +24,10 @@ public class DocumentToTableRowConverter {
         return document -> convert(document, withName, withCreateTime, withUpdateTime);
     }
 
+    public static TableRow convert(final Document document) {
+        return convert(document, false, false, false);
+    }
+
     private static TableRow convert(final Document document, boolean withName, boolean withCreateTime, boolean withUpdateTime) {
         if(document == null) {
             return null;

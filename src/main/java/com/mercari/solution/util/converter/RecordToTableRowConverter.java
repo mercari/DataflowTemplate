@@ -64,17 +64,17 @@ public class RecordToTableRowConverter {
             return null;
         }
         if(isArray) {
+            final Schema elementSchema = AvroSchemaUtil.unnestUnion(schema);
             return ((List<Object>)value).stream()
-                    .map(v -> convertTableRowValue(schema, v))
+                    .map(v -> convertTableRowValue(elementSchema, v))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
-        switch(schema.getType()) {
-            case ENUM:
-            case STRING:
+        switch (schema.getType()) {
+            case ENUM, STRING -> {
                 return value.toString();
-            case FIXED:
-            case BYTES: {
+            }
+            case FIXED, BYTES -> {
                 if (AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
                     final byte[] bytes;
                     if (Schema.Type.FIXED.equals(schema.getType())) {
@@ -90,22 +90,23 @@ public class RecordToTableRowConverter {
                 } else if (Schema.Type.FIXED.equals(schema.getType())) {
                     return BaseEncoding.base64().encode(((GenericData.Fixed) value).bytes());
                 }
-                return BaseEncoding.base64().encode(((ByteBuffer)value).array());
+                return BaseEncoding.base64().encode(((ByteBuffer) value).array());
             }
-            case INT:
-                if(LogicalTypes.date().equals(schema.getLogicalType())) {
+            case INT -> {
+                if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     return LocalDate
-                            .ofEpochDay((Integer)value)
+                            .ofEpochDay((Integer) value)
                             .format(DateTimeFormatter.ISO_LOCAL_DATE);
-                } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    final Long intValue = Integer.valueOf((Integer)value).longValue();
+                } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
+                    final Long intValue = Integer.valueOf((Integer) value).longValue();
                     return LocalTime
                             .ofNanoOfDay(intValue * 1000 * 1000)
                             .format(DateTimeFormatter.ISO_LOCAL_TIME);
                 }
                 return value;
-            case LONG: {
-                if(value instanceof org.joda.time.DateTime) {
+            }
+            case LONG -> {
+                if (value instanceof DateTime) {
                     return ((DateTime) value).toString(ISODateTimeFormat.dateTime());
                 }
                 final Long longValue = (Long) value;
@@ -115,7 +116,7 @@ public class RecordToTableRowConverter {
                             .toString(ISODateTimeFormat.dateTime());
                 } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
                     return Instant
-                            .ofEpochMilli(longValue/1000)
+                            .ofEpochMilli(longValue / 1000)
                             .toString(ISODateTimeFormat.dateTime());
                 } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     return LocalTime
@@ -132,30 +133,32 @@ public class RecordToTableRowConverter {
                 }
                 return value;
             }
-            case FLOAT:
-            case DOUBLE:
-            case BOOLEAN:
+            case FLOAT, DOUBLE, BOOLEAN -> {
                 return value;
-            case RECORD:
+            }
+            case RECORD -> {
                 return convert((GenericRecord) value);
-            case MAP:
-                final Map<Object, Object> map = (Map)value;
+            }
+            case MAP -> {
+                final Map<Object, Object> map = (Map) value;
                 return map.entrySet().stream()
                         .map(entry -> new TableRow()
                                 .set("key", entry.getKey() == null ? "" : entry.getKey().toString())
                                 .set("value", convertTableRowValue(schema.getValueType(), entry.getValue())))
                         .collect(Collectors.toList());
-            case UNION:
-                final Schema childSchema = schema.getTypes().stream()
-                        .filter(s -> !Schema.Type.NULL.equals(s.getType()))
-                        .findAny().orElse(null);
-                return convertTableRowValue(childSchema, value);
-            case ARRAY:
+            }
+            case UNION -> {
+                return convertTableRowValue(AvroSchemaUtil.unnestUnion(schema), value);
+            }
+            case ARRAY -> {
                 return convertTableRowValues(schema.getElementType(), value);
-            case NULL:
+            }
+            case NULL -> {
                 return null;
-            default:
+            }
+            default -> {
                 return value;
+            }
         }
     }
 
@@ -169,56 +172,64 @@ public class RecordToTableRowConverter {
         final TableFieldSchema tableFieldSchema = new TableFieldSchema()
                 .setMode(mode);
         switch (schema.getType()) {
-            case BOOLEAN:
+            case BOOLEAN -> {
                 return tableFieldSchema.setName(name).setType("BOOLEAN");
-            case ENUM:
+            }
+            case ENUM -> {
                 return tableFieldSchema.setName(name).setType("STRING");
-            case STRING:
+            }
+            case STRING -> {
                 final String sqlType = schema.getProp("sqlType");
                 if ("DATETIME".equals(sqlType)) {
                     return tableFieldSchema.setName(name).setType("DATETIME");
-                } else if("JSON".equalsIgnoreCase(sqlType)) {
+                } else if ("JSON".equalsIgnoreCase(sqlType)) {
                     return tableFieldSchema.setName(name).setType("JSON");
-                } else if("GEOGRAPHY".equals(sqlType)) {
+                } else if ("GEOGRAPHY".equals(sqlType)) {
                     return tableFieldSchema.setName(name).setType("GEOGRAPHY");
                 }
                 return tableFieldSchema.setName(name).setType("STRING");
-            case FIXED:
-            case BYTES:
-                if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
+            }
+            case FIXED, BYTES -> {
+                if (AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
                     return tableFieldSchema.setName(name).setType("NUMERIC");
                 }
                 return tableFieldSchema.setName(name).setType("BYTES");
-            case INT:
-                if(LogicalTypes.date().equals(schema.getLogicalType())) {
+            }
+            case INT -> {
+                if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     return tableFieldSchema.setName(name).setType("DATE");
-                } else if(LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
                     return tableFieldSchema.setName(name).setType("TIME");
                 }
                 return tableFieldSchema.setName(name).setType("INTEGER").set("avroSchema", "INT");
-            case LONG:
-                if(LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
+            }
+            case LONG -> {
+                if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
                     return tableFieldSchema.setName(name).setType("TIMESTAMP");
-                } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
                     return tableFieldSchema.setName(name).setType("TIMESTAMP");
-                } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     return tableFieldSchema.setName(name).setType("TIME");
-                } else if(AvroSchemaUtil.isLogicalTypeLocalTimestampMillis(schema) || AvroSchemaUtil.isLogicalTypeLocalTimestampMicros(schema)) {
+                } else if (AvroSchemaUtil.isLogicalTypeLocalTimestampMillis(schema) || AvroSchemaUtil.isLogicalTypeLocalTimestampMicros(schema)) {
                     return tableFieldSchema.setName(name).setType("DATETIME");
                 }
                 return tableFieldSchema.setName(name).setType("INTEGER");
-            case FLOAT:
+            }
+            case FLOAT -> {
                 return tableFieldSchema.setName(name).setType("FLOAT").set("avroSchema", "FLOAT");
-            case DOUBLE:
+            }
+            case DOUBLE -> {
                 return tableFieldSchema.setName(name).setType("FLOAT");
-            case RECORD:
+            }
+            case RECORD -> {
                 final List<TableFieldSchema> childTableFieldSchemas = schema.getFields().stream()
                         .map(RecordToTableRowConverter::convertTableFieldSchema)
                         .collect(Collectors.toList());
                 return tableFieldSchema.setName(name).setType("RECORD").setFields(childTableFieldSchemas);
-            case ARRAY: {
+            }
+            case ARRAY -> {
                 final TableFieldSchema elementSchema = convertTableFieldSchema(name, schema.getElementType(), AvroSchemaUtil.isNullable(schema.getElementType()));
-                if(elementSchema.getType().equals("RECORD")) {
+                if (elementSchema.getType().equals("RECORD")) {
                     return tableFieldSchema
                             .setName(name)
                             .setType(elementSchema.getType())
@@ -231,7 +242,7 @@ public class RecordToTableRowConverter {
                             .setMode("REPEATED");
                 }
             }
-            case MAP: {
+            case MAP -> {
                 final List<TableFieldSchema> fields = new ArrayList<>();
                 fields.add(new TableFieldSchema()
                         .setName("key")
@@ -244,11 +255,11 @@ public class RecordToTableRowConverter {
                         .setFields(fields)
                         .setMode("REPEATED");
             }
-            case UNION:
+            case UNION -> {
                 return convertTableFieldSchema(name, AvroSchemaUtil.unnestUnion(schema), AvroSchemaUtil.isNullable(schema));
-            case NULL:
-            default:
-                throw new IllegalArgumentException(schema.getType().getName() + " is not supported for bigquery.");
+            }
+            default ->
+                    throw new IllegalArgumentException(schema.getType().getName() + " is not supported for bigquery.");
         }
     }
 
