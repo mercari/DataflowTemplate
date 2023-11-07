@@ -2,6 +2,8 @@ package com.mercari.solution.util.sql.udf;
 
 import org.apache.beam.sdk.extensions.sql.BeamSqlUdf;
 
+import java.util.UUID;
+
 
 public class MathFunctions {
 
@@ -81,6 +83,14 @@ public class MathFunctions {
             } else {
                 return value2;
             }
+        }
+
+    }
+
+    public static class GenerateUUIDFn implements BeamSqlUdf {
+
+        public static String eval() {
+            return UUID.randomUUID().toString();
         }
 
     }

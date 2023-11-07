@@ -146,6 +146,7 @@ public class BeamSQLTransform implements TransformModule {
                     .registerUdf("MDT_GREATEST_FLOAT64", MathFunctions.GreatestFloat64Fn.class)
                     .registerUdf("MDT_LEAST_INT64", MathFunctions.LeastInt64Fn.class)
                     .registerUdf("MDT_LEAST_FLOAT64", MathFunctions.LeastFloat64Fn.class)
+                    .registerUdf("MDT_GENERATE_UUID", MathFunctions.GenerateUUIDFn.class)
                     // Array UDFs
                     .registerUdf("MDT_CONTAINS_ALL_INT64", ArrayFunctions.ContainsAllInt64sFn.class)
                     .registerUdf("MDT_CONTAINS_ALL_STRING", ArrayFunctions.ContainsAllStringsFn.class)

@@ -50,7 +50,7 @@ public class BeamSQLTransformTest {
         configBeamSql.setInputs(Arrays.asList("withWindow"));
 
         final JsonObject beamsqlParameters = new JsonObject();
-        beamsqlParameters.addProperty("sql", "SELECT stringField, MDT_GREATEST_INT64(longFieldA, longFieldB) AS longFieldMax, MDT_LEAST_INT64(longFieldA, longFieldB) AS longFieldMin, MDT_GREATEST_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMax, MDT_LEAST_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMin FROM rowInput");
+        beamsqlParameters.addProperty("sql", "SELECT stringField, MDT_GREATEST_INT64(longFieldA, longFieldB) AS longFieldMax, MDT_LEAST_INT64(longFieldA, longFieldB) AS longFieldMin, MDT_GREATEST_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMax, MDT_LEAST_FLOAT64(doubleFieldA, doubleFieldB) AS doubleFieldMin, MDT_GENERATE_UUID() AS uuidField FROM rowInput");
         beamsqlParameters.addProperty("planner", planner);
         configBeamSql.setParameters(beamsqlParameters);
 
@@ -106,6 +106,7 @@ public class BeamSQLTransformTest {
             int count = 0;
             for (final Row row : rows) {
                 count++;
+                Assert.assertNotNull(row.getString("uuidField"));
                 if("a".equals(row.getString("stringField"))) {
                     Assert.assertEquals(2L, Objects.requireNonNull(row.getInt64("longFieldMax")).longValue());
                     Assert.assertEquals(1L, Objects.requireNonNull(row.getInt64("longFieldMin")).longValue());
