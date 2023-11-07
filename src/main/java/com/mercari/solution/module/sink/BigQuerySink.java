@@ -52,6 +52,7 @@ public class BigQuerySink implements SinkModule {
         private String partitioning;
         private String partitioningField;
         private List<String> clusteringFields;
+        private List<String> primaryKeyFields;
         private Boolean skipInvalidRows;
         private Boolean ignoreUnknownValues;
         private Boolean ignoreInsertIds;
@@ -110,6 +111,10 @@ public class BigQuerySink implements SinkModule {
 
         public List<String> getClusteringFields() {
             return clusteringFields;
+        }
+
+        public List<String> getPrimaryKeyFields() {
+            return primaryKeyFields;
         }
 
         public String getDynamicDestination() {
@@ -197,6 +202,9 @@ public class BigQuerySink implements SinkModule {
                 if(this.clustering != null) {
                     Collections.addAll(this.clusteringFields, this.clustering.split(","));
                 }
+            }
+            if(this.primaryKeyFields == null) {
+                this.primaryKeyFields = new ArrayList<>();
             }
 
             if(this.skipInvalidRows == null) {
@@ -540,7 +548,7 @@ public class BigQuerySink implements SinkModule {
                                 .apply("WriteAvro", write);
                     }
                 }
-                case json -> {
+                case avrofile, json -> {
                     BigQueryIO.Write<T> write = BigQueryIO
                             .<T>write()
                             .withFormatFunction(convertTableRowFunction);
@@ -872,6 +880,11 @@ public class BigQuerySink implements SinkModule {
             final Clustering clustering = new Clustering().setFields(parameters.getClusteringFields());
             write = write.withClustering(clustering);
         }
+
+        if(parameters.getPrimaryKeyFields().size() > 0) {
+            write = write.withPrimaryKey(parameters.getPrimaryKeyFields());
+        }
+
         if(parameters.getKmsKey() != null) {
             write = write.withKmsKey(parameters.getKmsKey().trim());
         }
