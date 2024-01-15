@@ -17,12 +17,12 @@
     <freemarker.version>2.3.32</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>
     <hbase.version>2.5.5</hbase.version>
-    <onnxruntime.version>1.16.1</onnxruntime.version>
+    <onnxruntime.version>1.16.3</onnxruntime.version>
     <onnx.version>1.14.0-1.5.9</onnx.version>
     <solr.version>9.4.0</solr.version>
     <lucene.version>9.8.0</lucene.version>
     <neo4j.version>5.12.0</neo4j.version>
-    <pdfbox.version>2.0.29</pdfbox.version>
+    <pdfbox.version>2.0.30</pdfbox.version>
     <jts.version>1.19.0</jts.version>
     <mysql-connector.version>8.1.0</mysql-connector.version>
     <postgresql-connector.version>42.6.0</postgresql-connector.version>
@@ -39,8 +39,7 @@
     <maven-jar-plugin.version>3.0.2</maven-jar-plugin.version>
     <maven-shade-plugin.version>3.1.0</maven-shade-plugin.version>
     <mockito.version>3.0.0</mockito.version>
-    <slf4j.version>1.7.36</slf4j.version>
-    <log4j.version>2.20.0</log4j.version>
+    <slf4j.version>1.7.30</slf4j.version>
     <maven-surefire-plugin.version>2.21.0</maven-surefire-plugin.version>
   </properties>
 
@@ -513,30 +512,6 @@
       <artifactId>slf4j-jdk14</artifactId>
       <version>${slf4j.version}</version>
       <!-- When loaded at runtime this will wire up slf4j to the JUL backend -->
-      <scope>runtime</scope>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
-    <dependency>
-      <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-api</artifactId>
-      <version>${log4j.version}</version>
-      <scope>runtime</scope>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
-    <dependency>
-      <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-core</artifactId>
-      <version>${log4j.version}</version>
-      <scope>runtime</scope>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-slf4j-impl -->
-    <dependency>
-      <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-slf4j-impl</artifactId>
-      <version>${log4j.version}</version>
       <scope>runtime</scope>
     </dependency>
 
