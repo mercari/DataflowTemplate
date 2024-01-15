@@ -269,7 +269,12 @@ public class Filter implements Serializable {
             for(ConditionLeaf leaf : condition.getLeaves()) {
                 final Object value;
                 if(leaf.expression != null) {
-                    value = leaf.evaluateExpression(element, getter, values);
+                    final Double evaluatedValue = leaf.evaluateExpression(element, getter, values);
+                    if(evaluatedValue == null || evaluatedValue.isNaN()) {
+                        value = null;
+                    } else {
+                        value = evaluatedValue;
+                    }
                 } else if(values != null) {
                     value = Optional.ofNullable(values.get(leaf.getKey())).orElseGet(() -> getter.getValue(element, leaf.getKey()));
                 } else {
@@ -308,7 +313,12 @@ public class Filter implements Serializable {
                                     Map.Entry::getKey,
                                     e -> ExpressionUtil.getAsDouble(e.getValue(), Double.NaN)));
                     try {
-                        value = leaf.expression.setVariables(variables).evaluate();
+                        final double evaluatedValue = leaf.expression.setVariables(variables).evaluate();
+                        if(Double.isNaN(evaluatedValue)) {
+                            value = null;
+                        } else {
+                            value = evaluatedValue;
+                        }
                     } catch (IllegalArgumentException e) {
                         return false;
                     }
