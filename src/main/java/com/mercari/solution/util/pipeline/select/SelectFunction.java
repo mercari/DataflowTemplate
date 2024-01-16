@@ -28,6 +28,7 @@ public interface SelectFunction extends Serializable {
         rename,
         expression,
         concat,
+        uuid,
         hash,
         current_timestamp
     }
@@ -89,6 +90,7 @@ public interface SelectFunction extends Serializable {
             case constant -> Constant.of(name, jsonObject, ignore);
             case expression -> Expression.of(name, jsonObject, ignore);
             case concat -> Concat.of(name, inputFields, jsonObject, ignore);
+            case uuid -> Uuid.of(name, jsonObject, ignore);
             case hash -> Hash.of(name, jsonObject, ignore);
             case current_timestamp -> CurrentTimestamp.of(name, ignore);
         };
