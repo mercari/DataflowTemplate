@@ -97,7 +97,7 @@ public class AggregationTransform implements TransformModule {
         }
 
 
-        public List<String> validate(String name, Map<String, KV<DataType, Schema>> inputSchemas) {
+        public void validate(String name, Map<String, KV<DataType, Schema>> inputSchemas) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.aggregations == null || this.aggregations.size() == 0) {
                 errorMessages.add("Aggregation transform module[" + name + "].aggregations parameter must not be null or size zero.");
@@ -110,7 +110,10 @@ public class AggregationTransform implements TransformModule {
             if(this.window != null) {
                 errorMessages.addAll(this.window.validate());
             }
-            return errorMessages;
+
+            if(!errorMessages.isEmpty()) {
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
+            }
         }
 
         public void setDefaults() {
