@@ -19,13 +19,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class JdbcSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcSink.class);
 
-    private class JdbcSinkParameters {
+    private static class JdbcSinkParameters {
 
         private String table;
         private String url;
@@ -43,88 +42,86 @@ public class JdbcSink implements SinkModule {
             return table;
         }
 
-        public void setTable(String table) {
-            this.table = table;
-        }
-
         public String getUrl() {
             return url;
-        }
-
-        public void setUrl(String url) {
-            this.url = url;
         }
 
         public String getDriver() {
             return driver;
         }
 
-        public void setDriver(String driver) {
-            this.driver = driver;
-        }
-
         public String getUser() {
             return user;
-        }
-
-        public void setUser(String user) {
-            this.user = user;
         }
 
         public String getPassword() {
             return password;
         }
 
-        public void setPassword(String password) {
-            this.password = password;
-        }
-
         public String getKmsKey() {
             return kmsKey;
-        }
-
-        public void setKmsKey(String kmsKey) {
-            this.kmsKey = kmsKey;
         }
 
         public Boolean getCreateTable() {
             return createTable;
         }
 
-        public void setCreateTable(Boolean createTable) {
-            this.createTable = createTable;
-        }
-
         public Boolean getEmptyTable() {
             return emptyTable;
-        }
-
-        public void setEmptyTable(Boolean emptyTable) {
-            this.emptyTable = emptyTable;
         }
 
         public List<String> getKeyFields() {
             return keyFields;
         }
 
-        public void setKeyFields(List<String> keyFields) {
-            this.keyFields = keyFields;
-        }
-
         public Integer getBatchSize() {
             return batchSize;
-        }
-
-        public void setBatchSize(Integer batchSize) {
-            this.batchSize = batchSize;
         }
 
         public String getOp() {
             return op;
         }
 
-        public void setOp(String op) {
-            this.op = op;
+
+        private void validate() {
+            final List<String> errorMessages = new ArrayList<>();
+            if(table == null) {
+                errorMessages.add("Parameter must contain table");
+            }
+            if(url == null) {
+                errorMessages.add("Parameter must contain connection url");
+            }
+            if(driver == null) {
+                errorMessages.add("Parameter must contain driverClassName");
+            }
+            if(user == null) {
+                errorMessages.add("Parameter must contain user");
+            }
+            if(password == null) {
+                errorMessages.add("Parameter must contain password");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
+            }
+        }
+
+        private void setDefaults() {
+            if(createTable == null) {
+                this.createTable = false;
+            }
+            if(emptyTable == null) {
+                emptyTable = false;
+            }
+            if(op == null) {
+                op = JdbcUtil.OP.INSERT.name();
+            }
+            if(batchSize == null) {
+                batchSize = 1000;
+            }
+            if(keyFields == null) {
+                keyFields = new ArrayList<>();
+            }
         }
     }
 
@@ -143,24 +140,21 @@ public class JdbcSink implements SinkModule {
     }
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
-        final JdbcSinkParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSinkParameters.class);
-        final JdbcWrite write;
-        switch (collection.getDataType()) {
-            case AVRO:
-                write = new JdbcWrite<>(collection, parameters, ToStatementConverter::convertRecord);
-                break;
-            case ROW:
-                write =  new JdbcWrite<>(collection, parameters, ToStatementConverter::convertRow);
-                break;
-            case STRUCT:
-                write =  new JdbcWrite<>(collection, parameters, ToStatementConverter::convertStruct);
-                break;
-            case ENTITY:
-                //write =  new JdbcWrite<>(collection, parameters, ToStatementConverter::convertEntity);
-                //break;
-            default:
-                throw new IllegalArgumentException("Not supported input type: " + collection.getDataType());
+        if(config.getParameters() == null) {
+            throw new IllegalArgumentException();
         }
+        final JdbcSinkParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSinkParameters.class);
+        parameters.validate();
+        parameters.setDefaults();
+
+        final JdbcWrite write = switch (collection.getDataType()) {
+            case AVRO -> new JdbcWrite<>(collection, parameters, ToStatementConverter::convertRecord);
+            case ROW -> new JdbcWrite<>(collection, parameters, ToStatementConverter::convertRow);
+            case STRUCT -> new JdbcWrite<>(collection, parameters, ToStatementConverter::convertStruct);
+            case DOCUMENT -> new JdbcWrite<>(collection, parameters, ToStatementConverter::convertDocument);
+            case ENTITY -> new JdbcWrite<>(collection, parameters, ToStatementConverter::convertEntity);
+            default -> throw new IllegalArgumentException("Not supported input type: " + collection.getDataType());
+        };
         PCollection output = (PCollection) (collection.getCollection().apply(config.getName(), write));
         try {
             config.outputAvroSchema(collection.getAvroSchema());
@@ -188,9 +182,6 @@ public class JdbcSink implements SinkModule {
         }
 
         public PCollection<Void> expand(final PCollection<InputT> input) {
-            validateParameters();
-            setDefaultParameters();
-
             final JdbcUtil.DB db = getDB(parameters.getDriver());
             final List<List<String>> ddls;
             if (this.parameters.getCreateTable()) {
@@ -235,47 +226,6 @@ public class JdbcSink implements SinkModule {
                 return JdbcUtil.DB.POSTGRESQL;
             } else {
                 throw new IllegalStateException("Not supported JDBC driver: " + driver);
-            }
-        }
-
-        private void validateParameters() {
-            final List<String> errorMessages = new ArrayList<>();
-            if(parameters.getTable() == null) {
-                errorMessages.add("Parameter must contain table");
-            }
-            if(parameters.getUrl() == null) {
-                errorMessages.add("Parameter must contain connection url");
-            }
-            if(parameters.getDriver() == null) {
-                errorMessages.add("Parameter must contain driverClassName");
-            }
-            if(parameters.getUser() == null) {
-                errorMessages.add("Parameter must contain user");
-            }
-            if(parameters.getPassword() == null) {
-                errorMessages.add("Parameter must contain password");
-            }
-
-            if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-            }
-        }
-
-        private void setDefaultParameters() {
-            if(parameters.getCreateTable() == null) {
-                parameters.setCreateTable(false);
-            }
-            if(parameters.getEmptyTable() == null) {
-                parameters.setEmptyTable(false);
-            }
-            if(parameters.getOp() == null) {
-                parameters.setOp(JdbcUtil.OP.INSERT.name());
-            }
-            if(parameters.getBatchSize() == null) {
-                parameters.setBatchSize(1000);
-            }
-            if(parameters.getKeyFields() == null) {
-                parameters.setKeyFields(new ArrayList<>());
             }
         }
 
