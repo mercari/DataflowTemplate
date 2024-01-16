@@ -20,7 +20,8 @@ import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.SchemaUtil;
 import freemarker.template.Template;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.schemas.Schema;
@@ -38,14 +39,13 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 
 public class DummySource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(DummySource.class);
 
-    private class DummySourceParameters implements Serializable {
+    private static class DummySourceParameters implements Serializable {
 
         private JsonObject template;
         private Long throughput;
@@ -72,48 +72,24 @@ public class DummySource implements SourceModule {
             return template;
         }
 
-        public void setTemplate(JsonObject template) {
-            this.template = template;
-        }
-
         public Long getThroughput() {
             return throughput;
-        }
-
-        public void setThroughput(Long throughput) {
-            this.throughput = throughput;
         }
 
         public Long getInterval() {
             return interval;
         }
 
-        public void setInterval(Long interval) {
-            this.interval = interval;
-        }
-
         public DateTimeUtil.TimeUnit getIntervalUnit() {
             return intervalUnit;
-        }
-
-        public void setIntervalUnit(DateTimeUtil.TimeUnit intervalUnit) {
-            this.intervalUnit = intervalUnit;
         }
 
         public Long getSequenceFrom() {
             return sequenceFrom;
         }
 
-        public void setSequenceFrom(Long sequenceFrom) {
-            this.sequenceFrom = sequenceFrom;
-        }
-
         public Long getSequenceTo() {
             return sequenceTo;
-        }
-
-        public void setSequenceTo(Long sequenceTo) {
-            this.sequenceTo = sequenceTo;
         }
 
         public Mutation.Op getMutationOp() {
@@ -128,41 +104,22 @@ public class DummySource implements SourceModule {
             return mutationKeyFields;
         }
 
-        public void setMutationKeyFields(List<String> mutationKeyFields) {
-            this.mutationKeyFields = mutationKeyFields;
-        }
-
         public String getMutationTable() {
             return mutationTable;
-        }
-
-        public void setMutationTable(String mutationTable) {
-            this.mutationTable = mutationTable;
         }
 
         public String getMutationPrimaryField() {
             return mutationPrimaryField;
         }
 
-        public void setMutationPrimaryField(String mutationPrimaryField) {
-            this.mutationPrimaryField = mutationPrimaryField;
-        }
-
         public List<String> getMutationOtherFields() {
             return mutationOtherFields;
-        }
-
-        public void setMutationOtherFields(List<String> mutationOtherFields) {
-            this.mutationOtherFields = mutationOtherFields;
         }
 
         public OutputType getOutputType() {
             return outputType;
         }
 
-        public void setOutputType(OutputType outputType) {
-            this.outputType = outputType;
-        }
 
         public void validate(PInput input) {
             final List<String> errorMessages = new ArrayList<>();
@@ -203,7 +160,7 @@ public class DummySource implements SourceModule {
                 }
             }
             if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -257,7 +214,7 @@ public class DummySource implements SourceModule {
     public static FCollection<?> dummy(final PBegin begin, final SourceConfig config, final DummySourceParameters parameters) {
         final Schema schema = SourceConfig.convertSchema(config.getSchema());
         switch (parameters.getOutputType()) {
-            case row: {
+            case row -> {
                 final DummyStream<Schema, Schema, Row> dummyStream = new DummyStream<>(
                         parameters,
                         schema,
@@ -269,7 +226,7 @@ public class DummySource implements SourceModule {
                 return FCollection
                         .of(config.getName(), dummies, DataType.ROW, schema);
             }
-            case avro: {
+            case avro -> {
                 final org.apache.avro.Schema avroSchema = RowToRecordConverter.convertSchema(schema);
                 final DummyStream<String, org.apache.avro.Schema, GenericRecord> dummyStream = new DummyStream<>(
                         parameters,
@@ -282,7 +239,7 @@ public class DummySource implements SourceModule {
                 return FCollection
                         .of(config.getName(), dummies, DataType.AVRO, avroSchema);
             }
-            case mutationGroup: {
+            case mutationGroup -> {
                 final DummyStream<Schema, Schema, Row> dummyStream = new DummyStream<>(
                         parameters,
                         schema,
@@ -300,7 +257,7 @@ public class DummySource implements SourceModule {
                 return FCollection
                         .of(config.getName(), dummies, DataType.MUTATIONGROUP, schema);
             }
-            default: {
+            default -> {
                 throw new IllegalArgumentException("Dummy source module: " + config.getName() + " does not support outputType: " + parameters.getOutputType());
             }
         }

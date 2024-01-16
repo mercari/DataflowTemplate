@@ -58,13 +58,14 @@ public class Pass implements SelectFunction {
     @Override
     public Object apply(Map<String, Object> input) {
         final Object value = input.get(name);
-        if(DataType.ROW.equals(outputType)) {
-            return RowSchemaUtil.getAsPrimitive(outputFieldType, value);
-        } else if(DataType.AVRO.equals(outputType)) {
-            return AvroSchemaUtil.getAsPrimitive(outputFieldType, value);
-        } else {
-            throw new IllegalArgumentException("SelectField pass: " + name + " does not support output type: " + outputType);
-        }
+        return switch (outputType) {
+            case ROW -> RowSchemaUtil.getAsPrimitive(outputFieldType, value);
+            case AVRO -> AvroSchemaUtil.getAsPrimitive(outputFieldType, value);
+            case STRUCT -> StructSchemaUtil.getAsPrimitive(outputFieldType, value);
+            case DOCUMENT -> DocumentSchemaUtil.getAsPrimitive(outputFieldType, value);
+            case ENTITY -> EntitySchemaUtil.getAsPrimitive(outputFieldType, value);
+            default -> throw new IllegalArgumentException("SelectField pass: " + name + " does not support output type: " + outputType);
+        };
     }
 
 }

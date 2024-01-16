@@ -1,12 +1,16 @@
 package com.mercari.solution.util.pipeline.union;
 
+import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
 import com.google.firestore.v1.Document;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.DynamicMessage;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 
@@ -103,6 +107,10 @@ public class UnionValue {
     }
     public Double getDouble(final String field) {
         return getAsDouble(this, field);
+    }
+
+    public Map<String, Object> getMap() {
+        return getAsMap(this, null);
     }
 
     public Map<String, Object> getMap(final Collection<String> fields) {
@@ -204,6 +212,36 @@ public class UnionValue {
         }
     }
 
+    public static Map<String, Object> asPrimitiveMap(final UnionValue unionValue) {
+        if(unionValue.value == null) {
+            return new HashMap<>();
+        }
+        switch (unionValue.type) {
+            case ROW: {
+                final Row row = (Row) unionValue.value;
+                return RowSchemaUtil.asPrimitiveMap(row);
+            }
+            case AVRO: {
+                final GenericRecord record = (GenericRecord) unionValue.value;
+                return AvroSchemaUtil.asPrimitiveMap(record);
+            }
+            case STRUCT: {
+                final Struct struct = (Struct) unionValue.value;
+                return StructSchemaUtil.asPrimitiveMap(struct);
+            }
+            case DOCUMENT: {
+                final Document document = (Document) unionValue.value;
+                return DocumentSchemaUtil.asPrimitiveMap(document);
+            }
+            case ENTITY: {
+                final Entity entity = (Entity) unionValue.value;
+                return EntitySchemaUtil.asPrimitiveMap(entity);
+            }
+            default:
+                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+        }
+    }
+
     public static Map<String, Double> getAsDoubleMap(final UnionValue unionValue, final Collection<String> fields) {
         final Map<String, Double> doubles = new HashMap<>();
         if(unionValue.value == null) {
@@ -250,6 +288,50 @@ public class UnionValue {
         }
 
         return doubles;
+    }
+
+    public static String getAsJson(final UnionValue unionValue) {
+        if(unionValue == null) {
+            return null;
+        }
+        return switch (unionValue.getType()) {
+            case ROW -> RowToJsonConverter.convert((Row) unionValue.getValue());
+            case AVRO -> RecordToJsonConverter.convert((GenericRecord) unionValue.getValue());
+            case STRUCT -> StructToJsonConverter.convert((Struct) unionValue.getValue());
+            case DOCUMENT -> DocumentToJsonConverter.convert((Document) unionValue.getValue());
+            case ENTITY -> EntityToJsonConverter.convert((Entity) unionValue.getValue());
+            case MUTATION -> MutationToJsonConverter.convertJsonString((Mutation) unionValue.getValue());
+            case MUTATIONGROUP -> MutationToJsonConverter.convertJsonString((MutationGroup) unionValue.getValue());
+            default -> throw new IllegalArgumentException();
+        };
+    }
+
+    public static GenericRecord getAsRecord(final org.apache.avro.Schema schema, final UnionValue unionValue) {
+        if(unionValue == null) {
+            return null;
+        }
+        return switch (unionValue.getType()) {
+            case ROW -> RowToRecordConverter.convert(schema, (Row) unionValue.getValue());
+            case AVRO -> (GenericRecord) unionValue.getValue();
+            case STRUCT -> StructToRecordConverter.convert(schema, (Struct) unionValue.getValue());
+            case DOCUMENT -> DocumentToRecordConverter.convert(schema, (Document) unionValue.getValue());
+            case ENTITY -> EntityToRecordConverter.convert(schema, (Entity) unionValue.getValue());
+            case MUTATION -> MutationToRecordConverter.convert(schema, (Mutation) unionValue.getValue());
+            default -> throw new IllegalArgumentException();
+        };
+    }
+
+    public static DynamicMessage getAsProtoMessage(final Descriptors.Descriptor messageDescriptor, final UnionValue unionValue) {
+        if(unionValue == null) {
+            return null;
+        }
+        return switch (unionValue.getType()) {
+            case ROW -> RowToProtoConverter.convert(messageDescriptor, (Row) unionValue.getValue());
+            case AVRO -> RecordToProtoConverter.convert(messageDescriptor, (GenericRecord) unionValue.getValue());
+            case STRUCT -> StructToProtoConverter.convert(messageDescriptor, (Struct) unionValue.getValue());
+            case ENTITY -> EntityToProtoConverter.convert(messageDescriptor, (Entity) unionValue.getValue());
+            default -> throw new IllegalArgumentException();
+        };
     }
 
     public static Object merge(final UnionValue unionValue, Object schema, Map<String, Object> updates, DataType dataType) {

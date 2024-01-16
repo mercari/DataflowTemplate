@@ -10,7 +10,9 @@ import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.EntityToMapConverter;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.joda.time.Instant;
 
@@ -54,81 +56,60 @@ public class EntitySchemaUtil {
         if(value == null) {
             return null;
         }
-        switch(value.getValueTypeCase()) {
-            case KEY_VALUE: return value.getKeyValue();
-            case STRING_VALUE: return value.getStringValue();
-            case BLOB_VALUE: return value.getBlobValue().toByteArray();
-            case INTEGER_VALUE: return value.getIntegerValue();
-            case DOUBLE_VALUE: return value.getDoubleValue();
-            case BOOLEAN_VALUE: return value.getBooleanValue();
-            case TIMESTAMP_VALUE: return Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue()));
-            case ENTITY_VALUE: return value.getEntityValue();
-            case ARRAY_VALUE: {
-                return value.getArrayValue().getValuesList()
+        return switch (value.getValueTypeCase()) {
+            case KEY_VALUE -> value.getKeyValue();
+            case STRING_VALUE -> value.getStringValue();
+            case BLOB_VALUE -> value.getBlobValue().toByteArray();
+            case INTEGER_VALUE -> value.getIntegerValue();
+            case DOUBLE_VALUE -> value.getDoubleValue();
+            case BOOLEAN_VALUE -> value.getBooleanValue();
+            case TIMESTAMP_VALUE -> Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue()));
+            case ENTITY_VALUE -> value.getEntityValue();
+            case ARRAY_VALUE ->
+                value.getArrayValue().getValuesList()
                         .stream()
                         .map(v -> {
-                            if(v == null) {
+                            if (v == null) {
                                 return null;
                             }
-                            switch (v.getValueTypeCase()) {
-                                case KEY_VALUE:
-                                    return v.getKeyValue();
-                                case BOOLEAN_VALUE:
-                                    return v.getBooleanValue();
-                                case INTEGER_VALUE:
-                                    return v.getIntegerValue();
-                                case BLOB_VALUE:
-                                    return v.getBlobValue().toByteArray();
-                                case STRING_VALUE:
-                                    return v.getStringValue();
-                                case DOUBLE_VALUE:
-                                    return v.getDoubleValue();
-                                case GEO_POINT_VALUE:
-                                    return v.getGeoPointValue();
-                                case TIMESTAMP_VALUE:
-                                    return Instant.ofEpochMilli(Timestamps.toMillis(v.getTimestampValue()));
-                                case ENTITY_VALUE:
-                                    return v.getEntityValue();
-                                case ARRAY_VALUE:
-                                case NULL_VALUE:
-                                case VALUETYPE_NOT_SET:
-                                default:
-                                    return null;
-                            }
+                            return switch (v.getValueTypeCase()) {
+                                case KEY_VALUE -> v.getKeyValue();
+                                case BOOLEAN_VALUE -> v.getBooleanValue();
+                                case INTEGER_VALUE -> v.getIntegerValue();
+                                case BLOB_VALUE -> v.getBlobValue().toByteArray();
+                                case STRING_VALUE -> v.getStringValue();
+                                case DOUBLE_VALUE -> v.getDoubleValue();
+                                case GEO_POINT_VALUE -> v.getGeoPointValue();
+                                case TIMESTAMP_VALUE ->
+                                        Instant.ofEpochMilli(Timestamps.toMillis(v.getTimestampValue()));
+                                case ENTITY_VALUE -> v.getEntityValue();
+                                default -> null;
+                            };
                         })
                         .collect(Collectors.toList());
-            }
-            case GEO_POINT_VALUE:
-                return value.getGeoPointValue();
-            case VALUETYPE_NOT_SET:
-            case NULL_VALUE:
-                return null;
-            default:
-                throw new IllegalArgumentException(String.format("%s is not supported!", value.getValueTypeCase().name()));
-        }
+            case GEO_POINT_VALUE -> value.getGeoPointValue();
+            case VALUETYPE_NOT_SET, NULL_VALUE -> null;
+            default -> throw new IllegalArgumentException(String.format("%s is not supported!", value.getValueTypeCase().name()));
+        };
     }
 
     public static Object getValue(Value value) {
         if(value == null) {
             return null;
         }
-        switch(value.getValueTypeCase()) {
-            case KEY_VALUE: return value.getKeyValue();
-            case STRING_VALUE: return value.getStringValue();
-            case BLOB_VALUE: return value.getBlobValue();
-            case INTEGER_VALUE: return value.getIntegerValue();
-            case DOUBLE_VALUE: return value.getDoubleValue();
-            case BOOLEAN_VALUE: return value.getBooleanValue();
-            case TIMESTAMP_VALUE: return value.getTimestampValue();
-            case ENTITY_VALUE: return value.getEntityValue();
-            case ARRAY_VALUE: return value.getArrayValue();
-            case VALUETYPE_NOT_SET:
-            case NULL_VALUE:
-                return null;
-            case GEO_POINT_VALUE:
-            default:
-                throw new IllegalArgumentException(String.format("%s is not supported!", value.getValueTypeCase().name()));
-        }
+        return switch (value.getValueTypeCase()) {
+            case KEY_VALUE -> value.getKeyValue();
+            case STRING_VALUE -> value.getStringValue();
+            case BLOB_VALUE -> value.getBlobValue();
+            case INTEGER_VALUE -> value.getIntegerValue();
+            case DOUBLE_VALUE -> value.getDoubleValue();
+            case BOOLEAN_VALUE -> value.getBooleanValue();
+            case TIMESTAMP_VALUE -> value.getTimestampValue();
+            case ENTITY_VALUE -> value.getEntityValue();
+            case ARRAY_VALUE -> value.getArrayValue();
+            case VALUETYPE_NOT_SET, NULL_VALUE -> null;
+            default -> throw new IllegalArgumentException(String.format("%s is not supported!", value.getValueTypeCase().name()));
+        };
     }
 
     public static String getAsString(final Value value) {
@@ -151,29 +132,16 @@ public class EntitySchemaUtil {
         if(value == null) {
             return null;
         }
-        switch(value.getValueTypeCase()) {
-            case KEY_VALUE:
-                return toStringKey(value.getKeyValue());
-            case STRING_VALUE:
-                return value.getStringValue();
-            case BLOB_VALUE:
-                return Base64.getEncoder().encodeToString(value.getBlobValue().toByteArray());
-            case INTEGER_VALUE:
-                return Long.toString(value.getIntegerValue());
-            case DOUBLE_VALUE:
-                return Double.toString(value.getDoubleValue());
-            case BOOLEAN_VALUE:
-                return Boolean.toString(value.getBooleanValue());
-            case TIMESTAMP_VALUE:
-                return Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue())).toString();
-            case GEO_POINT_VALUE:
-            case ENTITY_VALUE:
-            case ARRAY_VALUE:
-            case VALUETYPE_NOT_SET:
-            case NULL_VALUE:
-            default:
-                return null;
-        }
+        return switch (value.getValueTypeCase()) {
+            case KEY_VALUE -> toStringKey(value.getKeyValue());
+            case STRING_VALUE -> value.getStringValue();
+            case BLOB_VALUE -> Base64.getEncoder().encodeToString(value.getBlobValue().toByteArray());
+            case INTEGER_VALUE -> Long.toString(value.getIntegerValue());
+            case DOUBLE_VALUE -> Double.toString(value.getDoubleValue());
+            case BOOLEAN_VALUE -> Boolean.toString(value.getBooleanValue());
+            case TIMESTAMP_VALUE -> Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue())).toString();
+            default -> null;
+        };
     }
 
     public static Long getAsLong(final Entity entity, final String fieldName) {
@@ -181,30 +149,26 @@ public class EntitySchemaUtil {
         if(value == null) {
             return null;
         }
-        switch(value.getValueTypeCase()) {
-            case BOOLEAN_VALUE:
+        switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> {
                 return value.getBooleanValue() ? 1L : 0L;
-            case INTEGER_VALUE:
+            }
+            case INTEGER_VALUE -> {
                 return value.getIntegerValue();
-            case DOUBLE_VALUE:
+            }
+            case DOUBLE_VALUE -> {
                 return Double.valueOf(value.getDoubleValue()).longValue();
-            case STRING_VALUE: {
+            }
+            case STRING_VALUE -> {
                 try {
                     return Long.valueOf(value.getStringValue());
                 } catch (Exception e) {
                     return null;
                 }
             }
-            case KEY_VALUE:
-            case BLOB_VALUE:
-            case TIMESTAMP_VALUE:
-            case GEO_POINT_VALUE:
-            case ENTITY_VALUE:
-            case ARRAY_VALUE:
-            case VALUETYPE_NOT_SET:
-            case NULL_VALUE:
-            default:
+            default -> {
                 return null;
+            }
         }
     }
 
@@ -213,30 +177,26 @@ public class EntitySchemaUtil {
         if(value == null) {
             return null;
         }
-        switch(value.getValueTypeCase()) {
-            case BOOLEAN_VALUE:
+        switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> {
                 return value.getBooleanValue() ? 1D : 0D;
-            case INTEGER_VALUE:
+            }
+            case INTEGER_VALUE -> {
                 return Long.valueOf(value.getIntegerValue()).doubleValue();
-            case DOUBLE_VALUE:
+            }
+            case DOUBLE_VALUE -> {
                 return value.getDoubleValue();
-            case STRING_VALUE: {
+            }
+            case STRING_VALUE -> {
                 try {
                     return Double.valueOf(value.getStringValue());
                 } catch (Exception e) {
                     return null;
                 }
             }
-            case KEY_VALUE:
-            case BLOB_VALUE:
-            case TIMESTAMP_VALUE:
-            case GEO_POINT_VALUE:
-            case ENTITY_VALUE:
-            case ARRAY_VALUE:
-            case VALUETYPE_NOT_SET:
-            case NULL_VALUE:
-            default:
+            default -> {
                 return null;
+            }
         }
     }
 
@@ -245,30 +205,26 @@ public class EntitySchemaUtil {
         if(value == null) {
             return null;
         }
-        switch(value.getValueTypeCase()) {
-            case BOOLEAN_VALUE:
+        switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> {
                 return BigDecimal.valueOf(value.getBooleanValue() ? 1D : 0D);
-            case INTEGER_VALUE:
+            }
+            case INTEGER_VALUE -> {
                 return BigDecimal.valueOf(value.getIntegerValue());
-            case DOUBLE_VALUE:
+            }
+            case DOUBLE_VALUE -> {
                 return BigDecimal.valueOf(value.getDoubleValue());
-            case STRING_VALUE: {
+            }
+            case STRING_VALUE -> {
                 try {
                     return BigDecimal.valueOf(Double.valueOf(value.getStringValue()));
                 } catch (Exception e) {
                     return null;
                 }
             }
-            case KEY_VALUE:
-            case BLOB_VALUE:
-            case TIMESTAMP_VALUE:
-            case GEO_POINT_VALUE:
-            case ENTITY_VALUE:
-            case ARRAY_VALUE:
-            case VALUETYPE_NOT_SET:
-            case NULL_VALUE:
-            default:
+            default -> {
                 return null;
+            }
         }
     }
 
@@ -284,34 +240,18 @@ public class EntitySchemaUtil {
         final Value value = entity.getPropertiesOrThrow(fieldName);
         final byte[] bytes;
         switch (value.getValueTypeCase()) {
-            case BOOLEAN_VALUE:
-                bytes = Bytes.toBytes(value.getBooleanValue());
-                break;
-            case STRING_VALUE:
-                bytes = Bytes.toBytes(value.getStringValue());
-                break;
-            case BLOB_VALUE:
-                bytes = value.getBlobValue().asReadOnlyByteBuffer().array();
-                break;
-            case INTEGER_VALUE:
-                bytes = Bytes.toBytes(value.getIntegerValue());
-                break;
-            case DOUBLE_VALUE:
-                bytes = Bytes.toBytes(value.getDoubleValue());
-                break;
-            case TIMESTAMP_VALUE: {
+            case BOOLEAN_VALUE -> bytes = Bytes.toBytes(value.getBooleanValue());
+            case STRING_VALUE -> bytes = Bytes.toBytes(value.getStringValue());
+            case BLOB_VALUE -> bytes = value.getBlobValue().asReadOnlyByteBuffer().array();
+            case INTEGER_VALUE -> bytes = Bytes.toBytes(value.getIntegerValue());
+            case DOUBLE_VALUE -> bytes = Bytes.toBytes(value.getDoubleValue());
+            case TIMESTAMP_VALUE -> {
                 final Timestamp timestamp = value.getTimestampValue();
                 bytes = Bytes.toBytes(Timestamps.toMicros(timestamp));
-                break;
             }
-            case KEY_VALUE:
-            case NULL_VALUE:
-            case ARRAY_VALUE:
-            case ENTITY_VALUE:
-            case GEO_POINT_VALUE:
-            case VALUETYPE_NOT_SET:
-            default:
+            default -> {
                 return null;
+            }
         }
         return ByteString.copyFrom(bytes);
     }
@@ -352,12 +292,282 @@ public class EntitySchemaUtil {
         }
     }
 
-    public static Object getAsPrimitive(Object row, Schema.FieldType fieldType, String field) {
-        return null;
+    public static Object getAsPrimitive(Object object, Schema.FieldType fieldType, String field) {
+        if(object == null) {
+            return null;
+        }
+        if(!(object instanceof Entity)) {
+            return null;
+        }
+        final Entity entity = (Entity) object;
+        final Value value = entity.getPropertiesOrDefault(field, Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+        return getAsPrimitive(fieldType, value);
+    }
+
+    private static Object getAsPrimitive(final Schema.FieldType fieldType, final Value value) {
+        if(Value.ValueTypeCase.NULL_VALUE.equals(value.getValueTypeCase())) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT32 -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Integer.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).intValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).intValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1 : 0;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case INT64 -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Long.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> value.getIntegerValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).longValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1L : 0L;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case FLOAT -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Float.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).floatValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).floatValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1F : 0F;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case DOUBLE -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Double.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).doubleValue();
+                    case DOUBLE_VALUE -> value.getDoubleValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1D : 0D;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case BOOLEAN -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Boolean.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> value.getIntegerValue() > 0;
+                    case DOUBLE_VALUE -> value.getDoubleValue() > 0;
+                    case BOOLEAN_VALUE -> value.getBooleanValue();
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case STRING -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> value.getStringValue();
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).toString();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).toString();
+                    case BOOLEAN_VALUE -> Boolean.valueOf(value.getBooleanValue()).toString();
+                    case TIMESTAMP_VALUE -> value.getTimestampValue().toString();
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case DATETIME -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getStringValue());
+                    case INTEGER_VALUE -> value.getIntegerValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).longValue();
+                    case TIMESTAMP_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return switch (value.getValueTypeCase()) {
+                        case STRING_VALUE -> Long.valueOf(DateTimeUtil.toLocalDate(value.getStringValue()).toEpochDay()).intValue();
+                        case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).intValue();
+                        case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+                        default -> throw new IllegalStateException();
+                    };
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return switch (value.getValueTypeCase()) {
+                        case STRING_VALUE -> Long.valueOf(DateTimeUtil.toLocalTime(value.getStringValue()).toSecondOfDay()).intValue();
+                        case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).intValue();
+                        case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+                        default -> throw new IllegalStateException();
+                    };
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return value.getStringValue();
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE, ARRAY -> {
+                return value.getArrayValue().getValuesList()
+                        .stream()
+                        .map((Value v) -> getAsPrimitive(fieldType.getCollectionElementType(), v))
+                        .collect(Collectors.toList());
+            }
+            default -> throw new IllegalStateException();
+        }
+    }
+
+
+    public static Object getAsPrimitive(final Schema.FieldType fieldType, final Object fieldValue) {
+        if(fieldValue == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case STRING, INT64, DOUBLE, BOOLEAN -> {
+                return fieldValue;
+            }
+            case INT32 -> {
+                return ((Long) fieldValue).intValue();
+            }
+            case FLOAT -> {
+                return ((Double) fieldValue).floatValue();
+            }
+            case DATETIME -> {
+                return DateTimeUtil.toEpochMicroSecond((com.google.protobuf.Timestamp) fieldValue);
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return DateTimeUtil.toEpochDay((Date)fieldValue);
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return DateTimeUtil.toLocalTime((String) fieldValue).toNanoOfDay() / 1000L;
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return fieldValue;
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE, ARRAY -> {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT64, DOUBLE, BOOLEAN, STRING -> {
+                        return fieldValue;
+                    }
+                    case INT32 -> {
+                        return ((List<Long>) fieldValue).stream()
+                                .map(Long::intValue)
+                                .collect(Collectors.toList());
+                    }
+                    case FLOAT -> {
+                        return ((List<Double>) fieldValue).stream()
+                                .map(Double::floatValue)
+                                .collect(Collectors.toList());
+                    }
+                    case DATETIME -> {
+                        return ((List<com.google.protobuf.Timestamp>) fieldValue).stream()
+                                .map(DateTimeUtil::toEpochMicroSecond)
+                                .collect(Collectors.toList());
+                    }
+                    case LOGICAL_TYPE -> {
+                        return ((List<Object>) fieldValue).stream()
+                                .map(o -> {
+                                    if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                                        return DateTimeUtil.toEpochDay((Date)o);
+                                    } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                                        return DateTimeUtil.toLocalTime((String) o).toNanoOfDay() / 1000L;
+                                    } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException();
+                }
+            }
+            default -> throw new IllegalStateException();
+        }
+    }
+
+    public static Object getAsPrimitive(final Value value) {
+        if(value == null) {
+            return null;
+        }
+        return switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> value.getBooleanValue();
+            case STRING_VALUE -> value.getStringValue();
+            case INTEGER_VALUE -> value.getIntegerValue();
+            case DOUBLE_VALUE -> value.getDoubleValue();
+            case BLOB_VALUE -> value.getBlobValue().toByteArray();
+            case TIMESTAMP_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+            case GEO_POINT_VALUE -> value.getGeoPointValue().toString();
+            case ENTITY_VALUE -> EntityToMapConverter.convert(value.getEntityValue());
+            case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+            case ARRAY_VALUE -> value.getArrayValue().getValuesList().stream()
+                    .map(EntitySchemaUtil::getAsPrimitive)
+                    .collect(Collectors.toList());
+            default -> throw new IllegalStateException();
+        };
     }
 
     public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
-        return null;
+        if (primitiveValue == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT32:
+            case INT64:
+            case FLOAT:
+            case DOUBLE:
+            case STRING:
+            case BOOLEAN:
+                return primitiveValue;
+            case DATETIME: {
+                return DateTimeUtil.toProtoTimestamp((Long)primitiveValue);
+            }
+            case LOGICAL_TYPE: {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return LocalDate.ofEpochDay((Integer) primitiveValue).toString();
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return LocalTime.ofNanoOfDay((Long) primitiveValue).toString();
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final int index = (Integer) primitiveValue;
+                    return fieldType.getLogicalType(EnumerationType.class).valueOf(index);
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE:
+            case ARRAY: {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT32, INT64, FLOAT, DOUBLE, STRING, BOOLEAN -> {
+                        return primitiveValue;
+                    }
+                    case DATETIME -> {
+                        return ((List<Long>) primitiveValue).stream()
+                                .map(DateTimeUtil::toProtoTimestamp)
+                                .collect(Collectors.toList());
+                    }
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList());
+                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                            return ((List<Long>) primitiveValue).stream()
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList());
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(index -> fieldType.getLogicalType(EnumerationType.class).valueOf(index))
+                                    .collect(Collectors.toList());
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
+                }
+            }
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
+    public static Map<String, Object> asPrimitiveMap(final Entity entity) {
+        final Map<String, Object> primitiveMap = new HashMap<>();
+        if(entity == null) {
+            return primitiveMap;
+        }
+        for(final Map.Entry<String, Value> entry : entity.getPropertiesMap().entrySet()) {
+            final Object value = getAsPrimitive(entry.getValue());
+            primitiveMap.put(entry.getKey(), value);
+        }
+        return primitiveMap;
     }
 
     public static Date convertDate(final Value value) {
@@ -601,13 +811,13 @@ public class EntitySchemaUtil {
                         value = Value.newBuilder().setStringValue(object.toString()).build();
                         break;
                     case DATETIME:
-                        value = Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp((Long) object)).build();
+                        value = Value.newBuilder().setTimestampValue((Timestamp) object).build();
                         break;
                     case LOGICAL_TYPE: {
                         if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
-                            value = Value.newBuilder().setStringValue(LocalDate.ofEpochDay((Integer) object).toString()).build();
+                            value = Value.newBuilder().setStringValue((String) object).build();
                         } else if(RowSchemaUtil.isLogicalTypeTime(field.getType())) {
-                            value = Value.newBuilder().setStringValue(LocalTime.ofNanoOfDay(((Long) object) / 1000L).toString()).build();
+                            value = Value.newBuilder().setStringValue((String) object).build();
                         } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
                             value = Value.newBuilder().setStringValue(object.toString()).build();
                         } else {

@@ -44,7 +44,7 @@ public class JdbcSource implements SourceModule {
 
     public String getName() { return "jdbc"; }
 
-    private class JdbcSourceParameters implements Serializable {
+    private static class JdbcSourceParameters implements Serializable {
 
         private String url;
         private String driver;
@@ -69,116 +69,149 @@ public class JdbcSource implements SourceModule {
             return url;
         }
 
-        public void setUrl(String url) {
-            this.url = url;
-        }
-
         public String getDriver() {
             return driver;
-        }
-
-        public void setDriver(String driver) {
-            this.driver = driver;
         }
 
         public String getUser() {
             return user;
         }
 
-        public void setUser(String user) {
-            this.user = user;
-        }
-
         public String getPassword() {
             return password;
-        }
-
-        public void setPassword(String password) {
-            this.password = password;
         }
 
         public String getQuery() {
             return query;
         }
 
-        public void setQuery(String query) {
-            this.query = query;
-        }
-
         public List<String> getPrepareCalls() {
             return prepareCalls;
-        }
-
-        public void setPrepareCalls(List<String> prepareCalls) {
-            this.prepareCalls = prepareCalls;
         }
 
         public List<PrepareParameterQuery> getPrepareParameterQueries() {
             return prepareParameterQueries;
         }
 
-        public void setPrepareParameterQueries(List<PrepareParameterQuery> prepareParameterQueries) {
-            this.prepareParameterQueries = prepareParameterQueries;
-        }
-
         public String getTable() {
             return table;
-        }
-
-        public void setTable(String table) {
-            this.table = table;
         }
 
         public String getFields() {
             return fields;
         }
 
-        public void setFields(String fields) {
-            this.fields = fields;
-        }
-
         public List<String> getExcludeFields() {
             return excludeFields;
-        }
-
-        public void setExcludeFields(List<String> excludeFields) {
-            this.excludeFields = excludeFields;
         }
 
         public List<String> getKeyFields() {
             return keyFields;
         }
 
-        public void setKeyFields(List<String> keyFields) {
-            this.keyFields = keyFields;
-        }
-
         public Integer getFetchSize() {
             return fetchSize;
-        }
-
-        public void setFetchSize(Integer fetchSize) {
-            this.fetchSize = fetchSize;
         }
 
         public Integer getSplitSize() {
             return splitSize;
         }
 
-        public void setSplitSize(Integer splitSize) {
-            this.splitSize = splitSize;
-        }
-
         public Boolean getEnableSplit() {
             return enableSplit;
         }
 
-        public void setEnableSplit(Boolean enableSplit) {
-            this.enableSplit = enableSplit;
+        public void validate() {
+
+            final List<String> errorMessages = new ArrayList<>();
+            if(url == null) {
+                errorMessages.add("Jdbc source module requires url parameter");
+            }
+            if(driver == null) {
+                errorMessages.add("Jdbc source module requires driver parameter");
+            }
+            if(user == null) {
+                errorMessages.add("Jdbc source module requires user parameter");
+            }
+            if(password == null) {
+                errorMessages.add("Jdbc source module requires password parameter");
+            }
+
+            if(query == null && table == null) {
+                errorMessages.add("Jdbc source module requires query or table parameter");
+            } else if(query != null && table != null) {
+                errorMessages.add("Jdbc source module requires parameter either query or table. " + query + " : " + table);
+            }
+
+            if(prepareParameterQueries != null) {
+                for(final PrepareParameterQuery preprocessQuery : prepareParameterQueries) {
+                    errorMessages.addAll(preprocessQuery.validate());
+                }
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
         }
+
+        public void setDefaults() {
+            if(prepareCalls == null) {
+                prepareCalls = new ArrayList<>();
+            }
+            if(prepareParameterQueries == null) {
+                prepareParameterQueries = new ArrayList<>();
+            } else {
+                for(final PrepareParameterQuery prepareParameterQuery : prepareParameterQueries) {
+                    prepareParameterQuery.setDefaults();
+                }
+            }
+            if(fields == null) {
+                fields = "*";
+            }
+            if(keyFields == null) {
+                keyFields = new ArrayList<>();
+            }
+            if(excludeFields == null) {
+                excludeFields = new ArrayList<>();
+            }
+            if(splitSize == null) {
+                splitSize = 10;
+            }
+            if(enableSplit == null) {
+                enableSplit = false;
+            }
+        }
+
+        public void replaceParameters() {
+            if(query != null && query.startsWith("gs://")) {
+                query = StorageUtil.readString(query);
+            }
+
+            if(SecretManagerUtil.isSecretName(user) || SecretManagerUtil.isSecretName(password)) {
+                try(final SecretManagerServiceClient secretClient = SecretManagerUtil.createClient()) {
+                    if(SecretManagerUtil.isSecretName(user)) {
+                        user = SecretManagerUtil.getSecret(secretClient, user).toStringUtf8();
+                    }
+                    if(SecretManagerUtil.isSecretName(password)) {
+                        password = SecretManagerUtil.getSecret(secretClient, password).toStringUtf8();
+                    }
+                }
+            }
+
+            if(table != null && keyFields.size() == 0) {
+                final DataSource dataSource = JdbcUtil.createDataSource(
+                        driver, url, user, password, true);
+                try(final Connection connection = dataSource.getConnection()) {
+                    keyFields = JdbcUtil.getPrimaryKeyNames(connection, null, null, table);
+                } catch (SQLException e) {
+                    throw new IllegalStateException("Failed to get primaryKeys for table: " + table, e);
+                }
+            }
+        }
+
     }
 
-    public class PrepareParameterQuery implements Serializable {
+    public static class PrepareParameterQuery implements Serializable {
 
         private String query;
         private List<String> prepareCalls;
@@ -187,16 +220,8 @@ public class JdbcSource implements SourceModule {
             return query;
         }
 
-        public void setQuery(String query) {
-            this.query = query;
-        }
-
         public List<String> getPrepareCalls() {
             return prepareCalls;
-        }
-
-        public void setPrepareCalls(List<String> prepareCalls) {
-            this.prepareCalls = prepareCalls;
         }
 
         public List<String> validate() {
@@ -215,119 +240,27 @@ public class JdbcSource implements SourceModule {
 
     }
 
-    private static void validateParameters(final JdbcSourceParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("Jdbc SourceConfig must not be empty!");
-        }
-
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getUrl() == null) {
-            errorMessages.add("Jdbc source module requires url parameter");
-        }
-        if(parameters.getDriver() == null) {
-            errorMessages.add("Jdbc source module requires driver parameter");
-        }
-        if(parameters.getUser() == null) {
-            errorMessages.add("Jdbc source module requires user parameter");
-        }
-        if(parameters.getPassword() == null) {
-            errorMessages.add("Jdbc source module requires password parameter");
-        }
-
-        if(parameters.getQuery() == null && parameters.getTable() == null) {
-            errorMessages.add("Jdbc source module requires query or table parameter");
-        } else if(parameters.getQuery() != null && parameters.getTable() != null) {
-            errorMessages.add("Jdbc source module requires parameter either query or table. " + parameters.getQuery() + " : " + parameters.getTable());
-        }
-
-        if(parameters.getPrepareParameterQueries() != null) {
-            for(final PrepareParameterQuery preprocessQuery : parameters.getPrepareParameterQueries()) {
-                errorMessages.addAll(preprocessQuery.validate());
-            }
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-        }
-    }
-
-    private static void setDefaultParameters(final JdbcSourceParameters parameters) {
-        if(parameters.getPrepareCalls() == null) {
-            parameters.setPrepareCalls(new ArrayList<>());
-        }
-        if(parameters.getPrepareParameterQueries() == null) {
-            parameters.setPrepareParameterQueries(new ArrayList<>());
-        } else {
-            for(final PrepareParameterQuery prepareParameterQuery : parameters.getPrepareParameterQueries()) {
-                prepareParameterQuery.setDefaults();
-            }
-        }
-        if(parameters.getFields() == null) {
-            parameters.setFields("*");
-        }
-        if(parameters.getKeyFields() == null) {
-            parameters.setKeyFields(new ArrayList<>());
-        }
-        if(parameters.getExcludeFields() == null) {
-            parameters.setExcludeFields(new ArrayList<>());
-        }
-        if(parameters.getSplitSize() == null) {
-            parameters.setSplitSize(10);
-        }
-        if(parameters.getEnableSplit() == null) {
-            parameters.setEnableSplit(false);
-        }
-    }
-
-    private static void replaceParameters(final JdbcSourceParameters parameters) {
-        if(parameters.getQuery() != null && parameters.getQuery().startsWith("gs://")) {
-            parameters.setQuery(StorageUtil.readString(parameters.getQuery()));
-        }
-
-        if(SecretManagerUtil.isSecretName(parameters.getUser()) || SecretManagerUtil.isSecretName(parameters.getPassword())) {
-            try(final SecretManagerServiceClient secretClient = SecretManagerUtil.createClient()) {
-                if(SecretManagerUtil.isSecretName(parameters.getUser())) {
-                    final String username = SecretManagerUtil.getSecret(secretClient, parameters.getUser()).toStringUtf8();
-                    parameters.setUser(username);
-                }
-                if(SecretManagerUtil.isSecretName(parameters.getPassword())) {
-                    final String password = SecretManagerUtil.getSecret(secretClient, parameters.getPassword()).toStringUtf8();
-                    parameters.setPassword(password);
-                }
-            }
-        }
-
-        if(parameters.getTable() != null && parameters.getKeyFields().size() == 0) {
-            final DataSource dataSource = JdbcUtil.createDataSource(
-                    parameters.driver, parameters.url, parameters.user, parameters.password, true);
-            try(final Connection connection = dataSource.getConnection()) {
-                final List<String> keyFields = JdbcUtil.getPrimaryKeyNames(connection, null, null, parameters.getTable());
-                parameters.setKeyFields(keyFields);
-            } catch (SQLException e) {
-                throw new IllegalStateException("Failed to get primaryKeys for table: " + parameters.getTable(), e);
-            }
-        }
-    }
-
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
 
         final JdbcSourceParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSourceParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Jdbc source module parameters must not be empty!");
+        }
         if(parameters.getUser() == null) {
             final String serviceAccount = begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).getServiceAccount();
             LOG.info("Using worker service account: '" + serviceAccount + "' for database user");
-            parameters.setUser(serviceAccount.replace(".gserviceaccount.com", ""));
-            parameters.setPassword("dummy");
+            parameters.user = serviceAccount.replace(".gserviceaccount.com", "");
+            parameters.password = "dummy";
             if(!parameters.getUrl().contains("enableIamAuth")) {
-                parameters.setUrl(parameters.getUrl() + "&enableIamAuth=true");
+                parameters.url = parameters.getUrl() + "&enableIamAuth=true";
             }
         }
 
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
-        replaceParameters(parameters);
+        parameters.validate();
+        parameters.setDefaults();
+        parameters.replaceParameters();
 
         if (config.getMicrobatch() != null && config.getMicrobatch()) {
-            //inputs.put(config.getName(), beats.apply(config.getName(), SpannerSource.microbatch(config)));
             return Collections.emptyMap();
         } else {
             return Collections.singletonMap(config.getName(), batch(begin, config, parameters));

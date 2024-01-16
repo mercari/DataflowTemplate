@@ -47,7 +47,7 @@ public class StorageSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(StorageSink.class);
 
-    private class StorageSinkParameters implements Serializable {
+    private static class StorageSinkParameters implements Serializable {
 
         private String output;
         private String format;
@@ -73,128 +73,99 @@ public class StorageSink implements SinkModule {
             return output;
         }
 
-        public void setOutput(String output) {
-            this.output = output;
-        }
-
         public String getFormat() {
             return format;
-        }
-
-        public void setFormat(String format) {
-            this.format = format;
         }
 
         public String getSuffix() {
             return suffix;
         }
 
-        public void setSuffix(String suffix) {
-            this.suffix = suffix;
-        }
-
         public String getDynamicSplitField() {
             return dynamicSplitField;
-        }
-
-        public void setDynamicSplitField(String dynamicSplitField) {
-            this.dynamicSplitField = dynamicSplitField;
         }
 
         public Boolean getWithoutSharding() {
             return withoutSharding;
         }
 
-        public void setWithoutSharding(Boolean withoutSharding) {
-            this.withoutSharding = withoutSharding;
-        }
-
         public String getTempDirectory() {
             return tempDirectory;
-        }
-
-        public void setTempDirectory(String tempDirectory) {
-            this.tempDirectory = tempDirectory;
         }
 
         public Integer getNumShards() {
             return numShards;
         }
 
-        public void setNumShards(Integer numShards) {
-            this.numShards = numShards;
-        }
-
         public String getPrefix() {
             return prefix;
-        }
-
-        public void setPrefix(String prefix) {
-            this.prefix = prefix;
         }
 
         public String getCompression() {
             return compression;
         }
 
-        public void setCompression(String compression) {
-            this.compression = compression;
-        }
-
         public String getOutputNotify() {
             return outputNotify;
-        }
-
-        public void setOutputNotify(String outputNotify) {
-            this.outputNotify = outputNotify;
         }
 
         public String getDatetimeFormat() {
             return datetimeFormat;
         }
 
-        public void setDatetimeFormat(String datetimeFormat) {
-            this.datetimeFormat = datetimeFormat;
-        }
-
         public String getDatetimeFormatZone() {
             return datetimeFormatZone;
-        }
-
-        public void setDatetimeFormatZone(String datetimeFormatZone) {
-            this.datetimeFormatZone = datetimeFormatZone;
         }
 
         public Boolean getUseOnlyEndDatetime() {
             return useOnlyEndDatetime;
         }
 
-        public void setUseOnlyEndDatetime(Boolean useOnlyEndDatetime) {
-            this.useOnlyEndDatetime = useOnlyEndDatetime;
-        }
-
         public Boolean getHeader() {
             return header;
-        }
-
-        public void setHeader(Boolean header) {
-            this.header = header;
         }
 
         public Boolean getBom() {
             return bom;
         }
 
-        public void setBom(Boolean bom) {
-            this.bom = bom;
-        }
-
         public Boolean getOutputEmpty() {
             return outputEmpty;
         }
 
-        public void setOutputEmpty(Boolean outputEmpty) {
-            this.outputEmpty = outputEmpty;
+        private void validate() {
+
+        }
+
+        private void setDefaults() {
+            if(this.format == null) {
+                this.format = "avro";
+            }
+            if(this.suffix == null) {
+                //this.parameters.setSuffix("." + this.parameters.getFormat());
+                this.suffix = "";
+            }
+            if(this.withoutSharding == null) {
+                this.withoutSharding = false;
+            }
+            if(this.datetimeFormat == null) {
+                this.datetimeFormat = "yyyyMMddHHmmss";
+            }
+            if(this.datetimeFormatZone == null) {
+                this.datetimeFormatZone = "Etc/GMT";
+            }
+            if(this.useOnlyEndDatetime == null) {
+                this.useOnlyEndDatetime = false;
+            }
+            if(this.header == null) {
+                this.header = false;
+            }
+            if(this.bom == null) {
+                this.bom = false;
+            }
+            if(this.outputEmpty == null) {
+                this.outputEmpty = false;
+            }
         }
     }
 
@@ -215,6 +186,12 @@ public class StorageSink implements SinkModule {
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final StorageSinkParameters parameters = new Gson().fromJson(config.getParameters(), StorageSinkParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("storage sink module parameters must not be empty!");
+        }
+        parameters.validate();
+        parameters.setDefaults();
+
         final StorageWrite write = new StorageWrite(collection, parameters, waits);
         final PCollection output = collection.getCollection().apply(config.getName(), write);
         final FCollection<?> fcollection = FCollection.update(collection, output);
@@ -241,9 +218,6 @@ public class StorageSink implements SinkModule {
         }
 
         public PCollection<KV> expand(final PCollection<?> inputP) {
-
-            validateParameters();
-            setDefaultParameters();
 
             final PCollection<?> input;
             if(waits == null || waits.size() == 0) {
@@ -517,41 +491,6 @@ public class StorageSink implements SinkModule {
                 write = write.withCompression(c);
             }
             return write;
-        }
-
-        private void validateParameters() {
-
-        }
-
-        private void setDefaultParameters() {
-            if(this.parameters.getFormat() == null) {
-                this.parameters.setFormat("avro");
-            }
-            if(this.parameters.getSuffix() == null) {
-                //this.parameters.setSuffix("." + this.parameters.getFormat());
-                this.parameters.setSuffix("");
-            }
-            if(this.parameters.getWithoutSharding() == null) {
-                this.parameters.setWithoutSharding(false);
-            }
-            if(this.parameters.getDatetimeFormat() == null) {
-                this.parameters.setDatetimeFormat("yyyyMMddHHmmss");
-            }
-            if(this.parameters.getDatetimeFormatZone() == null) {
-                this.parameters.setDatetimeFormatZone("Etc/GMT");
-            }
-            if(this.parameters.getUseOnlyEndDatetime() == null) {
-                this.parameters.setUseOnlyEndDatetime(false);
-            }
-            if(this.parameters.getHeader() == null) {
-                this.parameters.setHeader(false);
-            }
-            if(this.parameters.getBom() == null) {
-                this.parameters.setBom(false);
-            }
-            if(this.parameters.getOutputEmpty() == null) {
-                this.parameters.setOutputEmpty(false);
-            }
         }
 
         private static class PostprocessDoFn extends DoFn<String, Void> {

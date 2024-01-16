@@ -18,6 +18,8 @@ import java.util.stream.Collectors;
 
 public class Accumulator {
 
+    private static final Schema.FieldType FIELD_TYPE_MAP_DOUBLE = Schema.FieldType.map(Schema.FieldType.STRING, Schema.FieldType.DOUBLE);
+
     public Boolean empty;
 
     public Map<String, Integer> ints;
@@ -33,6 +35,8 @@ public class Accumulator {
     public Map<String, List<Double>> doublesList;
     public Map<String, List<String>> stringsList;
     public Map<String, List<Boolean>> boolsList;
+
+    public Map<String, Map<String, Double>> doublesMap;
 
     Accumulator() {
 
@@ -53,6 +57,8 @@ public class Accumulator {
         this.doublesList = (Map<String, List<Double>>) record.get("doublesList");
         this.stringsList = (Map<String, List<String>>) record.get("stringsList");
         this.boolsList = (Map<String, List<Boolean>>) record.get("boolsList");
+
+        this.doublesMap = (Map<String, Map<String, Double>>) record.get("doublesMap");
     }
 
     public static Accumulator of() {
@@ -72,6 +78,8 @@ public class Accumulator {
         accumulator.doublesList = new HashMap<>();
         accumulator.stringsList = new HashMap<>();
         accumulator.boolsList = new HashMap<>();
+
+        accumulator.doublesMap = new HashMap<>();
 
         return accumulator;
     }
@@ -104,12 +112,20 @@ public class Accumulator {
         putValue(this, Schema.FieldType.DOUBLE, name, value);
     }
 
+    public void putDoublesMap(String name, Map<String, Double> value) {
+        putValue(this, FIELD_TYPE_MAP_DOUBLE, name, value);
+    }
+
     public Long getLong(String fieldName) {
         return (Long) getValue(this, Schema.FieldType.INT64, fieldName);
     }
 
     public Double getDouble(String fieldName) {
         return (Double) getValue(this, Schema.FieldType.DOUBLE, fieldName);
+    }
+
+    public Map<String, Double> getDoublesMap(final String fieldName) {
+        return (Map<String, Double>) getValue(this, FIELD_TYPE_MAP_DOUBLE, fieldName);
     }
 
     public static Object getValue(Accumulator accumulator, Schema.FieldType fieldType, String fieldName) {
@@ -141,25 +157,30 @@ public class Accumulator {
             case ITERABLE:
             case ARRAY: {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case DOUBLE:
+                    case DOUBLE -> {
                         return accumulator.doublesList.get(fieldName);
-                    case FLOAT:
+                    }
+                    case FLOAT -> {
                         return accumulator.floatsList.get(fieldName);
-                    case INT64:
-                    case DATETIME:
+                    }
+                    case INT64, DATETIME -> {
                         return accumulator.longsList.get(fieldName);
-                    case INT32:
+                    }
+                    case INT32 -> {
                         return accumulator.intsList.get(fieldName);
-                    case STRING:
+                    }
+                    case STRING -> {
                         return accumulator.stringsList.get(fieldName);
-                    case BOOLEAN:
+                    }
+                    case BOOLEAN -> {
                         return accumulator.boolsList.get(fieldName);
-                    case LOGICAL_TYPE: {
-                        if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    }
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                             return accumulator.intsList.get(fieldName);
-                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                             return accumulator.longsList.get(fieldName);
-                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                             return accumulator.stringsList.get(fieldName);
                         } else {
                             throw new IllegalStateException();
@@ -167,11 +188,16 @@ public class Accumulator {
                     }
                 }
             }
+            case MAP: {
+                return switch (fieldType.getMapValueType().getTypeName()) {
+                    case DOUBLE -> accumulator.doublesMap.get(fieldName);
+                    default -> throw new IllegalArgumentException();
+                };
+            }
             case BYTES:
             case DECIMAL:
             case INT16:
             case BYTE:
-            case MAP:
             case ROW:
             default:
                 throw new IllegalStateException();
@@ -184,94 +210,61 @@ public class Accumulator {
             return;
         }
         switch (fieldType.getTypeName()) {
-            case INT32:
-                accumulator.ints.put(fieldName, (Integer) value);
-                break;
-            case INT64:
-            case DATETIME:
-                accumulator.longs.put(fieldName, (Long) value);
-                break;
-            case DOUBLE:
-                accumulator.doubles.put(fieldName, (Double) value);
-                break;
-            case FLOAT:
-                accumulator.floats.put(fieldName, (Float) value);
-                break;
-            case STRING:
-                accumulator.strings.put(fieldName, value.toString());
-                break;
-            case BOOLEAN:
-                accumulator.booleans.put(fieldName, (Boolean) value);
-                break;
-            case LOGICAL_TYPE: {
+            case INT32 -> accumulator.ints.put(fieldName, (Integer) value);
+            case INT64, DATETIME -> accumulator.longs.put(fieldName, (Long) value);
+            case DOUBLE -> accumulator.doubles.put(fieldName, (Double) value);
+            case FLOAT -> accumulator.floats.put(fieldName, (Float) value);
+            case STRING -> accumulator.strings.put(fieldName, value.toString());
+            case BOOLEAN -> accumulator.booleans.put(fieldName, (Boolean) value);
+            case LOGICAL_TYPE -> {
                 if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     accumulator.ints.put(fieldName, (Integer) value);
                 } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     accumulator.longs.put(fieldName, (Long) value);
                 } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
-                    if(value == null) {
-                        accumulator.strings.put(fieldName, null);
-                    } else {
-                        accumulator.strings.put(fieldName, value.toString());
-                    }
+                    accumulator.strings.put(fieldName, value.toString());
                 } else {
                     throw new IllegalStateException();
                 }
-                break;
             }
-            case ARRAY:
-            case ITERABLE: {
+            case ARRAY, ITERABLE -> {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case DOUBLE:
-                        accumulator.doublesList.put(fieldName, (List<Double>) value);
-                        break;
-                    case FLOAT:
-                        accumulator.floatsList.put(fieldName, (List<Float>) value);
-                        break;
-                    case INT64:
-                    case DATETIME:
-                        accumulator.longsList.put(fieldName, (List<Long>) value);
-                        break;
-                    case INT32:
-                        accumulator.intsList.put(fieldName, (List<Integer>) value);
-                        break;
-                    case STRING: {
+                    case DOUBLE -> accumulator.doublesList.put(fieldName, (List<Double>) value);
+                    case FLOAT -> accumulator.floatsList.put(fieldName, (List<Float>) value);
+                    case INT64, DATETIME -> accumulator.longsList.put(fieldName, (List<Long>) value);
+                    case INT32 -> accumulator.intsList.put(fieldName, (List<Integer>) value);
+                    case STRING -> {
                         final List<String> strings = ((List<Object>) value).stream().map(Object::toString).collect(Collectors.toList());
                         accumulator.stringsList.put(fieldName, strings);
-                        break;
                     }
-                    case BOOLEAN:
-                        accumulator.boolsList.put(fieldName, (List<Boolean>) value);
-                        break;
-                    case LOGICAL_TYPE: {
-                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                    case BOOLEAN -> accumulator.boolsList.put(fieldName, (List<Boolean>) value);
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
                             accumulator.intsList.put(fieldName, (List<Integer>) value);
-                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                             accumulator.longsList.put(fieldName, (List<Long>) value);
-                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                             final List<String> strings;
-                            if(value == null) {
+                            if (value == null) {
                                 strings = null;
                             } else {
-                                strings = ((List<Object>)value).stream().map(o -> o.toString()).collect(Collectors.toList());
+                                strings = ((List<Object>) value).stream().map(o -> o.toString()).collect(Collectors.toList());
                             }
                             accumulator.stringsList.put(fieldName, strings);
                         } else {
                             throw new IllegalStateException();
                         }
-                        break;
                     }
-                    default:
-                        throw new IllegalStateException();
+                    default -> throw new IllegalStateException();
                 }
             }
-            case BYTE:
-            case INT16:
-            case DECIMAL:
-            case BYTES:
-            case MAP:
-            default:
-                throw new IllegalStateException();
+            case MAP -> {
+                switch (fieldType.getMapValueType().getTypeName()) {
+                    case DOUBLE -> accumulator.doublesMap.put(fieldName, (Map<String, Double>) value);
+                    default -> throw new IllegalStateException();
+                }
+            }
+            default -> throw new IllegalStateException();
         }
     }
 
@@ -312,101 +305,75 @@ public class Accumulator {
             return;
         }
         switch (elementType.getTypeName()) {
-            case DOUBLE:
-                accumulator.doublesList.put(fieldName, (List<Double>) value);
-                break;
-            case FLOAT:
-                accumulator.floatsList.put(fieldName, (List<Float>) value);
-                break;
-            case INT64:
-            case DATETIME:
-                accumulator.longsList.put(fieldName, (List<Long>) value);
-                break;
-            case INT32:
-                accumulator.intsList.put(fieldName, (List<Integer>) value);
-                break;
-            case STRING: {
+            case DOUBLE -> accumulator.doublesList.put(fieldName, (List<Double>) value);
+            case FLOAT -> accumulator.floatsList.put(fieldName, (List<Float>) value);
+            case INT64, DATETIME -> accumulator.longsList.put(fieldName, (List<Long>) value);
+            case INT32 -> accumulator.intsList.put(fieldName, (List<Integer>) value);
+            case STRING -> {
                 final List<String> strings = ((List<Object>) value).stream().map(o -> o == null ? null : o.toString()).collect(Collectors.toList());
                 accumulator.stringsList.put(fieldName, strings);
-                break;
             }
-            case BOOLEAN:
-                accumulator.boolsList.put(fieldName, (List<Boolean>) value);
-                break;
-            case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(elementType)) {
+            case BOOLEAN -> accumulator.boolsList.put(fieldName, (List<Boolean>) value);
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(elementType)) {
                     accumulator.intsList.put(fieldName, (List<Integer>) value);
-                } else if(RowSchemaUtil.isLogicalTypeTime(elementType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(elementType)) {
                     accumulator.longsList.put(fieldName, (List<Long>) value);
-                } else if(RowSchemaUtil.isLogicalTypeEnum(elementType)) {
-                    final List<String> strings;
-                    if(value == null) {
-                        strings = null;
-                    } else {
-                        strings = ((List<Object>)value).stream().map(o -> o == null ? null : o.toString()).collect(Collectors.toList());
-                    }
+                } else if (RowSchemaUtil.isLogicalTypeEnum(elementType)) {
+                    final List<String> strings = ((List<Object>) value).stream().map(o -> o == null ? null : o.toString()).collect(Collectors.toList());
                     accumulator.stringsList.put(fieldName, strings);
                 } else {
                     throw new IllegalStateException();
                 }
-                break;
             }
-            default:
-                throw new IllegalStateException();
+            default -> throw new IllegalStateException();
         }
     }
 
     public static void addValue(Accumulator accumulator, Schema.FieldType fieldType, String fieldName, Object value) {
         switch (fieldType.getTypeName()) {
-            case INT32: {
+            case INT32 -> {
                 final List<Integer> intsList = Optional.ofNullable(accumulator.intsList.get(fieldName)).orElseGet(ArrayList::new);
                 intsList.add((Integer) value);
                 accumulator.intsList.put(fieldName, intsList);
-                break;
             }
-            case INT64:
-            case DATETIME: {
+            case INT64, DATETIME -> {
                 final List<Long> longsList = Optional.ofNullable(accumulator.longsList.get(fieldName)).orElseGet(ArrayList::new);
                 longsList.add((Long) value);
                 accumulator.longsList.put(fieldName, longsList);
-                break;
             }
-            case DOUBLE: {
+            case DOUBLE -> {
                 final List<Double> doublesList = Optional.ofNullable(accumulator.doublesList.get(fieldName)).orElseGet(ArrayList::new);
                 doublesList.add((Double) value);
                 accumulator.doublesList.put(fieldName, doublesList);
-                break;
             }
-            case FLOAT: {
+            case FLOAT -> {
                 final List<Float> floatsList = Optional.ofNullable(accumulator.floatsList.get(fieldName)).orElseGet(ArrayList::new);
                 floatsList.add((Float) value);
                 accumulator.floatsList.put(fieldName, floatsList);
-                break;
             }
-            case STRING: {
+            case STRING -> {
                 final List<String> stringsList = Optional.ofNullable(accumulator.stringsList.get(fieldName)).orElseGet(ArrayList::new);
                 stringsList.add(value == null ? null : value.toString());
                 accumulator.stringsList.put(fieldName, stringsList);
-                break;
             }
-            case BOOLEAN: {
+            case BOOLEAN -> {
                 final List<Boolean> boolsList = Optional.ofNullable(accumulator.boolsList.get(fieldName)).orElseGet(ArrayList::new);
-                boolsList.add((Boolean)value);
+                boolsList.add((Boolean) value);
                 accumulator.boolsList.put(fieldName, boolsList);
-                break;
             }
-            case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
                     final List<Integer> intsList = Optional.ofNullable(accumulator.intsList.get(fieldName)).orElseGet(ArrayList::new);
                     intsList.add((Integer) value);
                     accumulator.intsList.put(fieldName, intsList);
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     final List<Long> longsList = Optional.ofNullable(accumulator.longsList.get(fieldName)).orElseGet(ArrayList::new);
                     longsList.add((Long) value);
                     accumulator.longsList.put(fieldName, longsList);
-                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     final List<String> stringsList = Optional.ofNullable(accumulator.stringsList.get(fieldName)).orElseGet(ArrayList::new);
-                    if(value == null) {
+                    if (value == null) {
                         stringsList.add(null);
                     } else {
                         stringsList.add(value.toString());
@@ -415,17 +382,9 @@ public class Accumulator {
                 } else {
                     throw new IllegalStateException();
                 }
-                break;
             }
-            case ARRAY:
-            case ITERABLE:
-            case BYTE:
-            case INT16:
-            case DECIMAL:
-            case BYTES:
-            case MAP:
-            default:
-                throw new IllegalStateException("Not supported add type: " + fieldType.getTypeName() + " for field: " + fieldName);
+            default ->
+                    throw new IllegalStateException("Not supported add type: " + fieldType.getTypeName() + " for field: " + fieldName);
         }
     }
 
@@ -434,88 +393,72 @@ public class Accumulator {
             return;
         }
         switch (elementType.getTypeName()) {
-            case INT32: {
+            case INT32 -> {
                 final List<Integer> intsList = Optional.ofNullable(accumulator.intsList.get(fieldName)).orElseGet(ArrayList::new);
-                for(Object value : list) {
+                for (Object value : list) {
                     intsList.add((Integer) value);
                 }
                 accumulator.intsList.put(fieldName, intsList);
-                break;
             }
-            case INT64:
-            case DATETIME: {
+            case INT64, DATETIME -> {
                 final List<Long> longsList = Optional.ofNullable(accumulator.longsList.get(fieldName)).orElseGet(ArrayList::new);
-                for(Object value : list) {
+                for (Object value : list) {
                     longsList.add((Long) value);
                 }
                 accumulator.longsList.put(fieldName, longsList);
-                break;
             }
-            case DOUBLE: {
+            case DOUBLE -> {
                 final List<Double> doublesList = Optional.ofNullable(accumulator.doublesList.get(fieldName)).orElseGet(ArrayList::new);
-                for(Object value : list) {
+                for (Object value : list) {
                     doublesList.add((Double) value);
                 }
                 accumulator.doublesList.put(fieldName, doublesList);
-                break;
             }
-            case FLOAT: {
+            case FLOAT -> {
                 final List<Float> floatsList = Optional.ofNullable(accumulator.floatsList.get(fieldName)).orElseGet(ArrayList::new);
-                for(Object value : list) {
+                for (Object value : list) {
                     floatsList.add((Float) value);
                 }
                 accumulator.floatsList.put(fieldName, floatsList);
-                break;
             }
-            case STRING: {
+            case STRING -> {
                 final List<String> stringsList = Optional.ofNullable(accumulator.stringsList.get(fieldName)).orElseGet(ArrayList::new);
-                for(Object value : list) {
+                for (Object value : list) {
                     stringsList.add((String) value);
                 }
                 accumulator.stringsList.put(fieldName, stringsList);
-                break;
             }
-            case BOOLEAN: {
+            case BOOLEAN -> {
                 final List<Boolean> boolsList = Optional.ofNullable(accumulator.boolsList.get(fieldName)).orElseGet(ArrayList::new);
-                for(Object value : list) {
+                for (Object value : list) {
                     boolsList.add((Boolean) value);
                 }
                 accumulator.boolsList.put(fieldName, boolsList);
-                break;
             }
-            case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(elementType)) {
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(elementType)) {
                     final List<Integer> intsList = Optional.ofNullable(accumulator.intsList.get(fieldName)).orElseGet(ArrayList::new);
-                    for(Object value : list) {
+                    for (Object value : list) {
                         intsList.add((Integer) value);
                     }
                     accumulator.intsList.put(fieldName, intsList);
-                } else if(RowSchemaUtil.isLogicalTypeTime(elementType)) {
+                } else if (RowSchemaUtil.isLogicalTypeTime(elementType)) {
                     final List<Long> longsList = Optional.ofNullable(accumulator.longsList.get(fieldName)).orElseGet(ArrayList::new);
-                    for(Object value : list) {
+                    for (Object value : list) {
                         longsList.add((Long) value);
                     }
                     accumulator.longsList.put(fieldName, longsList);
-                } else if(RowSchemaUtil.isLogicalTypeEnum(elementType)) {
+                } else if (RowSchemaUtil.isLogicalTypeEnum(elementType)) {
                     final List<String> stringsList = Optional.ofNullable(accumulator.stringsList.get(fieldName)).orElseGet(ArrayList::new);
-                    for(Object value : list) {
+                    for (Object value : list) {
                         stringsList.add((String) value);
                     }
                     accumulator.stringsList.put(fieldName, stringsList);
                 } else {
                     throw new IllegalStateException();
                 }
-                break;
             }
-            case ARRAY:
-            case ITERABLE:
-            case BYTE:
-            case INT16:
-            case DECIMAL:
-            case BYTES:
-            case MAP:
-            default:
-                throw new IllegalStateException("Not supported type: " + elementType);
+            default -> throw new IllegalStateException("Not supported type: " + elementType);
         }
     }
 
@@ -555,36 +498,23 @@ public class Accumulator {
             case ARRAY:
             case ITERABLE: {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case DOUBLE:
-                        accumulator.doublesList.remove(fieldName);
-                        break;
-                    case FLOAT:
-                        accumulator.floatsList.remove(fieldName);
-                        break;
-                    case INT64:
-                    case DATETIME:
-                        accumulator.longsList.remove(fieldName);
-                        break;
-                    case INT32:
-                        accumulator.intsList.remove(fieldName);
-                        break;
-                    case STRING:
-                        accumulator.stringsList.remove(fieldName);
-                        break;
-                    case LOGICAL_TYPE: {
-                        if(RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                    case DOUBLE -> accumulator.doublesList.remove(fieldName);
+                    case FLOAT -> accumulator.floatsList.remove(fieldName);
+                    case INT64, DATETIME -> accumulator.longsList.remove(fieldName);
+                    case INT32 -> accumulator.intsList.remove(fieldName);
+                    case STRING -> accumulator.stringsList.remove(fieldName);
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
                             accumulator.intsList.remove(fieldName);
-                        } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                             accumulator.longsList.remove(fieldName);
-                        } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                             accumulator.stringsList.remove(fieldName);
                         } else {
                             throw new IllegalStateException();
                         }
-                        break;
                     }
-                    default:
-                        throw new IllegalStateException();
+                    default -> throw new IllegalStateException();
                 }
             }
             case BYTE:
@@ -601,20 +531,14 @@ public class Accumulator {
         if(value == null) {
             return null;
         }
-        switch (fieldType.getTypeName()) {
-            case FLOAT:
-                return value.floatValue();
-            case DOUBLE:
-                return value;
-            case INT16:
-                return value.shortValue();
-            case INT32:
-                return value.intValue();
-            case INT64:
-                return value.longValue();
-            default:
-                return null;
-        }
+        return switch (fieldType.getTypeName()) {
+            case FLOAT -> value.floatValue();
+            case DOUBLE -> value;
+            case INT16 -> value.shortValue();
+            case INT32 -> value.intValue();
+            case INT64 -> value.longValue();
+            default -> null;
+        };
     }
 
     public static Accumulator copy(Accumulator base, Set<String> outputFields) {
@@ -645,6 +569,11 @@ public class Accumulator {
                 output.doublesList.put(entry.getKey(), new ArrayList<>(entry.getValue()));
             }
         }
+        for(final Map.Entry<String, Map<String, Double>> entry : base.doublesMap.entrySet()) {
+            if(outputFields == null || outputFields.contains(entry.getKey())) {
+                output.doublesMap.put(entry.getKey(), new HashMap<>(entry.getValue()));
+            }
+        }
 
         return output;
     }
@@ -672,6 +601,9 @@ public class Accumulator {
         final org.apache.avro.Schema boolsListSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createArray(
                 org.apache.avro.Schema.createUnion(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.BOOLEAN), org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL))));
 
+        final org.apache.avro.Schema doublesMapSchema = org.apache.avro.Schema.createMap(org.apache.avro.Schema.createMap(
+                org.apache.avro.Schema.createUnion(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.DOUBLE), org.apache.avro.Schema.create(org.apache.avro.Schema.Type.NULL))));
+
 
         return SchemaBuilder.record("Accumulator").fields()
                 .name("empty").type(emptySchema).noDefault()
@@ -687,6 +619,7 @@ public class Accumulator {
                 .name("doublesList").type(doublesListSchema).noDefault()
                 .name("stringsList").type(stringsListSchema).noDefault()
                 .name("boolsList").type(boolsListSchema).noDefault()
+                .name("doublesMap").type(doublesMapSchema).noDefault()
                 .endRecord();
     }
 
@@ -744,7 +677,7 @@ public class Accumulator {
 
         @Override
         public void verifyDeterministic() throws NonDeterministicException {
-            verifyDeterministic(this, "ProcessingBufferCoder is deterministic if all coders are deterministic");
+            verifyDeterministic(this, "Accumulator is deterministic if all coders are deterministic");
         }
     }
 

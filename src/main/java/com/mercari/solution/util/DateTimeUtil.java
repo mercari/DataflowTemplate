@@ -334,34 +334,26 @@ public class DateTimeUtil {
         if(epoch == null) {
             return null;
         }
-        switch (assumeEpochType(epoch)) {
-            case MICROS:
-                return epoch;
-            case MILLIS:
-                return epoch * 1000L;
-            case SECOND:
-                return epoch * 1000_000L;
-            case UNKNOWN:
-            default:
-                return null;
-        }
+        return switch (assumeEpochType(epoch)) {
+            case NANO -> epoch / 1000L;
+            case MICROS -> epoch;
+            case MILLIS -> epoch * 1000L;
+            case SECOND -> epoch * 1000_000L;
+            default -> null;
+        };
     }
 
     public static Long assumeEpochMilliSecond(final Long epoch) {
         if(epoch == null) {
             return null;
         }
-        switch (assumeEpochType(epoch)) {
-            case MICROS:
-                return epoch / 1000L;
-            case MILLIS:
-                return epoch;
-            case SECOND:
-                return epoch * 1000L;
-            case UNKNOWN:
-            default:
-                return null;
-        }
+        return switch (assumeEpochType(epoch)) {
+            case NANO -> epoch / 1000_000L;
+            case MICROS -> epoch / 1000L;
+            case MILLIS -> epoch;
+            case SECOND -> epoch * 1000L;
+            default -> null;
+        };
     }
 
     public static LocalDateTime toLocalDateTime(final Long microSeconds) {
@@ -398,7 +390,9 @@ public class DateTimeUtil {
             return EpochType.UNKNOWN;
         }
         final long l = Math.abs(epoch);
-        if(l > 50_000_000_000_000L) {
+        if(l > 50_000_000_000_000_000L) {
+            return EpochType.NANO;
+        } else if(l > 50_000_000_000_000L) {
             return EpochType.MICROS;
         } else if(l > 5_000_000_000L) {
             return EpochType.MILLIS;
@@ -408,23 +402,13 @@ public class DateTimeUtil {
     }
 
     public static Duration getDuration(final TimeUnit unit, final Long size) {
-        switch (unit) {
-            case second: {
-                return Duration.standardSeconds(size);
-            }
-            case minute: {
-                return Duration.standardMinutes(size);
-            }
-            case hour: {
-                return Duration.standardHours(size);
-            }
-            case day: {
-                return Duration.standardDays(size);
-            }
-            default: {
-                throw new IllegalArgumentException("Illegal window unit: " + unit);
-            }
-        }
+        return switch (unit) {
+            case second -> Duration.standardSeconds(size);
+            case minute -> Duration.standardMinutes(size);
+            case hour -> Duration.standardHours(size);
+            case day -> Duration.standardDays(size);
+            default -> throw new IllegalArgumentException("Illegal window unit: " + unit);
+        };
     }
 
     public enum TimeUnit implements Serializable {
@@ -441,7 +425,8 @@ public class DateTimeUtil {
         UNKNOWN,
         SECOND,
         MILLIS,
-        MICROS
+        MICROS,
+        NANO
     }
 
 }

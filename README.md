@@ -59,18 +59,24 @@ Therefore, the Mercari Dataflow Template should be deployed according to the Fle
 
 ### Requirements
 
-* Java 11
+* Java 17
 * [Maven 3](https://maven.apache.org/index.html)
 * [gcloud command-line tool](https://cloud.google.com/sdk/gcloud)
 
 ### Push Template Container Image to Cloud Container Registry.
 
-The first step is to build the source code and register it as a container image in the [Cloud Container Registry](https://cloud.google.com/container-registry).
+The first step is to build the source code and register it as a container image in the [Cloud Artifact Registry](https://cloud.google.com/artifact-registry).
 
-The following command will generate a container for FlexTemplate from the source code and upload it to Container Registry.
+To upload container images to the Artifact registry via Docker commands, you will first need to execute the following commands, depending on the repository region.
 
 ```sh
-mvn clean package -DskipTests -Dimage=gcr.io/{deploy_project}/{template_repo_name}
+gcloud auth configure-docker us-central1-docker.pkg.dev, asia-northeast1-docker.pkg.dev
+```
+
+The following command will generate a container for FlexTemplate from the source code and upload it to Artifact Registry.
+
+```sh
+mvn clean package -DskipTests -Dimage={region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/cloud:latest
 ```
 
 ### Upload template file.
@@ -81,7 +87,7 @@ Use the following command to generate a template file that can execute a dataflo
 
 ```sh
 gcloud dataflow flex-template build gs://{path/to/template_file} \
-  --image "gcr.io/{deploy_project}/{template_repo_name}" \
+  --image "{region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/cloud:latest" \
   --sdk-language "JAVA"
 ```
 
@@ -147,15 +153,15 @@ At first, you should register the container for local execution.
 
 ```sh
 # Generate MDT jar file.
-mvn clean package -DskipTests -Dimage=gcr.io/{deploy_project}/{template_repo_name}
+mvn clean package -DskipTests -Dimage="{region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/cloud"
 
 # Create Docker image for local run
-docker build --tag=gcr.io/{deploy_project}/{repo_name_local} .
+docker build --tag="{region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local .
 
-# If you need to push the image to the GCR,
+# If you need to push the image to the GAR,
 # you may do so by using the following commands
 gcloud auth configure-docker
-docker push gcr.io/{deploy_project}/{repo_name_local}
+docker push {region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local
 ```
 
 ## Run Pipeline locally
@@ -178,7 +184,7 @@ If you want to run in streaming mode, specify streaming=true in the argument as 
 docker run \
   -v ~/.config/gcloud:/mnt/gcloud:ro \
   -v /{your_work_dir}:/mnt/config:ro \  
-  --rm gcr.io/{deploy_project}/{repo_name_local} \
+  --rm {region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local \
   --project={project} \
   --config=/mnt/config/{my_config}.json
 ```
@@ -189,7 +195,7 @@ docker run \
 docker run ^
   -v C:\Users\{YourUserName}\AppData\Roaming\gcloud:/mnt/gcloud:ro ^
   -v C:\Users\{YourWorkingDirPath}\:/mnt/config:ro ^
-  --rm gcr.io/{deploy_project}/{repo_name_local} ^
+  --rm {region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local ^
   --project={project} ^
   --config=/mnt/config/{MyConfig}.json
 ```
@@ -211,6 +217,6 @@ https://www.mercari.com/cla/
 
 ## License
 
-Copyright 2023 Mercari, Inc.
+Copyright 2024 Mercari, Inc.
 
 Licensed under the MIT License.

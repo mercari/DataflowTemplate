@@ -32,7 +32,7 @@ public class RowToRecordConverter {
     public static GenericRecord convert(final Schema schema, final Row row) {
         final GenericRecordBuilder builder = new GenericRecordBuilder(schema);
         for(final Schema.Field field : schema.getFields()) {
-            final Object value = convertRecordValue(field.schema(), row.getValue(field.name()));
+            final Object value = convertRecordValue(field.name(), field.schema(), row.getValue(field.name()));
             builder.set(field, value);
         }
         return builder.build();
@@ -166,7 +166,7 @@ public class RowToRecordConverter {
         }
     }
 
-    private static Object convertRecordValue(final Schema schema, final Object value) {
+    private static Object convertRecordValue(final String name, final Schema schema, final Object value) {
         if(value == null) {
             return null;
         }
@@ -178,10 +178,13 @@ public class RowToRecordConverter {
                 return value;
             case ENUM: {
                 final EnumerationType.Value enumValue = (EnumerationType.Value) value;
+                final int index;
                 if(enumValue.getValue() >= schema.getEnumSymbols().size()) {
-                    return schema.getEnumSymbols().get(0);
+                    index = 0;
+                } else {
+                    index = enumValue.getValue();
                 }
-                return schema.getEnumSymbols().get(enumValue.getValue());
+                return AvroSchemaUtil.createEnumSymbol(name, schema.getEnumSymbols(), schema.getEnumSymbols().get(index));
             }
             case FIXED:
             case BYTES: {
@@ -268,19 +271,19 @@ public class RowToRecordConverter {
                 return convert(schema, (Row)value);
             case ARRAY:
                 return ((List<Object>)value).stream()
-                        .map(v -> convertRecordValue(schema.getElementType(), v))
+                        .map(v -> convertRecordValue(name, schema.getElementType(), v))
                         .collect(Collectors.toList());
             case MAP: {
                 final Map<String, Object> output = new HashMap<>();
                 final Map<?,?> map = (Map) value;
                 for(Map.Entry<?,?> entry : map.entrySet()) {
-                    output.put(entry.getKey().toString(), convertRecordValue(schema.getValueType(), entry.getValue()));
+                    output.put(entry.getKey().toString(), convertRecordValue(name, schema.getValueType(), entry.getValue()));
                 }
                 return output;
             }
             case UNION:
                 final Schema childSchema = AvroSchemaUtil.unnestUnion(schema);
-                return convertRecordValue(childSchema, value);
+                return convertRecordValue(name, childSchema, value);
             case NULL:
             default:
                 return null;

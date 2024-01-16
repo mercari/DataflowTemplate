@@ -20,6 +20,7 @@ import com.mercari.solution.util.schema.SchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.state.StateSpec;
 import org.apache.beam.sdk.state.StateSpecs;
@@ -41,7 +42,7 @@ public class SequenceTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(SequenceTransform.class);
 
-    public class SequenceTransformParameters implements Serializable {
+    public static class SequenceTransformParameters implements Serializable {
 
         private List<String> groupFields;
         private String inputName;
@@ -52,32 +53,16 @@ public class SequenceTransform implements TransformModule {
             return groupFields;
         }
 
-        public void setGroupFields(List<String> groupFields) {
-            this.groupFields = groupFields;
-        }
-
         public String getInputName() {
             return inputName;
-        }
-
-        public void setInputName(String inputName) {
-            this.inputName = inputName;
         }
 
         public String getStateName() {
             return stateName;
         }
 
-        public void setStateName(String stateName) {
-            this.stateName = stateName;
-        }
-
         public JsonElement getSequence() {
             return sequence;
-        }
-
-        public void setSequence(JsonElement sequence) {
-            this.sequence = sequence;
         }
 
         public void validate() {
@@ -107,13 +92,13 @@ public class SequenceTransform implements TransformModule {
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
         final SequenceTransformParameters parameters = new Gson().fromJson(config.getParameters(), SequenceTransformParameters.class);
         if (parameters == null) {
-            throw new IllegalArgumentException("SequenceTransform config parameters must not be empty!");
+            throw new IllegalArgumentException("sequence transform module parameters must not be empty!");
         }
         parameters.validate();
         parameters.setDefaults();
 
         if(inputs.size() == 0) {
-            throw new IllegalArgumentException("Sequence module: " + config.getName() + " has no inputs");
+            throw new IllegalArgumentException("sequence module: " + config.getName() + " has no inputs");
         }
 
         final Map<String, FCollection<?>> outputs = new HashMap<>();
@@ -189,8 +174,9 @@ public class SequenceTransform implements TransformModule {
                     output = inputs.apply(name, transform);
                 } else {
                     switch (state.getDataType()) {
-                        case ROW: {
-                            final TupleTag<Row> stateTag = new TupleTag<>(){};
+                        case ROW -> {
+                            final TupleTag<Row> stateTag = new TupleTag<>() {
+                            };
                             final SystemTransform<Schema, Schema, Row, Schema, Schema, Row> transform = new SystemTransform<>(
                                     name,
                                     parameters.getInputName(),
@@ -228,10 +214,10 @@ public class SequenceTransform implements TransformModule {
                             final PCollection<Row> stateCollection = (PCollection<Row>) state.getCollection();
                             inputs = inputs.and(stateTag, stateCollection);
                             output = inputs.apply(name, transform);
-                            break;
                         }
-                        case AVRO: {
-                            final TupleTag<GenericRecord> stateTag = new TupleTag<>(){};
+                        case AVRO -> {
+                            final TupleTag<GenericRecord> stateTag = new TupleTag<>() {
+                            };
                             final org.apache.avro.Schema stateStateAvroSchema = RowToRecordConverter.convertSchema(stateRowSchema);
                             final org.apache.avro.Schema stateOutputAvroSchema = RowToRecordConverter.convertSchema(outputRowSchema);
                             final SystemTransform<Schema, Schema, Row, String, org.apache.avro.Schema, GenericRecord> transform = new SystemTransform<>(
@@ -271,10 +257,8 @@ public class SequenceTransform implements TransformModule {
                             final PCollection<GenericRecord> stateCollection = (PCollection<GenericRecord>) state.getCollection();
                             inputs = inputs.and(stateTag, stateCollection);
                             output = inputs.apply(name, transform);
-                            break;
                         }
-                        default:
-                            throw new IllegalArgumentException();
+                        default -> throw new IllegalArgumentException();
                     }
                 }
                 return FCollection.of(name, output, DataType.ROW, outputRowSchema);
@@ -328,8 +312,9 @@ public class SequenceTransform implements TransformModule {
                     output = inputs.apply(name, transform);
                 } else {
                     switch (state.getDataType()) {
-                        case ROW: {
-                            final TupleTag<Row> stateTag = new TupleTag<>(){};
+                        case ROW -> {
+                            final TupleTag<Row> stateTag = new TupleTag<>() {
+                            };
                             final SystemTransform<String, org.apache.avro.Schema, GenericRecord, Schema, Schema, Row> transform = new SystemTransform<>(
                                     name,
                                     parameters.getInputName(),
@@ -368,10 +353,10 @@ public class SequenceTransform implements TransformModule {
                             final PCollection<Row> stateCollection = (PCollection<Row>) state.getCollection();
                             inputs = inputs.and(stateTag, stateCollection);
                             output = inputs.apply(name, transform);
-                            break;
                         }
-                        case AVRO: {
-                            final TupleTag<GenericRecord> stateTag = new TupleTag<>(){};
+                        case AVRO -> {
+                            final TupleTag<GenericRecord> stateTag = new TupleTag<>() {
+                            };
                             final SystemTransform<String, org.apache.avro.Schema, GenericRecord, String, org.apache.avro.Schema, GenericRecord> transform = new SystemTransform<>(
                                     name,
                                     parameters.getInputName(),
@@ -409,10 +394,8 @@ public class SequenceTransform implements TransformModule {
                             final PCollection<GenericRecord> stateCollection = (PCollection<GenericRecord>) state.getCollection();
                             inputs = inputs.and(stateTag, stateCollection);
                             output = inputs.apply(name, transform);
-                            break;
                         }
-                        default:
-                            throw new IllegalArgumentException();
+                        default -> throw new IllegalArgumentException();
                     }
                 }
                 return FCollection.of(name, output, DataType.AVRO, outputAvroSchema);

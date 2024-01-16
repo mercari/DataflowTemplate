@@ -5,20 +5,18 @@ import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Value;
+import com.google.firestore.v1.Document;
 import com.google.gson.Gson;
 import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.WithTimestamps;
@@ -33,7 +31,7 @@ import java.util.*;
 
 public class EventTimeTransform implements TransformModule {
 
-    private class EventTimeTransformParameters implements Serializable {
+    private static class EventTimeTransformParameters implements Serializable {
 
         private String eventtimeField;
         private Boolean into;
@@ -43,26 +41,30 @@ public class EventTimeTransform implements TransformModule {
             return eventtimeField;
         }
 
-        public void setEventtimeField(String eventtimeField) {
-            this.eventtimeField = eventtimeField;
-        }
-
         public Boolean getInto() {
             return into;
-        }
-
-        public void setInto(Boolean into) {
-            this.into = into;
         }
 
         public Long getAllowedTimestampSkewSeconds() {
             return allowedTimestampSkewSeconds;
         }
 
-        public void setAllowedTimestampSkewSeconds(Long allowedTimestampSkewSeconds) {
-            this.allowedTimestampSkewSeconds = allowedTimestampSkewSeconds;
+        private void validate() {
+            final List<String> errorMessages = new ArrayList<>();
+            if(eventtimeField == null) {
+                errorMessages.add("Eventtime transform module parameters must contain eventtimeField.");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
         }
 
+        private void setDefaults() {
+            if(into == null) {
+                into = true;
+            }
+        }
     }
 
     @Override
@@ -78,20 +80,23 @@ public class EventTimeTransform implements TransformModule {
     static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 
         final EventTimeTransformParameters parameters = new Gson().fromJson(config.getParameters(), EventTimeTransformParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Eventtime transform module parameters must not be empty!");
+        }
 
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        parameters.validate();
+        parameters.setDefaults();
 
         final String timestampField = parameters.getEventtimeField();
         final Map<String, FCollection<?>> results = new HashMap<>();
         for (final FCollection<?> input : inputs) {
             final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
             switch (input.getDataType()) {
-                case AVRO: {
+                case AVRO -> {
                     final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                     final Schema schema;
                     final PCollection<GenericRecord> output;
-                    if(parameters.getInto()) {
+                    if (parameters.getInto()) {
                         schema = AvroSchemaUtil.toBuilder(inputCollection.getAvroSchema(), inputCollection.getAvroSchema().getNamespace(), null)
                                 .name(timestampField).type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
                                 .endRecord();
@@ -99,14 +104,14 @@ public class EventTimeTransform implements TransformModule {
                                 .apply(name, ParDo.of(new WithEventTimeFieldDoFn<>(
                                         timestampField,
                                         (Schema s, GenericRecord record, String fieldName, Instant timestamp) -> AvroSchemaUtil.toBuilder(s, record)
-                                                    .set(fieldName, timestamp.getMillis() * 1000L)
-                                                    .build(),
+                                                .set(fieldName, timestamp.getMillis() * 1000L)
+                                                .build(),
                                         schema.toString(),
                                         AvroSchemaUtil::convertSchema)))
                                 .setCoder(AvroCoder.of(schema));
                     } else {
                         schema = inputCollection.getAvroSchema();
-                        if(parameters.getAllowedTimestampSkewSeconds() == null) {
+                        if (parameters.getAllowedTimestampSkewSeconds() == null) {
                             output = inputCollection.getCollection()
                                     .apply(name, WithTimestamps
                                             .of(record -> AvroSchemaUtil.getTimestamp(record, timestampField)));
@@ -118,13 +123,12 @@ public class EventTimeTransform implements TransformModule {
                         }
                     }
                     results.put(name, FCollection.of(name, output, DataType.AVRO, schema));
-                    break;
                 }
-                case ROW: {
+                case ROW -> {
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
                     final org.apache.beam.sdk.schemas.Schema schema;
                     final PCollection<Row> output;
-                    if(parameters.getInto()) {
+                    if (parameters.getInto()) {
                         schema = RowSchemaUtil.toBuilder(inputCollection.getSchema())
                                 .addField(timestampField, org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
                                 .build();
@@ -141,7 +145,7 @@ public class EventTimeTransform implements TransformModule {
                                 .setCoder(RowCoder.of(schema));
                     } else {
                         schema = inputCollection.getSchema();
-                        if(parameters.getAllowedTimestampSkewSeconds() == null) {
+                        if (parameters.getAllowedTimestampSkewSeconds() == null) {
                             output = inputCollection.getCollection()
                                     .apply(name, WithTimestamps
                                             .of(row -> RowSchemaUtil.getTimestamp(row, timestampField, Instant.ofEpochSecond(0L))));
@@ -153,13 +157,12 @@ public class EventTimeTransform implements TransformModule {
                         }
                     }
                     results.put(name, FCollection.of(name, output, DataType.ROW, schema));
-                    break;
                 }
-                case STRUCT: {
+                case STRUCT -> {
                     final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
                     final Type type;
                     final PCollection<Struct> output;
-                    if(parameters.getInto()) {
+                    if (parameters.getInto()) {
                         type = StructSchemaUtil.addStructField(
                                 inputCollection.getSpannerType(),
                                 Arrays.asList(Type.StructField.of(timestampField, Type.timestamp())));
@@ -168,7 +171,7 @@ public class EventTimeTransform implements TransformModule {
                                         timestampField,
                                         (Type t, Struct struct, String field, Instant timestamp) -> {
                                             final Struct.Builder builder = StructSchemaUtil.toBuilder(t, struct);
-                                            if(timestamp.getMillis() < -9223372036855L) {
+                                            if (timestamp.getMillis() < -9223372036855L) {
                                                 builder.set(field).to(Timestamp.ofTimeMicroseconds(-9223372036855L));
                                             } else {
                                                 builder.set(field).to(Timestamp.ofTimeMicroseconds(timestamp.getMillis() * 1000));
@@ -179,7 +182,7 @@ public class EventTimeTransform implements TransformModule {
                                         t -> t)));
                     } else {
                         type = inputCollection.getSpannerType();
-                        if(parameters.getAllowedTimestampSkewSeconds() == null) {
+                        if (parameters.getAllowedTimestampSkewSeconds() == null) {
                             output = inputCollection.getCollection()
                                     .apply(name, WithTimestamps
                                             .of(struct -> StructSchemaUtil.getTimestamp(struct, timestampField, Instant.ofEpochSecond(0L))));
@@ -191,13 +194,46 @@ public class EventTimeTransform implements TransformModule {
                         }
                     }
                     results.put(name, FCollection.of(name, output, DataType.STRUCT, type));
-                    break;
                 }
-                case ENTITY: {
+                case DOCUMENT -> {
+                    final FCollection<Document> inputCollection = (FCollection<Document>) input;
+                    final org.apache.beam.sdk.schemas.Schema schema;
+                    final PCollection<Document> output;
+                    if (parameters.getInto()) {
+                        schema = RowSchemaUtil.toBuilder(inputCollection.getSchema())
+                                .addField(timestampField, org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
+                                .build();
+                        output = inputCollection.getCollection()
+                                .apply(name, ParDo.of(new WithEventTimeFieldDoFn<>(
+                                        timestampField,
+                                        (org.apache.beam.sdk.schemas.Schema s, Document document, String field, Instant timestamp) -> document
+                                                .toBuilder()
+                                                .putFields(field, com.google.firestore.v1.Value.newBuilder()
+                                                        .setTimestampValue(Timestamps.fromMillis(
+                                                                timestamp.getMillis() / 1000 < -62135596800L ? -62135596800L * 1000 : timestamp.getMillis())).build())
+                                                .build(),
+                                        schema,
+                                        s -> s)));
+                    } else {
+                        schema = inputCollection.getSchema();
+                        if (parameters.getAllowedTimestampSkewSeconds() == null) {
+                            output = inputCollection.getCollection()
+                                    .apply(name, WithTimestamps
+                                            .of(document -> DocumentSchemaUtil.getTimestamp(document, timestampField, Instant.now())));
+                        } else {
+                            output = inputCollection.getCollection()
+                                    .apply(name, WithTimestamps
+                                            .<Document>of(document -> DocumentSchemaUtil.getTimestamp(document, timestampField, Instant.now()))
+                                            .withAllowedTimestampSkew(Duration.standardSeconds(parameters.getAllowedTimestampSkewSeconds())));
+                        }
+                    }
+                    results.put(name, FCollection.of(name, output, DataType.DOCUMENT, schema));
+                }
+                case ENTITY -> {
                     final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
                     final org.apache.beam.sdk.schemas.Schema schema;
                     final PCollection<Entity> output;
-                    if(parameters.getInto()) {
+                    if (parameters.getInto()) {
                         schema = RowSchemaUtil.toBuilder(inputCollection.getSchema())
                                 .addField(timestampField, org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME)
                                 .build();
@@ -207,14 +243,14 @@ public class EventTimeTransform implements TransformModule {
                                         (org.apache.beam.sdk.schemas.Schema s, Entity entity, String field, Instant timestamp) -> entity
                                                 .toBuilder()
                                                 .putProperties(field, Value.newBuilder()
-                                                    .setTimestampValue(Timestamps.fromMillis(
-                                                            timestamp.getMillis()/1000 < -62135596800L ? -62135596800L * 1000 : timestamp.getMillis())).build())
-                                                    .build(),
+                                                        .setTimestampValue(Timestamps.fromMillis(
+                                                                timestamp.getMillis() / 1000 < -62135596800L ? -62135596800L * 1000 : timestamp.getMillis())).build())
+                                                .build(),
                                         schema,
                                         s -> s)));
                     } else {
                         schema = inputCollection.getSchema();
-                        if(parameters.getAllowedTimestampSkewSeconds() == null) {
+                        if (parameters.getAllowedTimestampSkewSeconds() == null) {
                             output = inputCollection.getCollection()
                                     .apply(name, WithTimestamps
                                             .of(entity -> EntitySchemaUtil.getTimestamp(entity, timestampField, Instant.now())));
@@ -226,35 +262,13 @@ public class EventTimeTransform implements TransformModule {
                         }
                     }
                     results.put(name, FCollection.of(name, output, DataType.ENTITY, schema));
-                    break;
                 }
-                default:
-                    break;
+                default -> {
+                }
             }
         }
 
         return results;
-    }
-
-    private static void validateParameters(final EventTimeTransformParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("Eventtime transform module parameters must not be empty!");
-        }
-
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getEventtimeField() == null) {
-            errorMessages.add("Eventtime transform module parameters must contain eventtimeField.");
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void setDefaultParameters(EventTimeTransformParameters parameters) {
-        if(parameters.getInto() == null) {
-            parameters.setInto(true);
-        }
     }
 
     private static class WithEventTimeFieldDoFn<T,InputSchemaT,RuntimeSchemaT> extends DoFn<T, T> {

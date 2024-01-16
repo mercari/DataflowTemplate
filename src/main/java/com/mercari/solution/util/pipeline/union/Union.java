@@ -1,7 +1,15 @@
 package com.mercari.solution.util.pipeline.union;
 
+import com.google.cloud.spanner.Mutation;
+import com.google.cloud.spanner.Struct;
+import com.google.datastore.v1.Entity;
+import com.google.firestore.v1.Document;
 import com.mercari.solution.module.DataType;
+import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.SchemaUtil;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
@@ -153,6 +161,93 @@ public class Union {
             coders.add(inputs.get(tag).getCoder());
         }
         return UnionCoder.of(coders);
+    }
+
+    public static class ToRecordDoFn extends DoFn<UnionValue, GenericRecord> {
+
+        private final String schemaString;
+
+        private transient Schema schema;
+
+        public ToRecordDoFn(final String schemaString) {
+            this.schemaString = schemaString;
+        }
+
+        @Setup
+        public void setup() {
+            this.schema = AvroSchemaUtil.convertSchema(schemaString);
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final UnionValue element = c.element();
+            final GenericRecord record = switch (element.getType()) {
+                case ROW -> {
+                    final Row row = (Row) element.getValue();
+                    yield RowToRecordConverter.convert(schema, row);
+                }
+                case AVRO -> (GenericRecord) element.getValue();
+                case STRUCT -> {
+                    final Struct struct = (Struct) element.getValue();
+                    yield StructToRecordConverter.convert(schema, struct);
+                }
+                case DOCUMENT -> {
+                    final Document document = (Document) element.getValue();
+                    yield DocumentToRecordConverter.convert(schema, document);
+                }
+                case ENTITY -> {
+                    final Entity entity = (Entity) element.getValue();
+                    yield EntityToRecordConverter.convert(schema, entity);
+                }
+                case MUTATION -> {
+                    final Mutation mutation = (Mutation) element.getValue();
+                    yield MutationToRecordConverter.convert(schema, mutation);
+                }
+                default -> throw new IllegalArgumentException();
+            };
+            c.output(record);
+        }
+
+    }
+
+    public static class ToRowDoFn extends DoFn<UnionValue, Row> {
+
+        private final org.apache.beam.sdk.schemas.Schema schema;
+
+        public ToRowDoFn(final org.apache.beam.sdk.schemas.Schema schema) {
+            this.schema = schema;
+        }
+
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+            final UnionValue element = c.element();
+            final Row row = switch (element.getType()) {
+                case ROW -> (Row) element.getValue();
+                case AVRO -> {
+                    final GenericRecord record = (GenericRecord) element.getValue();
+                    yield RecordToRowConverter.convert(schema, record);
+                }
+                case STRUCT -> {
+                    final Struct struct = (Struct) element.getValue();
+                    yield StructToRowConverter.convert(schema, struct);
+                }
+                case DOCUMENT -> {
+                    final Document document = (Document) element.getValue();
+                    yield DocumentToRowConverter.convert(schema, document);
+                }
+                case ENTITY -> {
+                    final Entity entity = (Entity) element.getValue();
+                    yield EntityToRowConverter.convert(schema, entity);
+                }
+                case MUTATION -> {
+                    final Mutation mutation = (Mutation) element.getValue();
+                    yield MutationToRowConverter.convert(schema, mutation);
+                }
+                default -> throw new IllegalArgumentException();
+            };
+            c.output(row);
+        }
+
     }
 
 }

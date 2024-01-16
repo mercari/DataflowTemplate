@@ -8,7 +8,7 @@ import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.module.sink.fileio.SolrSink2;
 import com.mercari.solution.util.XmlUtil;
-import com.mercari.solution.util.converter.RecordToSolrDocumentConverter;
+import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.domain.search.ZipFileUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.pipeline.union.Union;
@@ -23,7 +23,7 @@ import org.apache.beam.sdk.values.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
+import java.io.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -33,13 +33,22 @@ public class LocalSolrSink implements SinkModule {
 
     private static class LocalSolrSinkParameters implements Serializable {
 
+        private String input;
         private String output;
         private List<CoreParameter> cores;
         private List<String> groupFields;
         private String tempDirectory;
 
+        public String getInput() {
+            return input;
+        }
+
         public String getOutput() {
             return output;
+        }
+
+        public List<CoreParameter> getCores() {
+            return cores;
         }
 
         public List<String> getGroupFields() {
@@ -50,9 +59,11 @@ public class LocalSolrSink implements SinkModule {
             return tempDirectory;
         }
 
-
         public void validate(String name) {
             final List<String> errorMessages = new ArrayList<>();
+            if(this.output == null) {
+                errorMessages.add("localSolr sink module: " + name + " requires `output` parameter.");
+            }
             if(this.cores == null || this.cores.size() == 0) {
                 errorMessages.add("localSolr sink module: " + name + " requires `cores` parameter.");
             } else {
@@ -67,6 +78,9 @@ public class LocalSolrSink implements SinkModule {
         }
 
         public void setDefaults() {
+            if(this.input == null) {
+                this.input = output;
+            }
             if(this.groupFields == null) {
                 this.groupFields = new ArrayList<>();
             }
@@ -261,12 +275,12 @@ public class LocalSolrSink implements SinkModule {
             tuple = tuple.and(tag, input.getCollection());
         }
 
-        final SolrWrite write = new SolrWrite(config.getName(), parameters, tags, inputNames, inputTypes, avroSchemaStrings, waits);
+        final SolrIndexWrite write = new SolrIndexWrite(config.getName(), parameters, tags, inputNames, inputTypes, avroSchemaStrings, waits);
         final PCollection output = tuple.apply(config.getName(), write);
         return Collections.singletonMap(config.getName(), FCollection.of(config.getName(), output, DataType.AVRO, inputs.get(0).getAvroSchema()));
     }
 
-    public static class SolrWrite extends PTransform<PCollectionTuple, PCollection<KV>> {
+    public static class SolrIndexWrite extends PTransform<PCollectionTuple, PCollection<KV>> {
 
         private String name;
         private String output;
@@ -280,13 +294,14 @@ public class LocalSolrSink implements SinkModule {
 
         private final List<FCollection<?>> waits;
 
-        private SolrWrite(final String name,
-                          final LocalSolrSinkParameters parameters,
-                          final List<TupleTag<?>> tags,
-                          final List<String> inputNames,
-                          final List<DataType> inputTypes,
-                          final Map<String, String> avroSchemaStrings,
-                          final List<FCollection<?>> waits) {
+        private SolrIndexWrite(
+                final String name,
+                final LocalSolrSinkParameters parameters,
+                final List<TupleTag<?>> tags,
+                final List<String> inputNames,
+                final List<DataType> inputTypes,
+                final Map<String, String> avroSchemaStrings,
+                final List<FCollection<?>> waits) {
 
             this.name = name;
             this.output = parameters.getOutput();
@@ -331,4 +346,5 @@ public class LocalSolrSink implements SinkModule {
             return writeResult.getPerDestinationOutputFilenames();
         }
     }
+
 }

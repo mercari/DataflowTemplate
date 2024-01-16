@@ -37,7 +37,8 @@ public class JdbcUtil {
     public enum DB {
         MYSQL,
         POSTGRESQL,
-        SQLSERVER
+        SQLSERVER,
+        H2
     }
 
     public enum OP {
@@ -189,31 +190,30 @@ public class JdbcUtil {
         sb.deleteCharAt(sb.length() - 1);
         sb.append(")");
 
-        sb.append("VALUES(");
+        sb.append(" VALUES(");
         schema.getFields().forEach(f -> sb.append("?,"));
         sb.deleteCharAt(sb.length() - 1);
         sb.append(")");
 
         if(op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING)) {
             switch (db) {
-                case MYSQL: {
+                case MYSQL -> {
                     sb.append(" ON DUPLICATE KEY UPDATE ");
                     if(op.equals(OP.INSERT_OR_DONOTHING)) {
                         for (final String keyField : keyFields) {
-                            sb.append("`" + keyField + "`=VALUES(`" + keyField + "`),");
+                            sb.append("`").append(keyField).append("`=VALUES(`").append(keyField).append("`),");
                         }
                     } else {
                         for (final Schema.Field field : schema.getFields()) {
                             if (keyFields.contains(field.name())) {
                                 continue;
                             }
-                            sb.append("`" + field.name() + "`=VALUES(`" + field.name() + "`),");
+                            sb.append("`").append(field.name()).append("`=VALUES(`").append(field.name()).append("`),");
                         }
                     }
                     sb.deleteCharAt(sb.length() - 1);
-                    break;
                 }
-                case POSTGRESQL: {
+                case POSTGRESQL -> {
                     sb.append(" ON CONFLICT (");
                     for (final String keyField : keyFields) {
                         sb.append(keyField);
@@ -235,10 +235,16 @@ public class JdbcUtil {
                         */
                         throw new IllegalArgumentException("jdbc module does not support PostgreSQL INSERT_OR_UPDATE op.");
                     }
-                    break;
                 }
-                case SQLSERVER: {
-                    break;
+                case H2 -> {
+                    if(op.equals(OP.INSERT_OR_DONOTHING)) {
+                        sb.append(") DO NOTHING");
+                    } else {
+                        sb.replace(0, 6, "MERGE");
+                    }
+                }
+                case SQLSERVER -> {
+
                 }
             }
         }

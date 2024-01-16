@@ -11,10 +11,7 @@ import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import freemarker.template.Template;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
@@ -41,7 +38,7 @@ public class DatastoreSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(DatastoreSink.class);
 
-    private class DatastoreSinkParameters implements Serializable {
+    private static class DatastoreSinkParameters implements Serializable {
 
         private String projectId;
         private String kind;
@@ -57,64 +54,56 @@ public class DatastoreSink implements SinkModule {
             return projectId;
         }
 
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
-        }
-
         public String getKind() {
             return kind;
-        }
-
-        public void setKind(String kind) {
-            this.kind = kind;
         }
 
         public List<String> getKeyFields() {
             return keyFields;
         }
 
-        public void setKeyFields(List<String> keyFields) {
-            this.keyFields = keyFields;
-        }
-
         public String getKeyTemplate() {
             return keyTemplate;
-        }
-
-        public void setKeyTemplate(String keyTemplate) {
-            this.keyTemplate = keyTemplate;
         }
 
         public Boolean getDelete() {
             return delete;
         }
 
-        public void setDelete(Boolean delete) {
-            this.delete = delete;
-        }
-
         public List<String> getExcludeFromIndexFields() {
             return excludeFromIndexFields;
-        }
-
-        public void setExcludeFromIndexFields(List<String> excludeFromIndexFields) {
-            this.excludeFromIndexFields = excludeFromIndexFields;
         }
 
         public Boolean getEnableRampupThrottling() {
             return enableRampupThrottling;
         }
 
-        public void setEnableRampupThrottling(Boolean enableRampupThrottling) {
-            this.enableRampupThrottling = enableRampupThrottling;
-        }
-
         public String getSeparator() {
             return separator;
         }
 
-        public void setSeparator(String separator) {
-            this.separator = separator;
+        public void validate() {
+            if(projectId == null) {
+                throw new IllegalArgumentException("Datastore output module requires projectId parameter!");
+            }
+        }
+
+        public void setDefaults() {
+            if(keyFields == null) {
+                keyFields = new ArrayList<>();
+            }
+            if(delete == null) {
+                delete = false;
+            }
+            if(excludeFromIndexFields == null) {
+                excludeFromIndexFields = new ArrayList<>();
+            }
+            if(enableRampupThrottling == null) {
+                enableRampupThrottling = false;
+            }
+            if(separator == null) {
+                separator = "#";
+            }
         }
     }
 
@@ -136,8 +125,11 @@ public class DatastoreSink implements SinkModule {
     public static FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waitCollections) {
 
         final DatastoreSinkParameters parameters = new Gson().fromJson(config.getParameters(), DatastoreSinkParameters.class);
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("datastore sink module parameters must not be empty!");
+        }
+        parameters.validate();
+        parameters.setDefaults();
 
         try {
             config.outputAvroSchema(input.getAvroSchema());
@@ -203,46 +195,22 @@ public class DatastoreSink implements SinkModule {
         return FCollection.update(input, config.getName(), (PCollection) input.getCollection());
     }
 
-    private static void validateParameters(DatastoreSinkParameters parameters) {
-        if(parameters.getProjectId() == null) {
-            throw new IllegalArgumentException("Datastore output module requires projectId parameter!");
-        }
-    }
-
-    private static void setDefaultParameters(DatastoreSinkParameters parameters) {
-        if(parameters.getKeyFields() == null) {
-            parameters.setKeyFields(new ArrayList<>());
-        }
-        if(parameters.getDelete() == null) {
-            parameters.setDelete(false);
-        }
-        if(parameters.getExcludeFromIndexFields() == null) {
-            parameters.setExcludeFromIndexFields(new ArrayList<>());
-        }
-        if(parameters.getEnableRampupThrottling() == null) {
-            parameters.setEnableRampupThrottling(false);
-        }
-        if(parameters.getSeparator() == null) {
-            parameters.setSeparator("#");
-        }
-    }
-
     public static class Write<T,InputSchema,RuntimeSchema> extends PTransform<PCollection<T>, PDone> {
 
         private final DatastoreSinkParameters parameters;
         private final List<FCollection<?>> waitCollections;
 
         private final InputSchema inputSchema;
-        private final SchemaConverter<InputSchema,RuntimeSchema> schemaConverter;
-        private final StringGetter<T> stringGetter;
-        private final MapConverter<T> mapConverter;
+        private final SchemaUtil.SchemaConverter<InputSchema,RuntimeSchema> schemaConverter;
+        private final SchemaUtil.StringGetter<T> stringGetter;
+        private final SchemaUtil.MapConverter<T> mapConverter;
         private final EntityConverter<T,RuntimeSchema> entityConverter;
 
         private Write(final DatastoreSinkParameters parameters,
                       final InputSchema inputSchema,
-                      final SchemaConverter<InputSchema, RuntimeSchema> schemaConverter,
-                      final StringGetter<T> stringGetter,
-                      final MapConverter<T> mapConverter,
+                      final SchemaUtil.SchemaConverter<InputSchema, RuntimeSchema> schemaConverter,
+                      final SchemaUtil.StringGetter<T> stringGetter,
+                      final SchemaUtil.MapConverter<T> mapConverter,
                       final EntityConverter<T, RuntimeSchema> entityConverter,
                       final List<FCollection<?>> waitCollections) {
 
@@ -319,9 +287,9 @@ public class DatastoreSink implements SinkModule {
 
         private final String separator;
 
-        private final SchemaConverter<InputSchema,RuntimeSchema> schemaConverter;
-        private final StringGetter<T> stringGetter;
-        private final MapConverter<T> mapConverter;
+        private final SchemaUtil.SchemaConverter<InputSchema,RuntimeSchema> schemaConverter;
+        private final SchemaUtil.StringGetter<T> stringGetter;
+        private final SchemaUtil.MapConverter<T> mapConverter;
         private final EntityConverter<T,RuntimeSchema> entityConverter;
 
         private transient RuntimeSchema schema;
@@ -333,9 +301,9 @@ public class DatastoreSink implements SinkModule {
                           final String keyTemplate,
                           final List<String> excludeFromIndexFields,
                           final String separator,
-                          final SchemaConverter<InputSchema,RuntimeSchema> schemaConverter,
-                          final StringGetter<T> stringGetter,
-                          final MapConverter<T> mapConverter,
+                          final SchemaUtil.SchemaConverter<InputSchema,RuntimeSchema> schemaConverter,
+                          final SchemaUtil.StringGetter<T> stringGetter,
+                          final SchemaUtil.MapConverter<T> mapConverter,
                           final EntityConverter<T,RuntimeSchema> entityConverter) {
 
             this.inputSchema = inputSchema;
@@ -436,21 +404,8 @@ public class DatastoreSink implements SinkModule {
 
     }
 
-    private interface SchemaConverter<InputSchemaT, RuntimeSchemaT> extends Serializable {
-        RuntimeSchemaT convert(InputSchemaT schema);
-    }
-
     private interface EntityConverter<InputT, RuntimeSchemaT> extends Serializable {
         Entity.Builder convert(RuntimeSchemaT schema, InputT element, List<String> excludeFromIndexFields);
     }
-
-    private interface MapConverter<T> extends Serializable {
-        Map<String, Object> convert(T element);
-    }
-
-    private interface StringGetter<T> extends Serializable {
-        String getAsString(T element, String field);
-    }
-
 
 }

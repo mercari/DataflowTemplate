@@ -433,6 +433,9 @@ public class ExpressionUtil {
         public double apply(double... args) {
             final Double epoch_micros = args[0];
             final Double timezone_micros = args[1] * 60 * 60 * 1000 * 1000;
+            if(epoch_micros.isNaN() || timezone_micros.isNaN()) {
+                return Double.NaN;
+            }
             final long epoch_micros_with_tz = epoch_micros.longValue() + timezone_micros.longValue();
             final Instant instant = Instant.ofEpochMilli(epoch_micros_with_tz / 1000L);
 
@@ -457,22 +460,18 @@ public class ExpressionUtil {
         @Override
         public double apply(double... args) {
             final double diff_micros = args[0] - args[1];
-            switch (part) {
-                case "microsecond":
-                    return diff_micros;
-                case "millisecond":
-                    return Double.valueOf(diff_micros / 1000L).longValue();
-                case "second":
-                    return Double.valueOf(diff_micros / 1000000L).longValue();
-                case "minute":
-                    return Double.valueOf(diff_micros / 60000000L).longValue();
-                case "hour":
-                    return Double.valueOf(diff_micros / 3600000000L).longValue();
-                case "day":
-                    return Double.valueOf(diff_micros / 86400000000L).longValue();
-                default:
-                    throw new IllegalArgumentException();
+            if(Double.isNaN(diff_micros)) {
+                return Double.NaN;
             }
+            return switch (part) {
+                case "microsecond" -> diff_micros;
+                case "millisecond" -> Double.valueOf(diff_micros / 1000L).longValue();
+                case "second" -> Double.valueOf(diff_micros / 1000000L).longValue();
+                case "minute" -> Double.valueOf(diff_micros / 60000000L).longValue();
+                case "hour" -> Double.valueOf(diff_micros / 3600000000L).longValue();
+                case "day" -> Double.valueOf(diff_micros / 86400000000L).longValue();
+                default -> throw new IllegalArgumentException("Not supported part: " + part);
+            };
         }
 
     }

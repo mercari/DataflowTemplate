@@ -15,6 +15,8 @@ import java.util.Map;
 public class FCollection<T> {
 
     private final String name;
+    private final Map<String, String> properties;
+
     private final PCollection<T> collection;
     private final DataType dataType;
     private final Schema schema;
@@ -30,6 +32,7 @@ public class FCollection<T> {
 
     private FCollection(
             final String name,
+            final Map<String, String> properties,
             final PCollection<T> pCollection,
             final DataType dataType,
             final Schema schema,
@@ -37,6 +40,8 @@ public class FCollection<T> {
             final Type spannerType) {
 
         this.name = name;
+        this.properties = properties;
+
         this.collection = pCollection;
         this.dataType = dataType;
         this.schema = schema;
@@ -51,11 +56,14 @@ public class FCollection<T> {
 
     private FCollection(
             final String name,
+            final Map<String, String> properties,
             final PCollectionTuple tuple,
             final Map<TupleTag<?>, DataType> dataTypes,
             final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas) {
 
         this.name = name;
+        this.properties = properties;
+
         this.collection = null;
         this.dataType = null;
         this.schema = null;
@@ -74,7 +82,8 @@ public class FCollection<T> {
             final DataType dataType,
             final Schema schema) {
 
-        return new FCollection<>(name, pCollection, dataType, schema, null, null);
+        final Map<String, String> properties = updateProperties(name, null);
+        return new FCollection<>(name, properties, pCollection, dataType, schema, null, null);
     }
 
     public static <T> FCollection<T> of(
@@ -83,7 +92,8 @@ public class FCollection<T> {
             final DataType dataType,
             final org.apache.avro.Schema avroSchema) {
 
-        return new FCollection<>(name, pCollection, dataType, null, avroSchema, null);
+        final Map<String, String> properties = updateProperties(name, null);
+        return new FCollection<>(name, properties, pCollection, dataType, null, avroSchema, null);
     }
 
     public static <T> FCollection<T> of(
@@ -92,16 +102,19 @@ public class FCollection<T> {
             final DataType dataType,
             final Type spannerType) {
 
-        return new FCollection<>(name, pCollection, dataType, null, null, spannerType);
+        final Map<String, String> properties = updateProperties(name, null);
+        return new FCollection<>(name, properties, pCollection, dataType, null, null, spannerType);
     }
 
     public static <T> FCollection<T> of(
             final String name,
+            final Map<String, String> props,
             final PCollectionTuple tuple,
             final Map<TupleTag<?>, DataType> dataTypes,
             final Map<TupleTag<?>, org.apache.avro.Schema> avroSchemas) {
 
-        return new FCollection<>(name, tuple, dataTypes, avroSchemas);
+        final Map<String, String> properties = updateProperties(name, props);
+        return new FCollection<>(name, properties, tuple, dataTypes, avroSchemas);
     }
 
     public static <T> FCollection<T> update(final FCollection<T> base, final PCollection<T> pCollection) {
@@ -109,11 +122,15 @@ public class FCollection<T> {
     }
 
     public static <T> FCollection<T> update(final FCollection<T> base, final String name, final PCollection<T> pCollection) {
-        return new FCollection<>(name, pCollection, base.getDataType(), base.getSchema(), base.getAvroSchema(), base.getSpannerType());
+        return new FCollection<>(name, base.getProperties(), pCollection, base.getDataType(), base.getSchema(), base.getAvroSchema(), base.getSpannerType());
     }
 
     public String getName() {
         return name;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
     public PCollection<T> getCollection() {
@@ -204,6 +221,26 @@ public class FCollection<T> {
 
     public Map<TupleTag<?>, org.apache.avro.Schema> getAvroSchemas() {
         return avroSchemas;
+    }
+
+    private static Map<String, String> updateProperties(final String name, final Map<String, String> props) {
+        final Map<String, String> properties = new HashMap<>();
+        if(props == null) {
+            return properties;
+        }
+        for(final Map.Entry<String, String> entry : props.entrySet()) {
+            if(entry.getKey() == null) {
+                continue;
+            }
+            final String key;
+            if(entry.getKey().startsWith(name + ".")) {
+                key = entry.getKey();
+            } else {
+                key = name + "." + entry.getKey();
+            }
+            properties.put(key, entry.getValue());
+        }
+        return properties;
     }
 
 }

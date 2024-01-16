@@ -1,0 +1,140 @@
+{
+  "settings": {
+    "dataflow": {
+      "maxNumWorkers": 10,
+      "workerMachineType": "e2-highmem-8",
+      "experiments": ["use_runner_v2"]
+    }
+  },
+  "sources": [
+    {
+      "name": "BigQueryContentInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT ContentID, Name, Abstract, Content FROM `mydataset.contents`",
+        "queryLocation": "US",
+        "queryTempDataset": "temp"
+      }
+    },
+    {
+      "name": "BigQueryDocInput",
+      "module": "bigquery",
+      "parameters": {
+        "query": "SELECT DocID, Title, Text FROM `mydataset.docs`",
+        "queryLocation": "US",
+        "queryTempDataset": "temp"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "OnnxInference",
+      "module": "onnx",
+      "inputs": [
+        "BigQueryContentInput",
+        "BigQueryDocInput"
+      ],
+      "parameters": {
+        "bufferSize": 1,
+        "model": {
+          "path": "gs://example-bucket/onnx/multilingual_v3.onnx",
+          "optLevel": "BASIC_OPT",
+          "executionMode": "SEQUENTIAL",
+          "outputSchemaFields": [
+            { "name": "outputs", "type": "float", "mode": "repeated" }
+          ]
+        },
+        "inferences": [
+          {
+            "input": "BigQueryContentInput",
+            "mappings": [
+              {
+                "inputs": {
+                  "inputs": "Abstract"
+                },
+                "outputs": {
+                  "outputs": "EmbeddingAbstract"
+                }
+              },
+              {
+                "inputs": {
+                  "inputs": "Content"
+                },
+                "outputs": {
+                  "outputs": "EmbeddingContent"
+                }
+              }
+            ],
+            "select": [
+              { "name": "ContentID" },
+              { "name": "Name" },
+              { "name": "Embedding", "field": "EmbeddingContent" },
+              { "name": "EmbeddingAbstract" },
+              { "name": "ProcessedAt", "func": "current_timestamp" }
+            ]
+          },
+          {
+            "input": "BigQueryDocInput",
+            "mappings": [
+              {
+                "inputs": {
+                  "inputs": "Text"
+                },
+                "outputs": {
+                  "outputs": "EmbeddingText"
+                }
+              }
+            ],
+            "select": [
+              { "name": "DocID" },
+              { "name": "Title" },
+              { "name": "Embedding", "field": "EmbeddingText" },
+              { "name": "ProcessedAt", "func": "current_timestamp" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "VectorSearchContentOutput",
+      "module": "matchingEngine",
+      "input": "OnnxInference.BigQueryContentInput",
+      "parameters": {
+        "projectId": "myproject",
+        "region": "us-central1",
+        "indexId": "11111111111111111111",
+        "method": "upsert",
+        "idField": "ContentID",
+        "vectorField": "Embedding"
+      }
+    },
+    {
+      "name": "VectorSearchAbstractOutput",
+      "module": "matchingEngine",
+      "input": "OnnxInference.BigQueryContentInput",
+      "parameters": {
+        "projectId": "myproject",
+        "region": "us-central1",
+        "indexId": "22222222222222222222",
+        "method": "upsert",
+        "idField": "ContentID",
+        "vectorField": "EmbeddingAbstract"
+      }
+    },
+    {
+      "name": "VectorSearchDocOutput",
+      "module": "matchingEngine",
+      "input": "OnnxInference.BigQueryDocInput",
+      "parameters": {
+        "projectId": "myproject",
+        "region": "us-central1",
+        "indexId": "33333333333333333333",
+        "method": "upsert",
+        "idField": "DocID",
+        "vectorField": "Embedding"
+      }
+    }
+  ]
+}

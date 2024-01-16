@@ -10,7 +10,9 @@ import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.converter.DocumentToMapConverter;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.joda.time.Instant;
 
 import java.time.LocalDate;
@@ -239,6 +241,52 @@ public class DocumentSchemaUtil {
 
     }
 
+    public static Instant getTimestamp(final Document document, final String fieldName) {
+        return getTimestamp(document, fieldName, Instant.ofEpochSecond(0L));
+    }
+
+    public static Instant getTimestamp(final Document document, final String fieldName, final Instant timestampDefault) {
+        final Value value = document.getFieldsMap().get(fieldName);
+        if(value == null) {
+            return timestampDefault;
+        }
+        switch (value.getValueTypeCase()) {
+            case STRING_VALUE: {
+                final String stringValue = value.getStringValue();
+                try {
+                    final java.time.Instant instant = DateTimeUtil.toInstant(stringValue);
+                    if(instant == null) {
+                        return timestampDefault;
+                    }
+                    return DateTimeUtil.toJodaInstant(instant);
+                } catch (Exception e) {
+                    return timestampDefault;
+                }
+            }
+            case INTEGER_VALUE: {
+                try {
+                    return Instant.ofEpochMilli(value.getIntegerValue());
+                } catch (Exception e){
+                    return Instant.ofEpochMilli(value.getIntegerValue() / 1000);
+                }
+            }
+            case TIMESTAMP_VALUE: {
+                return Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue()));
+            }
+            case BOOLEAN_VALUE:
+            case DOUBLE_VALUE:
+            case BYTES_VALUE:
+            case GEO_POINT_VALUE:
+            case MAP_VALUE:
+            case ARRAY_VALUE:
+            case NULL_VALUE:
+            case VALUETYPE_NOT_SET:
+            default:
+                return timestampDefault;
+        }
+    }
+
+
     public static List<Float> getAsFloatList(final Document document, final String fieldName) {
         if(document == null || fieldName == null) {
             return new ArrayList<>();
@@ -343,48 +391,224 @@ public class DocumentSchemaUtil {
         }
         final Document document = (Document) object;
         final Value value = document.getFieldsOrDefault(field, Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build());
+        return getAsPrimitive(fieldType, value);
+    }
+
+    private static Object getAsPrimitive(final Schema.FieldType fieldType, final Value value) {
+        if(Value.ValueTypeCase.NULL_VALUE.equals(value.getValueTypeCase())) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case INT32 -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Integer.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).intValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).intValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1 : 0;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case INT64 -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Long.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> value.getIntegerValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).longValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1L : 0L;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case FLOAT -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Float.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).floatValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).floatValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1F : 0F;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case DOUBLE -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Double.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).doubleValue();
+                    case DOUBLE_VALUE -> value.getDoubleValue();
+                    case BOOLEAN_VALUE -> value.getBooleanValue() ? 1D : 0D;
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case BOOLEAN -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> Boolean.valueOf(value.getStringValue());
+                    case INTEGER_VALUE -> value.getIntegerValue() > 0;
+                    case DOUBLE_VALUE -> value.getDoubleValue() > 0;
+                    case BOOLEAN_VALUE -> value.getBooleanValue();
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case STRING -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> value.getStringValue();
+                    case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).toString();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).toString();
+                    case BOOLEAN_VALUE -> Boolean.valueOf(value.getBooleanValue()).toString();
+                    case TIMESTAMP_VALUE -> value.getTimestampValue().toString();
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case DATETIME -> {
+                return switch (value.getValueTypeCase()) {
+                    case STRING_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getStringValue());
+                    case INTEGER_VALUE -> value.getIntegerValue();
+                    case DOUBLE_VALUE -> Double.valueOf(value.getDoubleValue()).longValue();
+                    case TIMESTAMP_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+                    default -> throw new IllegalStateException();
+                };
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return switch (value.getValueTypeCase()) {
+                        case STRING_VALUE -> Long.valueOf(DateTimeUtil.toLocalDate(value.getStringValue()).toEpochDay()).intValue();
+                        case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).intValue();
+                        case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+                        default -> throw new IllegalStateException();
+                    };
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return switch (value.getValueTypeCase()) {
+                        case STRING_VALUE -> Long.valueOf(DateTimeUtil.toLocalTime(value.getStringValue()).toSecondOfDay()).intValue();
+                        case INTEGER_VALUE -> Long.valueOf(value.getIntegerValue()).intValue();
+                        case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+                        default -> throw new IllegalStateException();
+                    };
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return value.getStringValue();
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE, ARRAY -> {
+                return value.getArrayValue().getValuesList()
+                        .stream()
+                        .map((Value v) -> getAsPrimitive(fieldType.getCollectionElementType(), v))
+                        .collect(Collectors.toList());
+            }
+            default -> throw new IllegalStateException();
+        }
+    }
+
+    public static Object getAsPrimitive(final Schema.FieldType fieldType, final Object fieldValue) {
+        if(fieldValue == null) {
+            return null;
+        }
+        switch (fieldType.getTypeName()) {
+            case STRING, INT64, DOUBLE, BOOLEAN -> {
+                return fieldValue;
+            }
+            case INT32 -> {
+                return ((Long) fieldValue).intValue();
+            }
+            case FLOAT -> {
+                return ((Double) fieldValue).floatValue();
+            }
+            case DATETIME -> {
+                return DateTimeUtil.toEpochMicroSecond((com.google.protobuf.Timestamp) fieldValue);
+            }
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return DateTimeUtil.toEpochDay((Date)fieldValue);
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return DateTimeUtil.toLocalTime((String) fieldValue).toNanoOfDay() / 1000L;
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    return fieldValue;
+                } else {
+                    throw new IllegalStateException();
+                }
+            }
+            case ITERABLE, ARRAY -> {
+                switch (fieldType.getCollectionElementType().getTypeName()) {
+                    case INT64, DOUBLE, BOOLEAN, STRING -> {
+                        return fieldValue;
+                    }
+                    case INT32 -> {
+                        return ((List<Long>) fieldValue).stream()
+                                .map(Long::intValue)
+                                .collect(Collectors.toList());
+                    }
+                    case FLOAT -> {
+                        return ((List<Double>) fieldValue).stream()
+                                .map(Double::floatValue)
+                                .collect(Collectors.toList());
+                    }
+                    case DATETIME -> {
+                        return ((List<com.google.protobuf.Timestamp>) fieldValue).stream()
+                                .map(DateTimeUtil::toEpochMicroSecond)
+                                .collect(Collectors.toList());
+                    }
+                    case LOGICAL_TYPE -> {
+                        return ((List<Object>) fieldValue).stream()
+                                .map(o -> {
+                                    if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                                        return DateTimeUtil.toEpochDay((Date)o);
+                                    } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                                        return DateTimeUtil.toLocalTime((String) o).toNanoOfDay() / 1000L;
+                                    } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException();
+                }
+            }
+            default -> throw new IllegalStateException();
+        }
+    }
+
+    public static Object getAsPrimitive(final Value value) {
+        if(value == null) {
+            return null;
+        }
+        return switch (value.getValueTypeCase()) {
+            case BOOLEAN_VALUE -> value.getBooleanValue();
+            case STRING_VALUE -> value.getStringValue();
+            case INTEGER_VALUE -> value.getIntegerValue();
+            case DOUBLE_VALUE -> value.getDoubleValue();
+            case BYTES_VALUE -> value.getBytesValue().toByteArray();
+            case TIMESTAMP_VALUE -> DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+            case GEO_POINT_VALUE -> value.getGeoPointValue().toString();
+            case REFERENCE_VALUE -> value.getReferenceValue();
+            case MAP_VALUE -> DocumentToMapConverter.convert(value.getMapValue().getFieldsMap());
+            case NULL_VALUE, VALUETYPE_NOT_SET -> null;
+            case ARRAY_VALUE -> value.getArrayValue().getValuesList().stream()
+                    .map(DocumentSchemaUtil::getAsPrimitive)
+                    .collect(Collectors.toList());
+            default -> throw new IllegalStateException();
+        };
+    }
+
+    public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
+        if (primitiveValue == null) {
+            return null;
+        }
         switch (fieldType.getTypeName()) {
             case INT32:
-                return Long.valueOf(value.getIntegerValue()).intValue();
             case INT64:
-                return value.getIntegerValue();
             case FLOAT:
-                return Double.valueOf(value.getDoubleValue()).floatValue();
             case DOUBLE:
-                return value.getDoubleValue();
-            case BOOLEAN:
-                return value.getBooleanValue();
             case STRING:
-                return value.getStringValue();
-            case DATETIME:
-                return DateTimeUtil.toEpochMicroSecond(value.getTimestampValue());
+            case BOOLEAN:
+                return primitiveValue;
+            case DATETIME: {
+                return DateTimeUtil.toProtoTimestamp((Long)primitiveValue);
+            }
             case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    switch (value.getValueTypeCase()) {
-                        case STRING_VALUE:
-                            return Long.valueOf(DateTimeUtil.toLocalDate(value.getStringValue()).toEpochDay()).intValue();
-                        case INTEGER_VALUE:
-                            return Long.valueOf(value.getIntegerValue()).intValue();
-                        case NULL_VALUE:
-                        case VALUETYPE_NOT_SET:
-                            return null;
-                        default:
-                            throw new IllegalStateException();
-                    }
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    switch (value.getValueTypeCase()) {
-                        case STRING_VALUE:
-                            return Long.valueOf(DateTimeUtil.toLocalTime(value.getStringValue()).toSecondOfDay()).intValue();
-                        case INTEGER_VALUE:
-                            return Long.valueOf(value.getIntegerValue()).intValue();
-                        case NULL_VALUE:
-                        case VALUETYPE_NOT_SET:
-                            return null;
-                        default:
-                            throw new IllegalStateException();
-                    }
-                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
-                    return value.getStringValue();
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    return LocalDate.ofEpochDay((Integer) primitiveValue).toString();
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    return LocalTime.ofNanoOfDay((Long) primitiveValue).toString();
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+                    final int index = (Integer) primitiveValue;
+                    return fieldType.getLogicalType(EnumerationType.class).valueOf(index);
                 } else {
                     throw new IllegalStateException();
                 }
@@ -392,23 +616,31 @@ public class DocumentSchemaUtil {
             case ITERABLE:
             case ARRAY: {
                 switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case INT32:
-                    case INT64:
-                    case FLOAT:
-                    case DOUBLE:
-                    case BOOLEAN:
-                    case STRING:
-                    case DATETIME:
-                    case LOGICAL_TYPE:
-                    case ITERABLE:
-                    case ARRAY:
-                    case ROW:
-                    case BYTES:
-                    case MAP:
-                    case BYTE:
-                    case DECIMAL:
-                    default:
-                        throw new IllegalStateException();
+                    case INT32, INT64, FLOAT, DOUBLE, STRING, BOOLEAN -> {
+                        return primitiveValue;
+                    }
+                    case DATETIME -> {
+                        return ((List<Long>) primitiveValue).stream()
+                                .map(DateTimeUtil::toProtoTimestamp)
+                                .collect(Collectors.toList());
+                    }
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList());
+                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                            return ((List<Long>) primitiveValue).stream()
+                                    .map(Object::toString)
+                                    .collect(Collectors.toList());
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                            return ((List<Integer>) primitiveValue).stream()
+                                    .map(index -> fieldType.getLogicalType(EnumerationType.class).valueOf(index))
+                                    .collect(Collectors.toList());
+                        } else {
+                            throw new IllegalStateException();
+                        }
+                    }
                 }
             }
             default:
@@ -416,8 +648,16 @@ public class DocumentSchemaUtil {
         }
     }
 
-    public static Object convertPrimitive(Schema.FieldType fieldType, Object primitiveValue) {
-        return null;
+    public static Map<String, Object> asPrimitiveMap(final Document document) {
+        final Map<String, Object> primitiveMap = new HashMap<>();
+        if(document == null) {
+            return primitiveMap;
+        }
+        for(final Map.Entry<String, Value> entry : document.getFieldsMap().entrySet()) {
+            final Object value = getAsPrimitive(entry.getValue());
+            primitiveMap.put(entry.getKey(), value);
+        }
+        return primitiveMap;
     }
 
     public static Document merge(final Schema schema, Document document, final Map<String, ? extends Object> values) {
@@ -439,48 +679,27 @@ public class DocumentSchemaUtil {
             } else {
                 final Object object = values.get(field.getName());
                 switch (field.getType().getTypeName()) {
-                    case BOOLEAN:
-                        value = Value.newBuilder().setBooleanValue((Boolean)object).build();
-                        break;
-                    case STRING:
-                        value = Value.newBuilder().setStringValue(object.toString()).build();
-                        break;
-                    case BYTES:
-                        value = Value.newBuilder().setBytesValue(ByteString.copyFrom((byte[]) object)).build();
-                        break;
-                    case INT32:
-                        value = Value.newBuilder().setIntegerValue((Integer) object).build();
-                        break;
-                    case INT64:
-                        value = Value.newBuilder().setIntegerValue((Long) object).build();
-                        break;
-                    case FLOAT:
-                        value = Value.newBuilder().setDoubleValue((Float) object).build();
-                        break;
-                    case DOUBLE:
-                        value = Value.newBuilder().setDoubleValue((Double) object).build();
-                        break;
-                    case DECIMAL:
-                        value = Value.newBuilder().setStringValue(object.toString()).build();
-                        break;
-                    case DATETIME:
-                        value = Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp((Long) object)).build();
-                        break;
-                    case LOGICAL_TYPE: {
-                        if(RowSchemaUtil.isLogicalTypeDate(field.getType())) {
-                            value = Value.newBuilder().setStringValue(LocalDate.ofEpochDay((Integer) object).toString()).build();
-                        } else if(RowSchemaUtil.isLogicalTypeTime(field.getType())) {
-                            value = Value.newBuilder().setStringValue(LocalTime.ofNanoOfDay(((Long) object) / 1000L).toString()).build();
-                        } else if(RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
+                    case BOOLEAN -> value = Value.newBuilder().setBooleanValue((Boolean) object).build();
+                    case STRING -> value = Value.newBuilder().setStringValue(object.toString()).build();
+                    case BYTES -> value = Value.newBuilder().setBytesValue(ByteString.copyFrom((byte[]) object)).build();
+                    case INT32 -> value = Value.newBuilder().setIntegerValue((Integer) object).build();
+                    case INT64 -> value = Value.newBuilder().setIntegerValue((Long) object).build();
+                    case FLOAT -> value = Value.newBuilder().setDoubleValue((Float) object).build();
+                    case DOUBLE -> value = Value.newBuilder().setDoubleValue((Double) object).build();
+                    case DECIMAL -> value = Value.newBuilder().setStringValue(object.toString()).build();
+                    case DATETIME -> value = Value.newBuilder().setTimestampValue((Timestamp) object).build();
+                    case LOGICAL_TYPE -> {
+                        if (RowSchemaUtil.isLogicalTypeDate(field.getType())) {
+                            value = Value.newBuilder().setStringValue((String) object).build();
+                        } else if (RowSchemaUtil.isLogicalTypeTime(field.getType())) {
+                            value = Value.newBuilder().setStringValue((String) object).build();
+                        } else if (RowSchemaUtil.isLogicalTypeEnum(field.getType())) {
                             value = Value.newBuilder().setStringValue(object.toString()).build();
                         } else {
                             throw new IllegalStateException();
                         }
-                        break;
                     }
-                    default: {
-                        throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
-                    }
+                    default -> throw new IllegalArgumentException("Not supported type: " + field.getName() + ", type: " + field.getType());
                 }
             }
             builder.putFields(field.getName(), value);

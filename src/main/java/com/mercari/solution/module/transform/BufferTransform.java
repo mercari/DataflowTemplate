@@ -13,14 +13,12 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.TransformModule;
 import com.mercari.solution.util.OptionUtil;
-import com.mercari.solution.util.schema.AvroSchemaUtil;
-import com.mercari.solution.util.schema.EntitySchemaUtil;
-import com.mercari.solution.util.schema.RowSchemaUtil;
-import com.mercari.solution.util.schema.StructSchemaUtil;
+import com.mercari.solution.util.schema.*;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.state.StateSpec;
 import org.apache.beam.sdk.state.StateSpecs;
@@ -43,7 +41,7 @@ public class BufferTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BufferTransform.class);
 
-    private class BufferTransformParameters implements Serializable {
+    private static class BufferTransformParameters implements Serializable {
 
         private BufferType type;
         private Integer size;
@@ -57,57 +55,63 @@ public class BufferTransform implements TransformModule {
             return type;
         }
 
-        public void setType(BufferType type) {
-            this.type = type;
-        }
-
         public Integer getSize() {
             return size;
-        }
-
-        public void setSize(Integer size) {
-            this.size = size;
         }
 
         public List<String> getKeyFields() {
             return keyFields;
         }
 
-        public void setKeyFields(List<String> keyFields) {
-            this.keyFields = keyFields;
-        }
-
         public List<String> getRemainFields() {
             return remainFields;
-        }
-
-        public void setRemainFields(List<String> remainFields) {
-            this.remainFields = remainFields;
         }
 
         public List<String> getBufferFields() {
             return bufferFields;
         }
 
-        public void setBufferFields(List<String> bufferFields) {
-            this.bufferFields = bufferFields;
-        }
-
         public String getBufferedField() {
             return bufferedField;
-        }
-
-        public void setBufferedField(String bufferedField) {
-            this.bufferedField = bufferedField;
         }
 
         public Boolean getAscending() {
             return ascending;
         }
 
-        public void setAscending(Boolean ascending) {
-            this.ascending = ascending;
+        private void validate() {
+
+            final List<String> errorMessages = new ArrayList<>();
+            if(size == null) {
+                errorMessages.add("BufferTransform config parameters must contain size parameter.");
+            } else if(size == 0) {
+                errorMessages.add("BufferTransform size parameter must be greater than zero.");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
         }
+
+        private void setDefaults() {
+            if(type == null) {
+                type = BufferType.structs;
+            }
+            if(bufferedField == null) {
+                bufferedField = "buffer";
+            }
+            if(bufferFields == null) {
+                bufferFields = new ArrayList<>();
+            }
+            if(ascending == null) {
+                ascending = true;
+            }
+
+            if(type.equals(BufferType.fields)) {
+                size = size + 1;
+            }
+        }
+
     }
 
     private enum BufferType implements Serializable {
@@ -123,17 +127,20 @@ public class BufferTransform implements TransformModule {
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, TransformConfig config) {
 
         final BufferTransformParameters parameters = new Gson().fromJson(config.getParameters(), BufferTransformParameters.class);
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("BufferTransform config parameters must not be empty!");
+        }
+        parameters.validate();
+        parameters.setDefaults();
 
         final Map<String, FCollection<?>> results = new HashMap<>();
         for (final FCollection<?> input : inputs) {
             final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
             final PCollection<?> output;
             switch (input.getDataType()) {
-                case ROW: {
+                case ROW -> {
                     final Schema inputSchema;
-                    if(parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
+                    if (parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
                         inputSchema = RowSchemaUtil.selectFields(input.getSchema(), parameters.getBufferFields());
                     } else {
                         inputSchema = input.getSchema();
@@ -142,7 +149,7 @@ public class BufferTransform implements TransformModule {
                     final Schema outputSchema;
                     final Buffering<Row, Schema> buffering;
                     switch (parameters.getType()) {
-                        case structs: {
+                        case structs -> {
                             outputSchema = RowSchemaUtil
                                     .toBuilder(input.getSchema(), parameters.getRemainFields())
                                     .addField(
@@ -155,15 +162,14 @@ public class BufferTransform implements TransformModule {
                             buffering = (Schema s, Row r, int size, List<Row> buffer, List<String> bufferFields, String f) -> RowSchemaUtil
                                     .toBuilder(s, r)
                                     .withFieldValue(f, buffer).build();
-                            break;
                         }
-                        case arrays: {
+                        case arrays -> {
                             final List<String> remainFields = input.getSchema().getFieldNames();
                             remainFields.removeAll(parameters.getBufferFields());
 
                             final Schema.Builder builder = RowSchemaUtil
                                     .toBuilder(input.getSchema(), remainFields);
-                            for(final String fieldName : parameters.getBufferFields()) {
+                            for (final String fieldName : parameters.getBufferFields()) {
                                 final Schema.Field field = input.getSchema().getField(fieldName);
                                 builder.addField(Schema.Field.of(fieldName, Schema.FieldType.array(field.getType()).withNullable(true)));
                             }
@@ -172,7 +178,7 @@ public class BufferTransform implements TransformModule {
                             buffering = (Schema s, Row r, int size, List<Row> buffer, List<String> bufferFields, String f) -> {
                                 final Row.FieldValueBuilder bufferBuilder = RowSchemaUtil
                                         .toBuilder(s, r);
-                                for(final String bufferField : bufferFields) {
+                                for (final String bufferField : bufferFields) {
                                     bufferBuilder.withFieldValue(
                                             bufferField,
                                             buffer.stream()
@@ -182,14 +188,13 @@ public class BufferTransform implements TransformModule {
                                 }
                                 return bufferBuilder.build();
                             };
-                            break;
                         }
-                        case fields: {
+                        case fields -> {
                             final Schema.Builder builder = RowSchemaUtil
                                     .toBuilder(input.getSchema());
-                            for(final String fieldName : parameters.getBufferFields()) {
+                            for (final String fieldName : parameters.getBufferFields()) {
                                 final Schema.Field field = input.getSchema().getField(fieldName);
-                                for(int i=1; i<parameters.getSize(); i++) {
+                                for (int i = 1; i < parameters.getSize(); i++) {
                                     final String newFieldName = fieldName + "_bf" + i;
                                     builder.addField(Schema.Field.of(newFieldName, field.getType()).withNullable(true));
                                 }
@@ -199,10 +204,10 @@ public class BufferTransform implements TransformModule {
                             buffering = (Schema s, Row r, int size, List<Row> buffer, List<String> bufferFields, String f) -> {
                                 final Row.FieldValueBuilder bufferBuilder = RowSchemaUtil
                                         .toBuilder(s, r);
-                                for(final String bufferField : bufferFields) {
-                                    for(int i=1; i<size; i++) {
+                                for (final String bufferField : bufferFields) {
+                                    for (int i = 1; i < size; i++) {
                                         final String newFieldName = bufferField + "_bf" + i;
-                                        if(i < buffer.size()) {
+                                        if (i < buffer.size()) {
                                             bufferBuilder.withFieldValue(
                                                     newFieldName,
                                                     buffer.get(i).getValue(bufferField));
@@ -214,15 +219,14 @@ public class BufferTransform implements TransformModule {
                                 }
                                 return bufferBuilder.build();
                             };
-                            break;
                         }
-                        default: {
+                        default -> {
                             throw new IllegalStateException("BufferTransform: " + config.getName() + ", type: " + parameters.getType() + " is not supported!");
                         }
                     }
 
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
-                    final Transform<Row,Schema,Schema> transform = new Transform<>(
+                    final Transform<Row, Schema, Schema> transform = new Transform<>(
                             parameters,
                             inputSchema,
                             outputSchema,
@@ -233,11 +237,10 @@ public class BufferTransform implements TransformModule {
                             RowCoder.of(inputSchema));
                     output = inputCollection.getCollection().apply(name, transform).setCoder(RowCoder.of(outputSchema));
                     results.put(name, FCollection.of(name, output, DataType.ROW, outputSchema));
-                    break;
                 }
-                case AVRO: {
+                case AVRO -> {
                     final org.apache.avro.Schema inputSchema;
-                    if(parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
+                    if (parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
                         inputSchema = AvroSchemaUtil.selectFields(input.getAvroSchema(), parameters.getBufferFields());
                     } else {
                         inputSchema = input.getAvroSchema();
@@ -270,7 +273,7 @@ public class BufferTransform implements TransformModule {
 
                             final SchemaBuilder.FieldAssembler<org.apache.avro.Schema> builder = AvroSchemaUtil
                                     .toBuilder(input.getAvroSchema(), remainFields);
-                            for(final String fieldName : parameters.getBufferFields()) {
+                            for (final String fieldName : parameters.getBufferFields()) {
                                 final org.apache.avro.Schema.Field field = input.getAvroSchema().getField(fieldName);
                                 builder
                                         .name(fieldName)
@@ -283,7 +286,7 @@ public class BufferTransform implements TransformModule {
 
                             buffering = (org.apache.avro.Schema s, GenericRecord r, int size, List<GenericRecord> buffer, List<String> bufferFields, String f) -> {
                                 final GenericRecordBuilder bufferBuilder = AvroSchemaUtil.toBuilder(s, r);
-                                for(final String bufferField : bufferFields) {
+                                for (final String bufferField : bufferFields) {
                                     bufferBuilder.set(
                                             bufferField,
                                             buffer.stream()
@@ -298,9 +301,9 @@ public class BufferTransform implements TransformModule {
                         case fields: {
                             final SchemaBuilder.FieldAssembler<org.apache.avro.Schema> builder = AvroSchemaUtil
                                     .toBuilder(input.getAvroSchema());
-                            for(final String fieldName : parameters.getBufferFields()) {
+                            for (final String fieldName : parameters.getBufferFields()) {
                                 final org.apache.avro.Schema.Field field = input.getAvroSchema().getField(fieldName);
-                                for(int i=1; i<parameters.getSize(); i++) {
+                                for (int i = 1; i < parameters.getSize(); i++) {
                                     final String newFieldName = fieldName + "_bf" + i;
                                     builder
                                             .name(newFieldName)
@@ -312,10 +315,10 @@ public class BufferTransform implements TransformModule {
 
                             buffering = (org.apache.avro.Schema s, GenericRecord r, int size, List<GenericRecord> buffer, List<String> bufferFields, String f) -> {
                                 final GenericRecordBuilder bufferBuilder = AvroSchemaUtil.toBuilder(s, r);
-                                for(final String bufferField : bufferFields) {
-                                    for(int i=1; i<size; i++) {
+                                for (final String bufferField : bufferFields) {
+                                    for (int i = 1; i < size; i++) {
                                         final String newFieldName = bufferField + "_bf" + i;
-                                        if(i < buffer.size()) {
+                                        if (i < buffer.size()) {
                                             bufferBuilder.set(
                                                     newFieldName,
                                                     buffer.get(i).get(bufferField));
@@ -344,11 +347,10 @@ public class BufferTransform implements TransformModule {
                             AvroCoder.of(inputSchema));
                     output = inputCollection.getCollection().apply(name, transform).setCoder(AvroCoder.of(outputSchema));
                     results.put(name, FCollection.of(name, output, DataType.AVRO, outputSchema));
-                    break;
                 }
-                case STRUCT: {
+                case STRUCT -> {
                     final Type inputType;
-                    if(parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
+                    if (parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
                         inputType = StructSchemaUtil.selectFields(input.getSpannerType(), parameters.getBufferFields());
                     } else {
                         inputType = input.getSpannerType();
@@ -378,9 +380,9 @@ public class BufferTransform implements TransformModule {
 
                             final List<Type.StructField> structFields = StructSchemaUtil
                                     .selectFieldsBuilder(input.getSpannerType(), remainFields);
-                            for(final String fieldName : parameters.getBufferFields()) {
-                                for(final Type.StructField structField : input.getSpannerType().getStructFields()) {
-                                    if(structField.getName().equals(fieldName)) {
+                            for (final String fieldName : parameters.getBufferFields()) {
+                                for (final Type.StructField structField : input.getSpannerType().getStructFields()) {
+                                    if (structField.getName().equals(fieldName)) {
                                         structFields.add(Type.StructField.of(fieldName, Type.array(structField.getType())));
                                     }
                                 }
@@ -389,78 +391,68 @@ public class BufferTransform implements TransformModule {
 
                             buffering = (Type t, Struct s, int size, List<Struct> b, List<String> fs, String f) -> {
                                 Struct.Builder bufferBuilder = StructSchemaUtil.toBuilder(t, s);
-                                for(final String bufferField : fs) {
+                                for (final String bufferField : fs) {
                                     var vb = bufferBuilder.set(bufferField);
                                     final Type.StructField structField = t.getStructFields().stream()
                                             .filter(sf -> sf.getName().equals(bufferField))
                                             .findAny()
                                             .orElseThrow();
                                     switch (structField.getType().getArrayElementType().getCode()) {
-                                        case BOOL: {
+                                        case BOOL -> {
                                             bufferBuilder = vb.toBoolArray(b.stream()
                                                     .map(ss -> ss.getBoolean(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case STRING: {
+                                        case STRING -> {
                                             bufferBuilder = vb.toStringArray(b.stream()
                                                     .map(ss -> ss.getString(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case BYTES: {
+                                        case BYTES -> {
                                             bufferBuilder = vb.toBytesArray(b.stream()
                                                     .map(ss -> ss.getBytes(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case INT64: {
+                                        case INT64 -> {
                                             bufferBuilder = vb.toInt64Array(b.stream()
                                                     .map(ss -> ss.getLong(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case FLOAT64: {
+                                        case FLOAT64 -> {
                                             bufferBuilder = vb.toFloat64Array(b.stream()
                                                     .map(ss -> ss.getDouble(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case NUMERIC: {
+                                        case NUMERIC -> {
                                             bufferBuilder = vb.toNumericArray(b.stream()
                                                     .map(ss -> ss.getBigDecimal(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case DATE: {
+                                        case DATE -> {
                                             bufferBuilder = vb.toDateArray(b.stream()
                                                     .map(ss -> ss.getDate(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case TIMESTAMP: {
+                                        case TIMESTAMP -> {
                                             bufferBuilder = vb.toTimestampArray(b.stream()
                                                     .map(ss -> ss.getTimestamp(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case STRUCT: {
+                                        case STRUCT -> {
                                             bufferBuilder = vb.toStructArray(structField.getType().getArrayElementType(), b.stream()
                                                     .map(ss -> ss.getStruct(bufferField))
                                                     .filter(Objects::nonNull)
                                                     .collect(Collectors.toList()));
-                                            break;
                                         }
-                                        case ARRAY:
-                                        default: {
+                                        default -> {
                                             throw new IllegalStateException("");
                                         }
                                     }
@@ -471,10 +463,10 @@ public class BufferTransform implements TransformModule {
                         }
                         case fields: {
                             final List<Type.StructField> structFields = input.getSpannerType().getStructFields();
-                            for(final String fieldName : parameters.getBufferFields()) {
-                                for(final Type.StructField structField : input.getSpannerType().getStructFields()) {
-                                    if(structField.getName().equals(fieldName)) {
-                                        for(int i=1; i<parameters.getSize(); i++) {
+                            for (final String fieldName : parameters.getBufferFields()) {
+                                for (final Type.StructField structField : input.getSpannerType().getStructFields()) {
+                                    if (structField.getName().equals(fieldName)) {
+                                        for (int i = 1; i < parameters.getSize(); i++) {
                                             final String newFieldName = fieldName + "_bf" + i;
                                             structFields.add(Type.StructField.of(newFieldName, structField.getType()));
                                         }
@@ -485,84 +477,75 @@ public class BufferTransform implements TransformModule {
 
                             buffering = (Type s, Struct e, int size, List<Struct> buffer, List<String> fs, String f) -> {
                                 Struct.Builder bufferBuilder = StructSchemaUtil.toBuilder(s, e);
-                                for(final String bufferField : fs) {
+                                for (final String bufferField : fs) {
                                     final Type type = buffer.get(0).getColumnType(bufferField);
-                                    for(int i=1; i<size; i++) {
+                                    for (int i = 1; i < size; i++) {
                                         final String newFieldName = bufferField + "_bf" + i;
                                         switch (type.getCode()) {
-                                            case BOOL: {
-                                                if(i < buffer.size()) {
+                                            case BOOL -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getBoolean(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Boolean)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Boolean) null);
                                                 }
-                                                break;
                                             }
-                                            case STRING: {
-                                                if(i < buffer.size()) {
+                                            case STRING -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getString(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((String)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((String) null);
                                                 }
-                                                break;
                                             }
-                                            case BYTES: {
-                                                if(i < buffer.size()) {
+                                            case BYTES -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getBytes(bufferField));
                                                 } else {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to((ByteArray) null);
                                                 }
-                                                break;
                                             }
-                                            case INT64: {
-                                                if(i < buffer.size()) {
+                                            case INT64 -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getLong(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Long)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Long) null);
                                                 }
-                                                break;
                                             }
-                                            case FLOAT64: {
-                                                if(i < buffer.size()) {
+                                            case FLOAT64 -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getDouble(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Double)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Double) null);
                                                 }
-                                                break;
                                             }
-                                            case NUMERIC: {
-                                                if(i < buffer.size()) {
+                                            case NUMERIC -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getBigDecimal(bufferField));
                                                 } else {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to((BigDecimal) null);
                                                 }
-                                                break;
                                             }
-                                            case DATE: {
-                                                if(i < buffer.size()) {
+                                            case DATE -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getDate(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((com.google.cloud.Date)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((com.google.cloud.Date) null);
                                                 }
-                                                break;
                                             }
-                                            case TIMESTAMP: {
-                                                if(i < buffer.size()) {
+                                            case TIMESTAMP -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getTimestamp(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((com.google.cloud.Timestamp)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((com.google.cloud.Timestamp) null);
                                                 }
-                                                break;
                                             }
-                                            case STRUCT: {
-                                                if(i < buffer.size()) {
+                                            case STRUCT -> {
+                                                if (i < buffer.size()) {
                                                     bufferBuilder = bufferBuilder.set(newFieldName).to(buffer.get(i).getStruct(bufferField));
                                                 } else {
-                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Struct)null);
+                                                    bufferBuilder = bufferBuilder.set(newFieldName).to((Struct) null);
                                                 }
-                                                break;
                                             }
-                                            case ARRAY: {
+                                            case ARRAY -> {
                                                 throw new IllegalArgumentException();
                                             }
                                         }
@@ -590,11 +573,10 @@ public class BufferTransform implements TransformModule {
                             SerializableCoder.of(Struct.class));
                     output = inputCollection.getCollection().apply(name, transform);
                     results.put(name, FCollection.of(name, output, DataType.STRUCT, outputType));
-                    break;
                 }
-                case ENTITY: {
+                case ENTITY -> {
                     final Schema inputSchema;
-                    if(parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
+                    if (parameters.getBufferFields() != null && parameters.getBufferFields().size() > 0) {
                         inputSchema = RowSchemaUtil.selectFields(input.getSchema(), parameters.getBufferFields());
                     } else {
                         inputSchema = input.getSchema();
@@ -603,7 +585,7 @@ public class BufferTransform implements TransformModule {
                     final Schema outputSchema;
                     final Buffering<Entity, Schema> buffering;
                     switch (parameters.getType()) {
-                        case structs: {
+                        case structs -> {
                             outputSchema = RowSchemaUtil.selectFieldsBuilder(input.getSchema(), parameters.getRemainFields())
                                     .addField(
                                             parameters.getBufferedField(),
@@ -622,14 +604,13 @@ public class BufferTransform implements TransformModule {
                                                     .build())
                                             .build())
                                     .build();
-                            break;
                         }
-                        case arrays: {
+                        case arrays -> {
                             final List<String> remainFields = input.getSchema().getFieldNames();
                             remainFields.removeAll(parameters.getBufferFields());
 
                             final Schema.Builder builder = RowSchemaUtil.toBuilder(input.getSchema(), remainFields);
-                            for(final String fieldName : parameters.getBufferFields()) {
+                            for (final String fieldName : parameters.getBufferFields()) {
                                 final Schema.Field field = input.getSchema().getField(fieldName);
                                 builder.addField(Schema.Field.of(fieldName, Schema.FieldType.array(field.getType()).withNullable(true)));
                             }
@@ -637,7 +618,7 @@ public class BufferTransform implements TransformModule {
 
                             buffering = (Schema s, Entity e, int size, List<Entity> b, List<String> fs, String f) -> {
                                 final Map<String, Value> properties = new HashMap<>();
-                                for(final String bufferField : fs) {
+                                for (final String bufferField : fs) {
                                     properties.put(bufferField, Value.newBuilder()
                                             .setArrayValue(
                                                     ArrayValue.newBuilder()
@@ -655,13 +636,12 @@ public class BufferTransform implements TransformModule {
                                         .putAllProperties(properties)
                                         .build();
                             };
-                            break;
                         }
-                        case fields: {
+                        case fields -> {
                             final Schema.Builder builder = RowSchemaUtil.toBuilder(input.getSchema());
-                            for(final String fieldName : parameters.getBufferFields()) {
+                            for (final String fieldName : parameters.getBufferFields()) {
                                 final Schema.Field field = input.getSchema().getField(fieldName);
-                                for(int i=1; i<parameters.getSize(); i++) {
+                                for (int i = 1; i < parameters.getSize(); i++) {
                                     final String newFieldName = fieldName + "_bf" + i;
                                     builder.addField(Schema.Field.of(newFieldName, field.getType()).withNullable(true));
                                 }
@@ -670,10 +650,10 @@ public class BufferTransform implements TransformModule {
 
                             buffering = (Schema s, Entity e, int size, List<Entity> buffer, List<String> fs, String f) -> {
                                 final Map<String, Value> properties = new HashMap<>();
-                                for(final String bufferField : fs) {
-                                    for(int i=1; i<size; i++) {
+                                for (final String bufferField : fs) {
+                                    for (int i = 1; i < size; i++) {
                                         final String newFieldName = bufferField + "_bf" + i;
-                                        if(i < buffer.size()) {
+                                        if (i < buffer.size()) {
                                             properties.put(newFieldName, buffer.get(i).getPropertiesOrDefault(bufferField, Value
                                                     .newBuilder()
                                                     .setNullValue(NullValue.NULL_VALUE)
@@ -691,15 +671,14 @@ public class BufferTransform implements TransformModule {
                                         .putAllProperties(properties)
                                         .build();
                             };
-                            break;
                         }
-                        default: {
+                        default -> {
                             throw new IllegalStateException("BufferTransform: " + config.getName() + ", type: " + parameters.getType() + " is not supported!");
                         }
                     }
 
                     final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
-                    final Transform<Entity,Schema,Schema> transform = new Transform<>(
+                    final Transform<Entity, Schema, Schema> transform = new Transform<>(
                             parameters,
                             inputSchema,
                             outputSchema,
@@ -710,50 +689,13 @@ public class BufferTransform implements TransformModule {
                             SerializableCoder.of(Entity.class));
                     output = inputCollection.getCollection().apply(name, transform);
                     results.put(name, FCollection.of(name, output, DataType.ENTITY, outputSchema));
-                    break;
                 }
-                default:
-                    throw new IllegalStateException("BufferTransform not support input type: " + input.getDataType());
+                default ->
+                        throw new IllegalStateException("BufferTransform not support input type: " + input.getDataType());
             }
         }
 
         return results;
-    }
-
-    private static void validateParameters(final BufferTransformParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("BufferTransform config parameters must not be empty!");
-        }
-
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getSize() == null) {
-            errorMessages.add("BufferTransform config parameters must contain size parameter.");
-        } else if(parameters.getSize() == 0) {
-            errorMessages.add("BufferTransform size parameter must be greater than zero.");
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void setDefaultParameters(BufferTransformParameters parameters) {
-        if(parameters.getType() == null) {
-            parameters.setType(BufferType.structs);
-        }
-        if(parameters.getBufferedField() == null) {
-            parameters.setBufferedField("buffer");
-        }
-        if(parameters.getBufferFields() == null) {
-            parameters.setBufferFields(new ArrayList<>());
-        }
-        if(parameters.getAscending() == null) {
-            parameters.setAscending(true);
-        }
-
-        if(parameters.getType().equals(BufferType.fields)) {
-            parameters.setSize(parameters.getSize() + 1);
-        }
     }
 
     public static class Transform<T,InputSchemaT,RuntimeSchemaT> extends PTransform<PCollection<T>, PCollection<T>> {
@@ -761,19 +703,19 @@ public class BufferTransform implements TransformModule {
         private final BufferTransformParameters parameters;
         private final InputSchemaT inputSchema;
         private final InputSchemaT outputSchema;
-        private final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
+        private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
         private final Selector<T,RuntimeSchemaT> selector;
         private final Buffering<T,RuntimeSchemaT> buffering;
-        private final StringGetter<T> stringGetter;
+        private final SchemaUtil.StringGetter<T> stringGetter;
         private final Coder<T> coder;
 
         private Transform(final BufferTransformParameters parameters,
                           final InputSchemaT inputSchema,
                           final InputSchemaT outputSchema,
-                          final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
+                          final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
                           final Selector<T,RuntimeSchemaT> selector,
                           final Buffering<T,RuntimeSchemaT> buffering,
-                          final StringGetter<T> stringGetter,
+                          final SchemaUtil.StringGetter<T> stringGetter,
                           final Coder<T> coder) {
 
             this.parameters = parameters;
@@ -835,7 +777,7 @@ public class BufferTransform implements TransformModule {
             private final String bufferedField;
             private final InputSchemaT inputSchema;
             private final InputSchemaT outputSchema;
-            private final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
+            private final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter;
             private final Selector<T, RuntimeSchemaT> selector;
             private final Buffering<T, RuntimeSchemaT> buffering;
             private final Boolean ascending;
@@ -849,7 +791,7 @@ public class BufferTransform implements TransformModule {
                        final Boolean ascending,
                        final InputSchemaT inputSchema,
                        final InputSchemaT outputSchema,
-                       final SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
+                       final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
                        final Selector<T,RuntimeSchemaT> selector,
                        final Buffering<T,RuntimeSchemaT> buffering) {
 
@@ -908,7 +850,7 @@ public class BufferTransform implements TransformModule {
                             final Boolean ascending,
                             final InputSchemaT inputSchema,
                             final InputSchemaT outputSchema,
-                            final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                            final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
                             final Selector<T, RuntimeSchemaT> selector,
                             final Buffering<T,RuntimeSchemaT> buffering,
                             final Coder<T> coder) {
@@ -942,7 +884,7 @@ public class BufferTransform implements TransformModule {
                                 final Boolean ascending,
                                 final InputSchemaT inputSchema,
                                 final InputSchemaT outputSchema,
-                                final SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
+                                final SchemaUtil.SchemaConverter<InputSchemaT, RuntimeSchemaT> schemaConverter,
                                 final Selector<T, RuntimeSchemaT> selector,
                                 final Buffering<T,RuntimeSchemaT> buffering,
                                 final Coder<T> coder) {
@@ -964,14 +906,6 @@ public class BufferTransform implements TransformModule {
             }
         }
 
-    }
-
-    private interface StringGetter<T> extends Serializable {
-        String getAsString(final T value, final String field);
-    }
-
-    private interface SchemaConverter<InputSchemaT, RuntimeSchemaT> extends Serializable {
-        RuntimeSchemaT convert(final InputSchemaT schema);
     }
 
     private interface Selector<T, SchemaT> extends Serializable {

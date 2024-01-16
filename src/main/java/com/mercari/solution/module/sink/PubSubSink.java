@@ -9,9 +9,13 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
+import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.pipeline.union.Union;
+import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.*;
+import freemarker.template.Template;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -20,12 +24,8 @@ import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PDone;
-import org.apache.beam.sdk.values.Row;
+import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.values.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,15 +34,18 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.stream.Collectors;
 
 
 public class PubSubSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(PubSubSink.class);
+    private static final String ATTRIBUTE_NAME_TOPIC = "__topic__";
 
-    private class PubSubSinkParameters implements Serializable {
+    private static class PubSubSinkParameters implements Serializable {
 
         private String topic;
+        private String topicTemplate;
         private Format format;
         private List<String> attributes;
         private String idAttribute;
@@ -59,92 +62,56 @@ public class PubSubSink implements SinkModule {
             return topic;
         }
 
-        public void setTopic(String topic) {
-            this.topic = topic;
+        public String getTopicTemplate() {
+            return topicTemplate;
         }
 
         public Format getFormat() {
             return format;
         }
 
-        public void setFormat(Format format) {
-            this.format = format;
-        }
-
         public List<String> getAttributes() {
             return attributes;
-        }
-
-        public void setAttributes(List<String> attributes) {
-            this.attributes = attributes;
         }
 
         public String getIdAttribute() {
             return idAttribute;
         }
 
-        public void setIdAttribute(String idAttribute) {
-            this.idAttribute = idAttribute;
-        }
-
         public String getTimestampAttribute() {
             return timestampAttribute;
-        }
-
-        public void setTimestampAttribute(String timestampAttribute) {
-            this.timestampAttribute = timestampAttribute;
         }
 
         public List<String> getOrderingKeyFields() {
             return orderingKeyFields;
         }
 
-        public void setOrderingKeyFields(List<String> orderingKeyFields) {
-            this.orderingKeyFields = orderingKeyFields;
-        }
-
         public String getProtobufDescriptor() {
             return protobufDescriptor;
-        }
-
-        public void setProtobufDescriptor(String protobufDescriptor) {
-            this.protobufDescriptor = protobufDescriptor;
         }
 
         public String getProtobufMessageName() {
             return protobufMessageName;
         }
 
-        public void setProtobufMessageName(String protobufMessageName) {
-            this.protobufMessageName = protobufMessageName;
-        }
-
         public Integer getMaxBatchSize() {
             return maxBatchSize;
-        }
-
-        public void setMaxBatchSize(Integer maxBatchSize) {
-            this.maxBatchSize = maxBatchSize;
         }
 
         public Integer getMaxBatchBytesSize() {
             return maxBatchBytesSize;
         }
 
-        public void setMaxBatchBytesSize(Integer maxBatchBytesSize) {
-            this.maxBatchBytesSize = maxBatchBytesSize;
-        }
 
         private void validate(final String name) {
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
-            if(this.getTopic() == null) {
-                errorMessages.add("pubsub sink module " + name + " parameter must contain topic");
+            if(this.topic == null && this.topicTemplate == null) {
+                errorMessages.add("pubsub sink module " + name + " parameter must contain topic or topicTemplate");
             }
-            if(this.getFormat() == null) {
+            if(this.format == null) {
                 errorMessages.add("pubsub sink module " + name + " parameter must contain format");
-            }
-            if(this.getFormat() != null) {
+            } else {
                 if(this.getFormat().equals(Format.protobuf)) {
                     if(this.getProtobufDescriptor() == null) {
                         errorMessages.add("pubsub sink module " + name + " parameter must contain protobufDescriptor when set format `protobuf`");
@@ -160,8 +127,8 @@ public class PubSubSink implements SinkModule {
         }
 
         private void setDefaults() {
-            if(this.getAttributes() == null) {
-                this.setAttributes(new ArrayList<>());
+            if(this.attributes == null) {
+                this.attributes = new ArrayList<>();
             }
             if(this.idAttribute != null
                     && !this.attributes.contains(this.idAttribute)) {
@@ -176,8 +143,6 @@ public class PubSubSink implements SinkModule {
         }
     }
 
-    public String getName() { return "pubsub"; }
-
     private enum Format {
         avro,
         json,
@@ -185,21 +150,20 @@ public class PubSubSink implements SinkModule {
     }
 
     @Override
+    public String getName() { return "pubsub"; }
+
+    @Override
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
-        if(inputs == null || inputs.size() != 1) {
+        if(inputs == null || inputs.size() == 0) {
             throw new IllegalArgumentException("pubsub sink module requires input parameter");
         }
-        final FCollection<?> input = inputs.get(0);
 
-        write(input, config, waits);
-        return new HashMap<>();
-    }
+        try {
+            config.outputAvroSchema(inputs.get(0).getAvroSchema());
+        } catch (Exception e) {
+            LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
+        }
 
-    private static void write(final FCollection<?> collection, final SinkConfig config) {
-        write(collection, config, null);
-    }
-
-    private static void write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final PubSubSinkParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSinkParameters.class);
         if(parameters == null) {
             throw new IllegalArgumentException("pubsub sink module parameters must not be empty!");
@@ -207,14 +171,79 @@ public class PubSubSink implements SinkModule {
         parameters.validate(config.getName());
         parameters.setDefaults();
 
-        final Write write = new Write(collection, parameters, waits);
-        final PDone output = collection.getCollection().apply(config.getName(), write);
-        try {
-            config.outputAvroSchema(collection.getAvroSchema());
-        } catch (Exception e) {
-            LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
+        if(inputs.size() == 1) {
+            final Write write = new Write(inputs.get(0), parameters, waits);
+            inputs.get(0).getCollection().apply(config.getName(), write);
+        } else {
+            writeMulti(inputs, config, parameters, waits);
         }
+
+        final Map<String, FCollection<?>> outputs = new HashMap<>();
+        final FCollection<?> collection = FCollection.update(inputs.get(0), config.getName (), (PCollection)inputs.get(0).getCollection());
+        outputs.put(config.getName(), collection);
+        return outputs;
     }
+
+    private static PDone writeMulti(
+            final List<FCollection<?>> inputs,
+            final SinkConfig config,
+            final PubSubSinkParameters parameters,
+            final List<FCollection<?>> waits) {
+
+        final List<TupleTag<?>> inputTags = new ArrayList<>();
+        final List<String> inputNames = new ArrayList<>();
+        final List<DataType> inputTypes = new ArrayList<>();
+        final Map<String, org.apache.beam.sdk.schemas.Schema> inputSchemas = new HashMap<>();
+
+        PCollectionTuple tuple = PCollectionTuple.empty(inputs.get(0).getCollection().getPipeline());
+        for (final FCollection<?> input : inputs) {
+            final TupleTag inputTag = new TupleTag<>() {};
+            inputTags.add(inputTag);
+            inputNames.add(input.getName());
+            inputTypes.add(input.getDataType());
+            inputSchemas.put(input.getName(), input.getSchema());
+            tuple = tuple.and(inputTag, input.getCollection());
+        }
+
+        final Schema inputSchema = inputs.get(0).getAvroSchema();
+        final WriteMulti write = new WriteMulti(inputSchema, parameters, inputTags, inputNames, inputTypes, waits);
+        return tuple.apply(config.getName(), write);
+    }
+
+    private static PubsubIO.Write<PubsubMessage> createWrite(PubSubSinkParameters parameters) {
+        PubsubIO.Write<PubsubMessage> write;
+        if(parameters.getTopic() != null) {
+            write = PubsubIO.writeMessages().to(parameters.getTopic());
+        } else if(parameters.getTopicTemplate() != null) {
+            write = PubsubIO.writeMessagesDynamic().to(topicFunction);
+        } else {
+            throw new IllegalArgumentException("pubsub sink module missing the both topic and topicTemplate parameter");
+        }
+
+        if (parameters.getIdAttribute() != null) {
+            write = write.withIdAttribute(parameters.getIdAttribute());
+        }
+        if (parameters.getTimestampAttribute() != null) {
+            write = write.withTimestampAttribute(parameters.getTimestampAttribute());
+        }
+        if (parameters.getMaxBatchSize() != null) {
+            write = write.withMaxBatchSize(parameters.getMaxBatchSize());
+        }
+        if (parameters.getMaxBatchBytesSize() != null) {
+            write = write.withMaxBatchBytesSize(parameters.getMaxBatchBytesSize());
+        }
+        return write;
+    }
+
+    private static final SerializableFunction<ValueInSingleWindow<PubsubMessage>,String> topicFunction = (ValueInSingleWindow<PubsubMessage> m) -> {
+        if(m == null || m.getValue() == null) {
+            throw new IllegalArgumentException();
+        }
+        if(m.getValue().getAttributeMap() == null || !m.getValue().getAttributeMap().containsKey(ATTRIBUTE_NAME_TOPIC)) {
+            throw new IllegalArgumentException();
+        }
+        return m.getValue().getAttributeMap().get(ATTRIBUTE_NAME_TOPIC);
+    };
 
     private static class Write extends PTransform<PCollection<?>, PDone> {
 
@@ -235,20 +264,7 @@ public class PubSubSink implements SinkModule {
 
         public PDone expand(final PCollection<?> input) {
 
-            PubsubIO.Write<PubsubMessage> write = PubsubIO.writeMessages().to(parameters.getTopic());
-            if (parameters.getIdAttribute() != null) {
-                write = write.withIdAttribute(parameters.getIdAttribute());
-            }
-            if (parameters.getTimestampAttribute() != null) {
-                write = write.withTimestampAttribute(parameters.getTimestampAttribute());
-            }
-            if (parameters.getMaxBatchSize() != null) {
-                write = write.withMaxBatchSize(parameters.getMaxBatchSize());
-            }
-            if (parameters.getMaxBatchBytesSize() != null) {
-                write = write.withMaxBatchBytesSize(parameters.getMaxBatchBytesSize());
-            }
-
+            final PubsubIO.Write<PubsubMessage> write = createWrite(parameters);
             switch (parameters.getFormat()) {
                 case avro: {
                     final PCollection<GenericRecord> records = input
@@ -558,6 +574,193 @@ public class PubSubSink implements SinkModule {
             abstract byte[] encode(T element);
 
         }
+    }
+
+    private static class WriteMulti extends PTransform<PCollectionTuple, PDone> {
+
+        private static final Logger LOG = LoggerFactory.getLogger(Write.class);
+
+        private final Schema schema;
+        private final PubSubSinkParameters parameters;
+
+        private final List<TupleTag<?>> inputTags;
+        private final List<String> inputNames;
+        private final List<DataType> inputTypes;
+
+        private final List<FCollection<?>> waitCollections;
+
+        private WriteMulti(
+                final Schema schema,
+                final PubSubSinkParameters parameters,
+                final List<TupleTag<?>> inputTags,
+                final List<String> inputNames,
+                final List<DataType> inputTypes,
+                final List<FCollection<?>> waits) {
+
+            this.schema = schema;
+            this.parameters = parameters;
+            this.inputTags = inputTags;
+            this.inputNames = inputNames;
+            this.inputTypes = inputTypes;
+            this.waitCollections = waits;
+        }
+
+        public PDone expand(final PCollectionTuple inputs) {
+
+            final PCollection<UnionValue> unionValues = inputs
+                    .apply("Union", Union.flatten(inputTags, inputTypes, inputNames));
+
+            final PCollection<UnionValue> waited;
+            if(waitCollections == null) {
+                waited = unionValues;
+            } else {
+                final List<PCollection<?>> waits = waitCollections.stream()
+                        .map(FCollection::getCollection)
+                        .collect(Collectors.toList());
+                waited = unionValues
+                        .apply("Wait", Wait.on(waits))
+                        .setCoder(unionValues.getCoder());
+            }
+
+            final PubsubIO.Write<PubsubMessage> write = createWrite(parameters);
+            return waited
+                    .apply("ToMessage", ParDo.of(new UnionPubsubMessageDoFn(parameters, schema.toString())))
+                    .apply("PublishPubSub", write);
+        }
+
+        private static class UnionPubsubMessageDoFn extends DoFn<UnionValue, PubsubMessage> {
+
+            private final Format format;
+            private final List<String> attributes;
+            private final String idAttribute;
+            private final List<String> orderingKeyFields;
+            private final String topicTemplateString;
+
+            private final String schemaString;
+            private final String descriptorPath;
+            private final String messageName;
+
+            private transient Schema schema;
+            private transient DatumWriter<GenericRecord> writer;
+            private transient BinaryEncoder encoder;
+            private transient Descriptors.Descriptor descriptor;
+
+            private transient Template topicTemplate;
+
+
+            UnionPubsubMessageDoFn(
+                    final PubSubSinkParameters parameters,
+                    final String schemaString) {
+
+                this.format = parameters.getFormat();
+                this.attributes = parameters.getAttributes();
+                this.idAttribute = parameters.getIdAttribute();
+                this.orderingKeyFields = parameters.getOrderingKeyFields();
+                this.topicTemplateString = parameters.getTopicTemplate();
+
+                this.schemaString = schemaString;
+                this.descriptorPath = parameters.getProtobufDescriptor();
+                this.messageName = parameters.getProtobufMessageName();
+            }
+
+            @Setup
+            public void setup() {
+                switch (format) {
+                    case avro -> {
+                        this.schema = AvroSchemaUtil.convertSchema(schemaString);
+                        this.writer = new GenericDatumWriter<>(schema);
+                        this.encoder = null;
+                    }
+                    case protobuf -> {
+                        final byte[] bytes = StorageUtil.readBytes(descriptorPath);
+                        final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(bytes);
+                        this.descriptor = descriptors.get(messageName);
+                    }
+                }
+                if(topicTemplateString != null) {
+                    this.topicTemplate = TemplateUtil.createStrictTemplate("topicTemplate", topicTemplateString);
+                }
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final UnionValue element = c.element();
+                final Map<String, String> attributeMap = getAttributes(element);
+                final String messageId = getMessageId(element);
+                final String orderingKey = getOrderingKey(element);
+                final byte[] payload = switch (format) {
+                    case json -> {
+                        final String json = UnionValue.getAsJson(element);
+                        yield Optional.ofNullable(json).map(s -> s.getBytes(StandardCharsets.UTF_8)).orElse(null);
+                    }
+                    case avro -> {
+                        final GenericRecord record = UnionValue.getAsRecord(schema, element);
+                        yield encode(record);
+                    }
+                    case protobuf -> {
+                        final DynamicMessage message = UnionValue.getAsProtoMessage(descriptor, element);
+                        yield Optional.ofNullable(message).map(DynamicMessage::toByteArray).orElse(null);
+                    }
+                };
+                final PubsubMessage message = new PubsubMessage(payload, attributeMap, messageId, orderingKey);
+                c.output(message);
+            }
+
+            private Map<String, String> getAttributes(UnionValue element) {
+                final Map<String, String> attributeMap = new HashMap<>();
+                if(topicTemplateString != null) {
+                    final String topic = TemplateUtil.executeStrictTemplate(topicTemplate, element.getMap());
+                    attributeMap.put(ATTRIBUTE_NAME_TOPIC, topic);
+                }
+                if(attributes == null || attributes.size() == 0) {
+                    return attributeMap;
+                }
+                for(final String attribute : attributes) {
+                    final String value = element.getString(attribute);
+                    if(value == null) {
+                        continue;
+                    }
+                    attributeMap.put(attribute, value);
+                }
+                return attributeMap;
+            }
+
+            private String getMessageId(UnionValue element) {
+                if(idAttribute == null) {
+                    return null;
+                }
+                return element.getString(idAttribute);
+            }
+
+            private String getOrderingKey(UnionValue element) {
+                if(orderingKeyFields == null || orderingKeyFields.size() == 0) {
+                    return null;
+                }
+                final StringBuilder sb = new StringBuilder();
+                for(final String fieldName : orderingKeyFields) {
+                    final String fieldValue = element.getString(fieldName);
+                    sb.append(fieldValue == null ? "" : fieldValue);
+                    sb.append("#");
+                }
+                if(sb.length() > 0) {
+                    sb.deleteCharAt(sb.length() - 1);
+                }
+                return sb.toString();
+            }
+
+            byte[] encode(GenericRecord record) {
+                try(final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
+                    encoder = EncoderFactory.get().binaryEncoder(byteArrayOutputStream, encoder);
+                    writer.write(record, encoder);
+                    encoder.flush();
+                    return byteArrayOutputStream.toByteArray();
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to encode record: " + record.toString(), e);
+                }
+            }
+
+        }
+
     }
 
     private interface JsonConverter<T> extends Serializable {

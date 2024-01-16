@@ -10,8 +10,8 @@ import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.coders.AvroCoder;
-import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
+import org.apache.beam.sdk.extensions.avro.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
@@ -109,21 +109,19 @@ public class StorageSource implements SourceModule {
     public static FCollection batch(final PBegin begin, final SourceConfig config) {
         final StorageSourceParameters parameters = new Gson().fromJson(config.getParameters(), StorageSourceParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("Storage source module: " + config.getName() + " parameter must not be empty!");
+            throw new IllegalArgumentException("Storage source module: " + config.getName() + " parameters must not be empty!");
         }
         parameters.validate(config.getName());
         parameters.setDefaults();
 
         switch (parameters.getFormat()) {
-            case avro:
-            case parquet: {
+            case avro, parquet -> {
                 final StorageAvroBatchSource sourceAvro = new StorageAvroBatchSource(config, parameters);
                 final PCollection<GenericRecord> outputAvro = begin.apply(config.getName(), sourceAvro);
                 return FCollection.of(config.getName(), outputAvro, DataType.AVRO, sourceAvro.schema);
             }
-            case csv:
-            case json: {
-                if(parameters.getTargetFormat() != null && "row".equalsIgnoreCase(parameters.getTargetFormat().trim())) {
+            case csv, json -> {
+                if (parameters.getTargetFormat() != null && "row".equalsIgnoreCase(parameters.getTargetFormat().trim())) {
                     final StorageTextRowBatchSource sourceText = new StorageTextRowBatchSource(config);
                     final PCollection<Row> outputText = begin.apply(config.getName(), sourceText);
                     return FCollection.of(config.getName(), outputText, DataType.ROW, sourceText.schema);
@@ -133,8 +131,8 @@ public class StorageSource implements SourceModule {
                     return FCollection.of(config.getName(), outputText, DataType.AVRO, sourceText.schema);
                 }
             }
-            default:
-                throw new IllegalArgumentException("Storage module not support format: " + parameters.getFormat());
+            default ->
+                    throw new IllegalArgumentException("Storage module not support format: " + parameters.getFormat());
         }
     }
 

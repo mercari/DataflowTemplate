@@ -23,5 +23,5 @@ SelectField is the definition for limiting the fields to be output, changing fie
 | expression        | Generates a field with the value of the result of the calculation for the specified `expression`. `expression` allows the fields contained in the aggregate result to be used as variables. | `expression`                 |
 | current_timestamp | Generates a field with a current timestamp value                                                                                                                                            | -                            |
 | concat            | Concatenates values of the specified `fields` as a string. if `delimiter` is specified, it will be combined using the value.                                                                | `fields`, `delimiter`        |
+| uuid              | Generates a field with uuid string value                                                                                                                                                    | -                            |
 | hash              | Generates a hashed string of the value of the specified `field` as a string. if `size` is specified, returns it in the length of the string.                                                | `field`, `secret` and `size` |
-

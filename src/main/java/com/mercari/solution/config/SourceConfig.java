@@ -171,7 +171,7 @@ public class SourceConfig implements Serializable {
         }
     }
 
-    private static Schema convertSchema(final List<InputSchemaField> fields) {
+    public static Schema convertSchema(final List<InputSchemaField> fields) {
         if(fields == null || fields.size() == 0) {
             return null;
         }

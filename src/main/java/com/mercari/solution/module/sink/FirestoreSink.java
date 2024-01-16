@@ -40,7 +40,7 @@ public class FirestoreSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(FirestoreSink.class);
 
-    private class FirestoreSinkParameters implements Serializable {
+    private static class FirestoreSinkParameters implements Serializable {
 
         private String projectId;
         private String databaseId;
@@ -56,40 +56,20 @@ public class FirestoreSink implements SinkModule {
             return projectId;
         }
 
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
-        }
-
         public String getDatabaseId() {
             return databaseId;
-        }
-
-        public void setDatabaseId(String databaseId) {
-            this.databaseId = databaseId;
         }
 
         public String getCollection() {
             return collection;
         }
 
-        public void setCollection(String collection) {
-            this.collection = collection;
-        }
-
         public List<String> getNameFields() {
             return nameFields;
         }
 
-        public void setNameFields(List<String> nameFields) {
-            this.nameFields = nameFields;
-        }
-
         public String getNameTemplate() {
             return nameTemplate;
-        }
-
-        public void setNameTemplate(String nameTemplate) {
-            this.nameTemplate = nameTemplate;
         }
 
         public Boolean getDelete() {
@@ -100,28 +80,12 @@ public class FirestoreSink implements SinkModule {
             return failFast;
         }
 
-        public void setFailFast(Boolean failFast) {
-            this.failFast = failFast;
-        }
-
-        public void setDelete(Boolean delete) {
-            this.delete = delete;
-        }
-
         public Boolean getShuffle() {
             return shuffle;
         }
 
-        public void setShuffle(Boolean shuffle) {
-            this.shuffle = shuffle;
-        }
-
         public String getSeparator() {
             return separator;
-        }
-
-        public void setSeparator(String separator) {
-            this.separator = separator;
         }
 
         private void validate() {
@@ -138,7 +102,7 @@ public class FirestoreSink implements SinkModule {
                 this.databaseId = "(default)";
             }
             if(this.delete == null) {
-                setDelete(false);
+                delete = false;
             }
             if(this.failFast == null) {
                 this.failFast = true;
@@ -147,7 +111,7 @@ public class FirestoreSink implements SinkModule {
                 this.shuffle = true;
             }
             if(this.separator == null) {
-                this.setSeparator("#");
+                this.separator = "#";
             }
         }
     }
@@ -169,15 +133,19 @@ public class FirestoreSink implements SinkModule {
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waitCollections) {
         final FirestoreSinkParameters parameters = new Gson().fromJson(config.getParameters(), FirestoreSinkParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("firestore sink module parameters must not be empty!");
+        }
+
         parameters.validate();
         final String defaultProject = OptionUtil.getProject(collection.getCollection());
         parameters.setDefaults(defaultProject);
 
         final DataType inputType = collection.getDataType();
         switch (inputType) {
-            case ROW: {
+            case ROW -> {
                 final Schema inputSchema = collection.getSchema();
-                final FirestoreWrite<Schema,Schema,Row> write = new FirestoreWrite<>(
+                final FirestoreWrite<Schema, Schema, Row> write = new FirestoreWrite<>(
                         parameters,
                         inputSchema,
                         s -> s,
@@ -189,9 +157,9 @@ public class FirestoreSink implements SinkModule {
                 final PCollection<FirestoreV1.WriteSuccessSummary> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.ROW, collection.getSchema());
             }
-            case AVRO: {
+            case AVRO -> {
                 final org.apache.avro.Schema inputSchema = collection.getAvroSchema();
-                final FirestoreWrite<String,org.apache.avro.Schema,GenericRecord> write = new FirestoreWrite<>(
+                final FirestoreWrite<String, org.apache.avro.Schema, GenericRecord> write = new FirestoreWrite<>(
                         parameters,
                         inputSchema.toString(),
                         AvroSchemaUtil::convertSchema,
@@ -203,9 +171,9 @@ public class FirestoreSink implements SinkModule {
                 final PCollection<FirestoreV1.WriteSuccessSummary> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.AVRO, collection.getAvroSchema());
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Type inputSpannerType = collection.getSpannerType();
-                final FirestoreWrite<Type,Type,Struct> write = new FirestoreWrite<>(
+                final FirestoreWrite<Type, Type, Struct> write = new FirestoreWrite<>(
                         parameters,
                         inputSpannerType,
                         t -> t,
@@ -217,9 +185,9 @@ public class FirestoreSink implements SinkModule {
                 final PCollection<FirestoreV1.WriteSuccessSummary> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.STRUCT, collection.getSpannerType());
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Schema inputSchema = collection.getSchema();
-                final FirestoreWrite<Schema,Schema,Entity> write = new FirestoreWrite<>(
+                final FirestoreWrite<Schema, Schema, Entity> write = new FirestoreWrite<>(
                         parameters,
                         inputSchema,
                         s -> s,
@@ -231,9 +199,9 @@ public class FirestoreSink implements SinkModule {
                 final PCollection<FirestoreV1.WriteSuccessSummary> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.ENTITY, collection.getSchema());
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Schema inputSchema = collection.getSchema();
-                final FirestoreWrite<Schema,Schema,Document> write = new FirestoreWrite<>(
+                final FirestoreWrite<Schema, Schema, Document> write = new FirestoreWrite<>(
                         parameters,
                         inputSchema,
                         s -> s,
@@ -245,8 +213,8 @@ public class FirestoreSink implements SinkModule {
                 final PCollection<FirestoreV1.WriteSuccessSummary> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.DOCUMENT, collection.getSchema());
             }
-            default: {
-                throw new IllegalArgumentException("Not supported ");
+            default -> {
+                throw new IllegalArgumentException("Not supported input data type: " + inputType);
             }
         }
     }

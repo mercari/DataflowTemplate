@@ -4,6 +4,8 @@ import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
 import com.google.datastore.v1.Entity;
 import com.google.datastore.v1.Value;
+import com.google.firestore.v1.Document;
+import com.google.firestore.v1.MapValue;
 import com.google.gson.Gson;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.util.JsonFormat;
@@ -18,8 +20,8 @@ import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
-import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -37,7 +39,7 @@ public class ProtobufTransform implements TransformModule {
     private static final Logger LOG = LoggerFactory.getLogger(ProtobufTransform.class);
     private static final String OUTPUT_SUFFIX_FAILURES = ".failures";
 
-    private class ProtobufTransformParameters implements Serializable {
+    private static class ProtobufTransformParameters implements Serializable {
 
         private String descriptorFilePath;
         private List<ProtoParameter> fields;
@@ -47,27 +49,15 @@ public class ProtobufTransform implements TransformModule {
             return descriptorFilePath;
         }
 
-        public void setDescriptorFilePath(String descriptorFilePath) {
-            this.descriptorFilePath = descriptorFilePath;
-        }
-
         public List<ProtoParameter> getFields() {
             return fields;
-        }
-
-        public void setFields(List<ProtoParameter> fields) {
-            this.fields = fields;
         }
 
         public Boolean getFailFast() {
             return failFast;
         }
 
-        public void setFailFast(Boolean failFast) {
-            this.failFast = failFast;
-        }
-
-        private class ProtoParameter implements Serializable {
+        private static class ProtoParameter implements Serializable {
 
             private String field;
             private String messageName;
@@ -77,24 +67,60 @@ public class ProtobufTransform implements TransformModule {
                 return field;
             }
 
-            public void setField(String field) {
-                this.field = field;
-            }
-
             public String getMessageName() {
                 return messageName;
-            }
-
-            public void setMessageName(String messageName) {
-                this.messageName = messageName;
             }
 
             public String getOutputField() {
                 return outputField;
             }
 
-            public void setOutputField(String outputField) {
-                this.outputField = outputField;
+        }
+
+        private void validate() {
+            final List<String> errorMessages = new ArrayList<>();
+            if(descriptorFilePath == null) {
+                errorMessages.add("ProtobufTransform config parameters must contain descriptorFilePath parameter.");
+            }
+            if(fields == null) {
+                errorMessages.add("ProtobufTransform config parameters must contain fields parameter.");
+            } else {
+                for(var field : fields) {
+                    if(field.getField() == null || field.getMessageName() == null) {
+                        errorMessages.add("ProtobufTransform config parameters.fields must contain both field and messageName: "
+                                + field.getField() + ", " + field.getMessageName());
+                    }
+                }
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
+        }
+
+        private void validateDescriptors(final Map<String, Descriptors.Descriptor> descriptors) {
+
+            final List<String> errorMessages = new ArrayList<>();
+            for(var field : fields) {
+                if(!descriptors.containsKey(field.messageName)) {
+                    errorMessages.add("Descriptor file does not contain messageName: " + field.messageName);
+                }
+            }
+
+            if(errorMessages.size() > 0) {
+                errorMessages.add("Descriptor file only contains: " + String.join(",", descriptors.keySet()));
+                throw new IllegalArgumentException(String.join("\n", errorMessages));
+            }
+        }
+
+        private void setDefaults() {
+            if(failFast == null) {
+                failFast = true;
+            }
+            for(final ProtobufTransformParameters.ProtoParameter protoParameter : fields) {
+                if(protoParameter.outputField == null) {
+                    protoParameter.outputField = protoParameter.getField();
+                }
             }
         }
 
@@ -109,13 +135,15 @@ public class ProtobufTransform implements TransformModule {
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 
         final ProtobufTransformParameters parameters = new Gson().fromJson(config.getParameters(), ProtobufTransformParameters.class);
-        validateParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("Protobuf transform module parameters must not be empty!");
+        }
+        parameters.validate();
 
         final byte[] descriptorContentBytes = StorageUtil.readBytes(parameters.descriptorFilePath);
         final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descriptorContentBytes);
-        validateDescriptors(parameters, descriptors);
-
-        setDefaultParameters(parameters);
+        parameters.validateDescriptors(descriptors);
+        parameters.setDefaults();
 
         final List<String> excludeFields = parameters.getFields().stream()
                 .filter(f -> f.getOutputField() == null || f.getField().equals(f.getOutputField()))
@@ -126,13 +154,13 @@ public class ProtobufTransform implements TransformModule {
         for(final FCollection<?> input : inputs){
             final String name = config.getName() + (config.getInputs().size() == 1 ? "" : "." + input.getName());
             switch (input.getDataType()) {
-                case AVRO: {
+                case AVRO -> {
                     final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                     final Schema inputSchema = inputCollection.getAvroSchema();
                     final SchemaBuilder.FieldAssembler<Schema> fieldAssembler = AvroSchemaUtil
                             .toSchemaBuilder(inputSchema, null, excludeFields);
                     final Map<String, String> messageSchemas = new HashMap<>();
-                    for(var field : parameters.getFields()) {
+                    for (var field : parameters.getFields()) {
                         final Schema messageSchema = ProtoToRecordConverter.convertSchema(descriptors.get(field.getMessageName()));
                         messageSchemas.put(field.getField(), messageSchema.toString());
                         fieldAssembler
@@ -149,7 +177,7 @@ public class ProtobufTransform implements TransformModule {
                             AvroSchemaUtil::getBytes,
                             (Schema s, GenericRecord r, Map<String, GenericRecord> messages) -> {
                                 GenericRecordBuilder builder = AvroSchemaUtil.copy(r, s);
-                                for(var entry : messages.entrySet()) {
+                                for (var entry : messages.entrySet()) {
                                     builder.set(entry.getKey(), entry.getValue());
                                 }
                                 return builder.build();
@@ -160,16 +188,15 @@ public class ProtobufTransform implements TransformModule {
                     final PCollection<?> failures = outputs.get(transform.failuresTag).setCoder(inputCollection.getCollection().getCoder());
                     results.put(name, FCollection.of(config.getName(), output, DataType.AVRO, outputSchema));
                     results.put(name + OUTPUT_SUFFIX_FAILURES, FCollection.of(config.getName(), failures, DataType.AVRO, inputSchema));
-                    break;
                 }
-                case ROW: {
+                case ROW -> {
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
                     final org.apache.beam.sdk.schemas.Schema inputSchema = inputCollection.getSchema();
                     final Map<String, org.apache.beam.sdk.schemas.Schema> messageTypes = new HashMap<>();
                     final List<org.apache.beam.sdk.schemas.Schema.Field> fields = inputSchema.getFields().stream()
                             .filter(f -> !excludeFields.contains(f.getName()))
                             .collect(Collectors.toList());
-                    for(var field : parameters.getFields()) {
+                    for (var field : parameters.getFields()) {
                         final org.apache.beam.sdk.schemas.Schema messageSchema = ProtoToRowConverter.convertSchema(descriptors.get(field.getMessageName()));
                         messageTypes.put(field.getField(), messageSchema);
                         fields.add(org.apache.beam.sdk.schemas.Schema.Field.of(
@@ -193,16 +220,15 @@ public class ProtobufTransform implements TransformModule {
                     final PCollection<?> failures = outputs.get(transform.failuresTag).setCoder(inputCollection.getCollection().getCoder());
                     results.put(name, FCollection.of(config.getName(), output, DataType.ROW, outputSchema));
                     results.put(name + OUTPUT_SUFFIX_FAILURES, FCollection.of(config.getName(), failures, DataType.ROW, inputSchema));
-                    break;
                 }
-                case STRUCT: {
+                case STRUCT -> {
                     final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
                     final Type inputSchema = inputCollection.getSpannerType();
                     final Map<String, Type> messageTypes = new HashMap<>();
                     final List<Type.StructField> fields = inputSchema.getStructFields().stream()
                             .filter(f -> !excludeFields.contains(f.getName()))
                             .collect(Collectors.toList());
-                    for(var field : parameters.getFields()) {
+                    for (var field : parameters.getFields()) {
                         final Type messageType = ProtoToStructConverter
                                 .convertSchema(descriptors.get(field.getMessageName()));
                         messageTypes.put(field.getField(), messageType);
@@ -218,11 +244,11 @@ public class ProtobufTransform implements TransformModule {
                             s -> s,
                             StructSchemaUtil::getBytes,
                             (Type t, Struct struct, Map<String, Struct> messages) -> {
-                                    Struct.Builder builder = StructSchemaUtil.toBuilder(struct, null, messages.keySet());
-                                    for(var entry : messages.entrySet()) {
-                                        builder.set(entry.getKey()).to(entry.getValue()).build();
-                                    }
-                                    return builder.build();
+                                Struct.Builder builder = StructSchemaUtil.toBuilder(struct, null, messages.keySet());
+                                for (var entry : messages.entrySet()) {
+                                    builder.set(entry.getKey()).to(entry.getValue()).build();
+                                }
+                                return builder.build();
                             },
                             ProtoToStructConverter::convert);
 
@@ -231,14 +257,51 @@ public class ProtobufTransform implements TransformModule {
                     final PCollection<?> failures = outputs.get(transform.failuresTag).setCoder(inputCollection.getCollection().getCoder());
                     results.put(name, FCollection.of(config.getName(), output, DataType.STRUCT, outputType));
                     results.put(name + OUTPUT_SUFFIX_FAILURES, FCollection.of(config.getName(), failures, DataType.STRUCT, inputSchema));
-                    break;
                 }
-                case ENTITY: {
+                case DOCUMENT -> {
+                    final FCollection<Document> inputCollection = (FCollection<Document>) input;
+                    final org.apache.beam.sdk.schemas.Schema inputSchema = inputCollection.getSchema();
+                    final Map<String, org.apache.beam.sdk.schemas.Schema> messageTypes = new HashMap<>();
+                    final List<org.apache.beam.sdk.schemas.Schema.Field> fields = inputSchema.getFields();
+                    for (var field : parameters.getFields()) {
+                        final org.apache.beam.sdk.schemas.Schema messageSchema = ProtoToRowConverter.convertSchema(descriptors.get(field.getMessageName()));
+                        messageTypes.put(field.getField(), messageSchema);
+                        fields.add(org.apache.beam.sdk.schemas.Schema.Field.of(
+                                field.getOutputField() == null ? field.getField() : field.getOutputField(),
+                                org.apache.beam.sdk.schemas.Schema.FieldType.row(messageSchema)));
+                    }
+                    final org.apache.beam.sdk.schemas.Schema outputSchema = org.apache.beam.sdk.schemas.Schema.builder()
+                            .addFields(fields)
+                            .build();
+
+                    final Transform<Document, org.apache.beam.sdk.schemas.Schema, org.apache.beam.sdk.schemas.Schema> transform = new Transform<>(
+                            parameters,
+                            messageTypes,
+                            outputSchema,
+                            s -> s,
+                            DocumentSchemaUtil::getBytes,
+                            (org.apache.beam.sdk.schemas.Schema s, Document e, Map<String, Document> messages) -> {
+                                Document.Builder builder = Document.newBuilder(e);
+                                for (var entry : messages.entrySet()) {
+                                    builder.putFields(entry.getKey(),
+                                            com.google.firestore.v1.Value.newBuilder().setMapValue(MapValue.newBuilder().putAllFields(entry.getValue().toBuilder().getFieldsMap()).build()).build());
+                                }
+                                return builder.build();
+                            },
+                            ProtoToDocumentConverter::convert);
+
+                    final PCollectionTuple outputs = inputCollection.getCollection().apply(name, transform);
+                    final PCollection<?> output = outputs.get(transform.outputTag);
+                    final PCollection<?> failures = outputs.get(transform.failuresTag).setCoder(inputCollection.getCollection().getCoder());
+                    results.put(name, FCollection.of(config.getName(), output, DataType.DOCUMENT, outputSchema));
+                    results.put(name + OUTPUT_SUFFIX_FAILURES, FCollection.of(config.getName(), failures, DataType.DOCUMENT, inputSchema));
+                }
+                case ENTITY -> {
                     final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
                     final org.apache.beam.sdk.schemas.Schema inputSchema = inputCollection.getSchema();
                     final Map<String, org.apache.beam.sdk.schemas.Schema> messageTypes = new HashMap<>();
                     final List<org.apache.beam.sdk.schemas.Schema.Field> fields = inputSchema.getFields();
-                    for(var field : parameters.getFields()) {
+                    for (var field : parameters.getFields()) {
                         final org.apache.beam.sdk.schemas.Schema messageSchema = ProtoToRowConverter.convertSchema(descriptors.get(field.getMessageName()));
                         messageTypes.put(field.getField(), messageSchema);
                         fields.add(org.apache.beam.sdk.schemas.Schema.Field.of(
@@ -257,7 +320,7 @@ public class ProtobufTransform implements TransformModule {
                             EntitySchemaUtil::getBytes,
                             (org.apache.beam.sdk.schemas.Schema s, Entity e, Map<String, Entity> messages) -> {
                                 Entity.Builder builder = Entity.newBuilder(e);
-                                for(var entry : messages.entrySet()) {
+                                for (var entry : messages.entrySet()) {
                                     builder.putProperties(entry.getKey(), Value.newBuilder().setEntityValue(entry.getValue()).build());
                                 }
                                 return builder.build();
@@ -269,65 +332,12 @@ public class ProtobufTransform implements TransformModule {
                     final PCollection<?> failures = outputs.get(transform.failuresTag).setCoder(inputCollection.getCollection().getCoder());
                     results.put(name, FCollection.of(config.getName(), output, DataType.ENTITY, outputSchema));
                     results.put(name + OUTPUT_SUFFIX_FAILURES, FCollection.of(config.getName(), failures, DataType.ENTITY, inputSchema));
-                    break;
                 }
-                default:
-                    throw new IllegalArgumentException("ProtobufTransform dows not support input type: " + input.getDataType().name());
+                default -> throw new IllegalArgumentException("ProtobufTransform dows not support input type: " + input.getDataType().name());
             }
         }
 
         return results;
-    }
-
-    private static void validateParameters(final ProtobufTransformParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("ProtobufTransform config parameters must not be empty!");
-        }
-
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getDescriptorFilePath() == null) {
-            errorMessages.add("ProtobufTransform config parameters must contain descriptorFilePath parameter.");
-        }
-        if(parameters.getFields() == null) {
-            errorMessages.add("ProtobufTransform config parameters must contain fields parameter.");
-        }
-        for(var field : parameters.getFields()) {
-            if(field.getField() == null || field.getMessageName() == null) {
-                errorMessages.add("ProtobufTransform config parameters.fields must contain both field and messageName: "
-                        + field.getField() + ", " + field.getMessageName());
-            }
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void validateDescriptors(final ProtobufTransformParameters parameters,
-                                            final Map<String, Descriptors.Descriptor> descriptors) {
-
-        final List<String> errorMessages = new ArrayList<>();
-        for(var field : parameters.getFields()) {
-            if(!descriptors.containsKey(field.getMessageName())) {
-                errorMessages.add("Descriptor file does not contain messageName: " + field.getMessageName());
-            }
-        }
-
-        if(errorMessages.size() > 0) {
-            errorMessages.add("Descriptor file only contains: " + String.join(",", descriptors.keySet()));
-            throw new IllegalArgumentException(String.join("\n", errorMessages));
-        }
-    }
-
-    private static void setDefaultParameters(ProtobufTransformParameters parameters) {
-        if(parameters.getFailFast() == null) {
-            parameters.setFailFast(true);
-        }
-        for(final ProtobufTransformParameters.ProtoParameter protoParameter : parameters.getFields()) {
-            if(protoParameter.getOutputField() == null) {
-                protoParameter.setOutputField(protoParameter.getField());
-            }
-        }
     }
 
     public static class Transform<T, InputSchemaT, RuntimeSchemaT> extends PTransform<PCollection<T>, PCollectionTuple> {

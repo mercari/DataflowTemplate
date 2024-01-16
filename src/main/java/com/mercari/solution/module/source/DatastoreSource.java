@@ -21,14 +21,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 
 public class DatastoreSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(DatastoreSource.class);
 
-    private class DatastoreSourceParameters {
+    private static class DatastoreSourceParameters {
 
         private String projectId;
         private String gql;
@@ -42,56 +41,48 @@ public class DatastoreSource implements SourceModule {
             return projectId;
         }
 
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
-        }
-
         public String getGql() {
             return gql;
-        }
-
-        public void setGql(String gql) {
-            this.gql = gql;
         }
 
         public String getKind() {
             return kind;
         }
 
-        public void setKind(String kind) {
-            this.kind = kind;
-        }
-
         public String getNamespace() {
             return namespace;
-        }
-
-        public void setNamespace(String namespace) {
-            this.namespace = namespace;
         }
 
         public Integer getNumQuerySplits() {
             return numQuerySplits;
         }
 
-        public void setNumQuerySplits(Integer numQuerySplits) {
-            this.numQuerySplits = numQuerySplits;
-        }
-
         public Boolean getWithKey() {
             return withKey;
-        }
-
-        public void setWithKey(Boolean withKey) {
-            this.withKey = withKey;
         }
 
         public Boolean getEmulator() {
             return emulator;
         }
 
-        public void setEmulator(Boolean emulator) {
-            this.emulator = emulator;
+
+        private void validate() {
+
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if(gql == null) {
+                errorMessages.add("Parameter must contain gql");
+            }
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
+            }
+        }
+
+        public void setDefaults() {
+            if (withKey == null) {
+                withKey = false;
+            }
         }
     }
 
@@ -99,7 +90,6 @@ public class DatastoreSource implements SourceModule {
 
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
         if (config.getMicrobatch() != null && config.getMicrobatch()) {
-            //inputs.put(config.getName(), beats.apply(config.getName(), SpannerSource.microbatch(config)));
             return Collections.emptyMap();
         } else {
             return Collections.singletonMap(config.getName(), DatastoreSource.batch(begin, config));
@@ -109,8 +99,11 @@ public class DatastoreSource implements SourceModule {
     public static FCollection<Entity> batch(final PBegin begin, final SourceConfig config) {
 
         final DatastoreSourceParameters parameters = new Gson().fromJson(config.getParameters(), DatastoreSourceParameters.class);
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("datastore source module parameters must not empty!");
+        }
+        parameters.validate();
+        parameters.setDefaults();
 
         final DatastoreBatchSource source = new DatastoreBatchSource(config, parameters);
         final PCollection<Entity> output = begin.apply(config.getName(), source);
@@ -141,28 +134,6 @@ public class DatastoreSource implements SourceModule {
             }
         }
         return FCollection.of(config.getName(), output, DataType.ENTITY, schema);
-    }
-
-    private static void validateParameters(final DatastoreSourceParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
-        }
-
-        // check required parameters filled
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getGql() == null) {
-            errorMessages.add("Parameter must contain gql");
-        }
-
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-        }
-    }
-
-    private static void setDefaultParameters(final DatastoreSourceParameters parameters) {
-        if (parameters.getWithKey() == null) {
-            parameters.setWithKey(false);
-        }
     }
 
     public static class DatastoreBatchSource extends PTransform<PBegin, PCollection<Entity>> {

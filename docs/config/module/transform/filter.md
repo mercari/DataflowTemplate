@@ -20,7 +20,7 @@ If you want to do slight modification in addition to the refinement and renaming
 | parameter    | optional           | type                                  | description                                                                                                       |
 |--------------|--------------------|---------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | filters      | selective required | [FilterCondition](filtercondition.md) | Specify the conditions for filtering rows.                                                                        |
-| select       | selective required | Array<[SelectField](select.md)\>      | Specify a list of field names to be passed through. You can also specify nested fields by joining them with dots. |
+| select       | selective required | Array<[SelectField](select.md)\>      | Specify a list of field definitions if you want to refine, rename, or apply some processing to the source fields. |
 | fields       | selective required | Array<String\>                        | Specify a list of field names to be passed through. You can also specify nested fields by joining them with dots. |
 | renameFields | optional           | Map<String,String\>                   | To rename fields, specify the original name as the key and the name to be changed as the value.                   |
 
@@ -30,4 +30,3 @@ If you want to do slight modification in addition to the refinement and renaming
 ## Related example config files
 
 * [Split Avro records to Cloud Spanner](../../../../examples/avro-to-filter-to-avro.json)
-* [BigQuery to Filter to Neo4jLocal](../../../../examples/bigquery-to-filter-to-localneo4j.json)

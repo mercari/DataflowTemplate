@@ -38,6 +38,7 @@ public class SolrSchemaUtil {
 
         private List<RequestHandler> requestHandlers;
         private List<SearchComponent> searchComponents;
+        private UpdateHandler updateHandler;
 
 
         public List<String> validate() {
@@ -128,6 +129,12 @@ public class SolrSchemaUtil {
                 this.requestHandlers.add(defaultSearchHandler);
             }
 
+            // setup UpdateHandler
+            if(this.updateHandler == null) {
+                this.updateHandler = new UpdateHandler();
+                this.updateHandler.setDefaults();
+            }
+
             // setup SearchComponents
             if(this.searchComponents == null) {
                 this.searchComponents = new ArrayList<>();
@@ -181,7 +188,7 @@ public class SolrSchemaUtil {
             return document;
         }
 
-        private class DirectoryFactory implements Serializable {
+        private static class DirectoryFactory implements Serializable {
 
             private String className;
             private Boolean preload;
@@ -258,7 +265,7 @@ public class SolrSchemaUtil {
 
         }
 
-        private class IndexConfig implements Serializable {
+        private static class IndexConfig implements Serializable {
 
             private Integer ramBufferSizeMB;
             private Integer maxBufferedDocs;
@@ -309,7 +316,7 @@ public class SolrSchemaUtil {
             }
         }
 
-        private class CodecFactory implements Serializable {
+        private static class CodecFactory implements Serializable {
 
             private String className;
             private String compressionMode;
@@ -336,7 +343,7 @@ public class SolrSchemaUtil {
 
         }
 
-        private class Lib implements Serializable {
+        private static class Lib implements Serializable {
 
             private String dir;
             private String regex;
@@ -364,7 +371,7 @@ public class SolrSchemaUtil {
 
         }
 
-        private class RequestHandler implements Serializable {
+        private static class RequestHandler implements Serializable {
 
             private String name;
             private String className;
@@ -440,7 +447,7 @@ public class SolrSchemaUtil {
 
         }
 
-        private class SearchComponent implements Serializable {
+        private static class SearchComponent implements Serializable {
 
             private String name;
             private String className;
@@ -463,6 +470,141 @@ public class SolrSchemaUtil {
                 return searchComponent;
             }
         }
+
+        private static class UpdateHandler implements Serializable {
+
+            private String className;
+            private Map<String, String> updateLog;
+
+            public List<String> validate(int index) {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(className == null) {
+                    this.className = "solr.DirectUpdateHandler2";
+                }
+                if(this.updateLog == null) {
+                    this.updateLog = new HashMap<>();
+                }
+                if(!updateLog.containsKey("dir")) {
+                    updateLog.put("dir", "${solr.ulog.dir:}");
+                }
+                if(!updateLog.containsKey("syncLevel")) {
+                    updateLog.put("syncLevel", "FSYNC");
+                }
+                if(!updateLog.containsKey("numRecordsToKeep")) {
+                    updateLog.put("numRecordsToKeep", "10");
+                }
+                if(!updateLog.containsKey("maxNumLogsToKeep")) {
+                    updateLog.put("maxNumLogsToKeep", "10");
+                }
+                if(!updateLog.containsKey("numVersionBuckets")) {
+                    updateLog.put("numVersionBuckets", "65536");
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element updateHandler = document.createElement("updateHandler");
+                updateHandler.setAttribute("class", this.className);
+                if(!this.updateLog.isEmpty()) {
+                    final Element updateLog = document.createElement("updateLog");
+                    for(final Map.Entry<String, String> entry : this.updateLog.entrySet()) {
+                        final Element d = switch (entry.getKey()) {
+                            case "dir", "syncLevel" -> document.createElement("str");
+                            case "numRecordsToKeep", "maxNumLogsToKeep", "numVersionBuckets" -> document.createElement("int");
+                            default -> throw new IllegalArgumentException("Nut supported parameter for updateHandler.updateLog." + entry.getKey());
+                        };
+                        d.setAttribute("name", entry.getKey());
+                        d.setTextContent(entry.getValue());
+
+                        updateLog.appendChild(d);
+                    }
+                    updateHandler.appendChild(updateLog);
+                }
+
+                return updateHandler;
+            }
+
+        }
+
+        private static class AutoCommit implements Serializable {
+
+            private Long maxDocs;
+            private Long maxTime;
+            private String maxSize;
+            private Boolean openSearcher;
+
+            public List<String> validate() {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.maxDocs == null) {
+                    this.maxDocs = 10000L;
+                }
+                if(this.maxTime == null) {
+                    this.maxTime = 10000L;
+                }
+                if(this.maxSize == null) {
+                    this.maxSize = "";
+                }
+                if(this.openSearcher == null) {
+                    this.openSearcher = false;
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element autoCommit = document.createElement("autoCommit");
+                {
+                    final Element maxDocs = document.createElement("maxDocs");
+                    maxDocs.setTextContent(this.maxDocs.toString());
+                    autoCommit.appendChild(maxDocs);
+                }
+                {
+                    final Element maxTime = document.createElement("maxTime");
+                    maxTime.setTextContent(this.maxTime.toString());
+                    autoCommit.appendChild(maxTime);
+                }
+                {
+                    final Element maxSize = document.createElement("maxSize");
+                    maxSize.setTextContent(this.maxSize);
+                    autoCommit.appendChild(maxSize);
+                }
+
+                return autoCommit;
+            }
+
+        }
+
+        private static class UpdateLog implements Serializable {
+
+            private String dir;
+
+            public List<String> validate() {
+                final List<String> errorMessages = new ArrayList<>();
+                return errorMessages;
+            }
+
+            public void setDefaults() {
+                if(this.dir == null) {
+                    this.dir = "${solr.ulog.dir:}"; // or solr.SimpleTextCodecFactory
+                }
+            }
+
+            public Element createElement(final Document document) {
+                final Element updateLog = document.createElement("updateLog");
+                final Element dir = document.createElement("str");
+                dir.setAttribute("name", "dir");
+                dir.setTextContent(this.dir);
+                updateLog.appendChild(dir);
+                return updateLog;
+            }
+
+        }
+
     }
 
     public static SolrConfig createSolrConfig() {
