@@ -109,35 +109,21 @@ public interface Aggregator extends Serializable {
         }
 
         final Op op = Op.valueOf(params.get("op").getAsString());
-        switch (op) {
-            case count:
-                return Count.of(name, condition, ignore);
-            case max:
-                return Max.of(name, inputSchema, field, expression, condition, ignore);
-            case min:
-                return Max.of(name, inputSchema, field, expression, condition, ignore, true);
-            case last:
-                return Last.of(name, inputSchema, condition, ignore, separator, params);
-            case first:
-                return Last.of(name, inputSchema, condition, ignore, separator, params, true);
-            case argmax:
-                return ArgMax.of(name, inputSchema, condition, ignore, separator, params);
-            case argmin:
-                return ArgMax.of(name, inputSchema, condition, ignore, separator, params, true);
-            case sum:
-                return Sum.of(name, inputSchema, field, expression, condition, ignore);
-            case avg:
-                return Avg.of(name, field, expression, condition, ignore, params);
-            case std:
-                return Std.of(name, field, expression, condition, ignore, separator, params);
-            case regression:
-                return SimpleRegression.of(name, field, expression, condition, ignore, separator, params);
-            case array_agg:
-                return ArrayAgg.of(name, inputSchema, outputType, condition, ignore, params);
-            case any:
-            default:
-                throw new IllegalArgumentException("Not supported op: " + op);
-        }
+        return switch (op) {
+            case count -> Count.of(name, condition, ignore);
+            case max -> Max.of(name, inputSchema, field, expression, condition, ignore);
+            case min -> Max.of(name, inputSchema, field, expression, condition, ignore, true);
+            case last -> Last.of(name, inputSchema, condition, ignore, separator, params);
+            case first -> Last.of(name, inputSchema, condition, ignore, separator, params, true);
+            case argmax -> ArgMax.of(name, inputSchema, condition, ignore, separator, params);
+            case argmin -> ArgMax.of(name, inputSchema, condition, ignore, separator, params, true);
+            case sum -> Sum.of(name, inputSchema, field, expression, condition, ignore);
+            case avg -> Avg.of(name, field, expression, condition, ignore, params);
+            case std -> Std.of(name, field, expression, condition, ignore, separator, params);
+            case regression -> SimpleRegression.of(name, field, expression, condition, ignore, separator, params);
+            case array_agg -> ArrayAgg.of(name, inputSchema, outputType, condition, ignore, params);
+            default -> throw new IllegalArgumentException("Not supported op: " + op);
+        };
     }
 
     static Boolean filter(final Filter.ConditionNode conditionNode, final UnionValue unionValue) {
