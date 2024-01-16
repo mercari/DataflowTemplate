@@ -709,9 +709,8 @@ public class BigQuerySink implements SinkModule {
             final TableSchema tableSchema = RecordToTableRowConverter.convertSchema(schema);
             final String destinationField = parameters.getDynamicDestination();
 
-            final WriteResult writeResult;
             final WriteFormat writeDataType = writeDataType(parameters.getMethod(), inputTypes.get(0), schema, parameters.getWriteFormat(), isStreaming);
-            switch (writeDataType) {
+            final WriteResult writeResult = switch (writeDataType) {
                 case row -> {
                     BigQueryIO.Write<Row> write = BigQueryIO
                             .<Row>write()
@@ -719,7 +718,7 @@ public class BigQuerySink implements SinkModule {
                     final SerializableFunction<Row, String> destinationFunction = s -> s.getValue(destinationField) == null ? "" : s.getValue(destinationField).toString();
                     write = applyParameters(write, parameters, tableSchema, isStreaming, destinationFunction);
                     final org.apache.beam.sdk.schemas.Schema rowSchema = RecordToRowConverter.convertSchema(schema);
-                    writeResult = waited
+                    yield waited
                             .apply("ConvertToRow", ParDo.of(new Union.ToRowDoFn(rowSchema)))
                             .setCoder(RowCoder.of(rowSchema))
                             .apply("WriteRow", write);
@@ -730,7 +729,7 @@ public class BigQuerySink implements SinkModule {
                             .useAvroLogicalTypes();
                     final SerializableFunction<GenericRecord, String> destinationFunction = (s) -> s.get(destinationField) == null ? "" : s.get(destinationField).toString();
                     write = applyParameters(write, parameters, tableSchema, isStreaming, destinationFunction);
-                    writeResult = waited
+                    yield waited
                             .apply("ConvertToAvro", ParDo.of(new Union.ToRecordDoFn(schema.toString())))
                             .setCoder(AvroCoder.of(schema))
                             .apply("WriteAvro", write);
@@ -747,20 +746,18 @@ public class BigQuerySink implements SinkModule {
                                 case MUTATION -> MutationToRecordConverter.convert(schema, (Mutation) r.getElement().getValue());
                                 default -> throw new IllegalArgumentException();
                             })
-                            .withFormatFunction(convertTableRowFunction)
                             .useAvroLogicalTypes();
                     write = applyParameters(write, parameters, tableSchema, isStreaming, createDestinationFunction(destinationField));
-                    writeResult = waited.apply("WriteAvro", write);
+                    yield waited.apply("WriteAvro", write);
                 }
                 case json -> {
                     BigQueryIO.Write<UnionValue> write = BigQueryIO
                             .<UnionValue>write()
                             .withFormatFunction(convertTableRowFunction);
                     write = applyParameters(write, parameters, tableSchema, isStreaming, createDestinationFunction(destinationField));
-                    writeResult = waited.apply("WriteTableRow", write);
+                    yield waited.apply("WriteTableRow", write);
                 }
-                default -> throw new IllegalArgumentException();
-            }
+            };
 
             final boolean isStreamingInsert =
                     BigQueryIO.Write.Method.STREAMING_INSERTS.equals(parameters.getMethod())

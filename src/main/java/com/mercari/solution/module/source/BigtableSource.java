@@ -35,7 +35,7 @@ public class BigtableSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BigtableSource.class);
 
-    private class BigtableSourceParameters implements Serializable {
+    private static class BigtableSourceParameters implements Serializable {
 
         private String projectId;
         private String instanceId;
@@ -120,6 +120,9 @@ public class BigtableSource implements SourceModule {
 
     public static FCollection<?> batch(PBegin begin, SourceConfig config) {
         final BigtableSourceParameters parameters = new Gson().fromJson(config.getParameters(), BigtableSourceParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("bigtable source module parameters must not be empty!");
+        }
         parameters.validate(begin);
         parameters.setDefaults();
 

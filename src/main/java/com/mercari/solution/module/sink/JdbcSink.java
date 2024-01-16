@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -24,7 +25,7 @@ public class JdbcSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcSink.class);
 
-    private static class JdbcSinkParameters {
+    private static class JdbcSinkParameters implements Serializable {
 
         private String table;
         private String url;
@@ -141,7 +142,7 @@ public class JdbcSink implements SinkModule {
 
     public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         if(config.getParameters() == null) {
-            throw new IllegalArgumentException();
+            throw new IllegalArgumentException("jdbc sink module parameters must not be null");
         }
         final JdbcSinkParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSinkParameters.class);
         parameters.validate();

@@ -18,6 +18,7 @@ import com.mercari.solution.util.schema.SchemaUtil;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.state.StateSpec;
@@ -49,7 +50,7 @@ public class WebSocketSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(WebSocketSource.class);
 
-    private class WebSocketSourceParameters implements Serializable {
+    private static class WebSocketSourceParameters implements Serializable {
 
         private String endpoint;
         private JsonElement requests;
@@ -72,115 +73,59 @@ public class WebSocketSource implements SourceModule {
             return endpoint;
         }
 
-        public void setEndpoint(String endpoint) {
-            this.endpoint = endpoint;
-        }
-
         public JsonElement getRequests() {
             return requests;
-        }
-
-        public void setRequests(JsonElement requests) {
-            this.requests = requests;
         }
 
         public JsonElement getHeartbeatRequests() {
             return heartbeatRequests;
         }
 
-        public void setHeartbeatRequests(JsonElement heartbeatRequests) {
-            this.heartbeatRequests = heartbeatRequests;
-        }
-
         public Long getIntervalSeconds() {
             return intervalSeconds;
-        }
-
-        public void setIntervalSeconds(Long intervalSeconds) {
-            this.intervalSeconds = intervalSeconds;
         }
 
         public Long getHeartbeatIntervalSeconds() {
             return heartbeatIntervalSeconds;
         }
 
-        public void setHeartbeatIntervalSeconds(Long heartbeatIntervalSeconds) {
-            this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
-        }
-
         public Long getCheckIntervalSeconds() {
             return checkIntervalSeconds;
-        }
-
-        public void setCheckIntervalSeconds(Long checkIntervalSeconds) {
-            this.checkIntervalSeconds = checkIntervalSeconds;
         }
 
         public String getReceivedTimestampField() {
             return receivedTimestampField;
         }
 
-        public void setReceivedTimestampField(String receivedTimestampField) {
-            this.receivedTimestampField = receivedTimestampField;
-        }
-
         public String getEventtimeField() {
             return eventtimeField;
-        }
-
-        public void setEventtimeField(String eventtimeField) {
-            this.eventtimeField = eventtimeField;
         }
 
         public Format getFormat() {
             return format;
         }
 
-        public void setFormat(Format format) {
-            this.format = format;
-        }
-
         public OutputType getOutputType() {
             return outputType;
-        }
-
-        public void setOutputType(OutputType outputType) {
-            this.outputType = outputType;
         }
 
         public Boolean getIgnoreError() {
             return ignoreError;
         }
 
-        public void setIgnoreError(Boolean ignoreError) {
-            this.ignoreError = ignoreError;
-        }
-
         public Boolean getIsArrayContent() {
             return isArrayContent;
-        }
-
-        public void setIsArrayContent(Boolean isArrayContent) {
-            this.isArrayContent = isArrayContent;
         }
 
         public Long getRequestIntervalSeconds() {
             return requestIntervalSeconds;
         }
 
-        public void setRequestIntervalSeconds(Long requestIntervalSeconds) {
-            this.requestIntervalSeconds = requestIntervalSeconds;
-        }
-
         public Boolean getPruning() {
             return pruning;
         }
 
-        public void setPruning(Boolean pruning) {
-            this.pruning = pruning;
-        }
-
-        private void validateParameters(final PBegin begin) {
+        private void validate(final PBegin begin) {
 
             if(!OptionUtil.isStreaming(begin.getPipeline().getOptions())) {
                 throw new IllegalArgumentException("WebSocket source module only support streaming mode.");
@@ -212,41 +157,37 @@ public class WebSocketSource implements SourceModule {
             }
         }
 
-        private void setDefaultParameters() {
+        private void setDefaults() {
             if(this.getFormat() == null) {
-                this.setFormat(Format.json);
+                this.format = Format.json;
             }
             if(this.getIntervalSeconds() == null) {
-                this.setIntervalSeconds(1L);
+                this.intervalSeconds = 1L;
             }
             if(this.getHeartbeatIntervalSeconds() == null) {
-                this.setHeartbeatIntervalSeconds(60L);
+                this.heartbeatIntervalSeconds = 60L;
             }
             if(this.getCheckIntervalSeconds() == null) {
-                this.setCheckIntervalSeconds(0L);
+                this.checkIntervalSeconds = 0L;
             }
             if(this.getOutputType() == null) {
-                switch (this.getFormat()) {
-                    case json: {
-                        this.setOutputType(OutputType.row);
-                        break;
-                    }
-                    default:
-                        this.setOutputType(OutputType.row);
-                        break;
+                if (Objects.requireNonNull(this.getFormat()) == Format.json) {
+                    this.outputType = OutputType.row;
+                } else {
+                    this.outputType = OutputType.row;
                 }
             }
             if(this.getIgnoreError() == null) {
-                this.setIgnoreError(false);
+                this.ignoreError = false;
             }
             if(this.getIsArrayContent() == null) {
-                this.setIsArrayContent(false);
+                this.isArrayContent = false;
             }
             if(this.getRequestIntervalSeconds() == null) {
-                this.setRequestIntervalSeconds(0L);
+                this.requestIntervalSeconds = 0L;
             }
             if(this.getPruning() == null) {
-                this.setPruning(false);
+                this.pruning = false;
             }
         }
     }
@@ -277,29 +218,30 @@ public class WebSocketSource implements SourceModule {
             throw new IllegalArgumentException("WebSocket source module parameters must not be empty!");
         }
 
-        parameters.validateParameters(begin);
-        parameters.setDefaultParameters();
+        parameters.validate(begin);
+        parameters.setDefaults();
 
         final List<SourceConfig.AdditionalOutput> additions = Optional
                 .ofNullable(config.getAdditionalOutputs()).orElse(new ArrayList<>());
         final TupleTag<KV<Instant, String>> failuresTag = new TupleTag<>() {};
 
         switch (parameters.getFormat()) {
-            case json: {
+            case json -> {
                 switch (parameters.getOutputType()) {
-                    case avro: {
-                        final TupleTag<GenericRecord> outputTag = new TupleTag<>() {};
+                    case avro -> {
+                        final TupleTag<GenericRecord> outputTag = new TupleTag<>() {
+                        };
                         org.apache.avro.Schema outputSchema = SourceConfig.convertAvroSchema(config.getSchema());
-                        if(parameters.getReceivedTimestampField() != null || parameters.getEventtimeField() != null) {
+                        if (parameters.getReceivedTimestampField() != null || parameters.getEventtimeField() != null) {
                             SchemaBuilder.FieldAssembler<org.apache.avro.Schema> builder = AvroSchemaUtil
                                     .toBuilder(outputSchema, outputSchema.getNamespace(), null);
-                            if(parameters.getReceivedTimestampField() != null) {
+                            if (parameters.getReceivedTimestampField() != null) {
                                 builder = builder
                                         .name(parameters.getReceivedTimestampField())
                                         .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
                                         .noDefault();
                             }
-                            if(parameters.getEventtimeField() != null) {
+                            if (parameters.getEventtimeField() != null) {
                                 builder = builder
                                         .name(parameters.getEventtimeField())
                                         .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
@@ -318,18 +260,18 @@ public class WebSocketSource implements SourceModule {
                                         SourceConfig.AdditionalOutput::getName,
                                         o -> {
                                             final org.apache.avro.Schema s = SourceConfig.convertAvroSchema(o.getSchema());
-                                            if(parameters.getReceivedTimestampField() == null && parameters.getEventtimeField() == null) {
+                                            if (parameters.getReceivedTimestampField() == null && parameters.getEventtimeField() == null) {
                                                 return s.toString();
                                             }
                                             SchemaBuilder.FieldAssembler<org.apache.avro.Schema> builder = AvroSchemaUtil
                                                     .toBuilder(s, s.getNamespace(), null);
-                                            if(parameters.getReceivedTimestampField() != null) {
+                                            if (parameters.getReceivedTimestampField() != null) {
                                                 builder = builder
                                                         .name(parameters.getReceivedTimestampField())
                                                         .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
                                                         .noDefault();
                                             }
-                                            if(parameters.getEventtimeField() != null) {
+                                            if (parameters.getEventtimeField() != null) {
                                                 builder = builder
                                                         .name(parameters.getEventtimeField())
                                                         .type(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE)
@@ -350,7 +292,7 @@ public class WebSocketSource implements SourceModule {
                         final Map<String, FCollection<?>> collections = new HashMap<>();
                         final Coder<GenericRecord> outputCoder = AvroCoder.of(outputSchema);
                         collections.put(config.getName(), FCollection.of(config.getName(), outputs.get(outputTag).setCoder(outputCoder), DataType.AVRO, outputSchema));
-                        for(final KV<TupleTag<GenericRecord>, SourceConfig.Output> kv : additionalOutputs) {
+                        for (final KV<TupleTag<GenericRecord>, SourceConfig.Output> kv : additionalOutputs) {
                             final String name = config.getName() + "." + kv.getValue().getName();
                             final org.apache.avro.Schema additionalOutputSchema = AvroSchemaUtil
                                     .convertSchema(additionalOutputSchemas.get(kv.getValue().getName()));
@@ -359,20 +301,21 @@ public class WebSocketSource implements SourceModule {
                         }
                         return collections;
                     }
-                    case row: {
-                        final TupleTag<Row> outputTag = new TupleTag<>() {};
+                    case row -> {
+                        final TupleTag<Row> outputTag = new TupleTag<>() {
+                        };
                         Schema outputSchema = SourceConfig.convertSchema(config.getSchema());
-                        if(parameters.getReceivedTimestampField() != null || parameters.getEventtimeField() != null) {
+                        if (parameters.getReceivedTimestampField() != null || parameters.getEventtimeField() != null) {
                             Schema.Builder builder = RowSchemaUtil.toBuilder(outputSchema);
-                            if(parameters.getReceivedTimestampField() != null) {
+                            if (parameters.getReceivedTimestampField() != null) {
                                 builder = builder.addField(
                                         parameters.getReceivedTimestampField(),
-                                        org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                                        Schema.FieldType.DATETIME.withNullable(true));
                             }
-                            if(parameters.getEventtimeField() != null) {
+                            if (parameters.getEventtimeField() != null) {
                                 builder = builder.addField(
                                         parameters.getEventtimeField(),
-                                        org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                                        Schema.FieldType.DATETIME.withNullable(true));
                             }
                             outputSchema = builder.build();
                         }
@@ -387,19 +330,19 @@ public class WebSocketSource implements SourceModule {
                                         SourceConfig.AdditionalOutput::getName,
                                         o -> {
                                             final Schema s = SourceConfig.convertSchema(o.getSchema());
-                                            if(parameters.getReceivedTimestampField() == null && parameters.getEventtimeField() == null) {
+                                            if (parameters.getReceivedTimestampField() == null && parameters.getEventtimeField() == null) {
                                                 return s;
                                             }
                                             Schema.Builder builder = RowSchemaUtil.toBuilder(s);
-                                            if(parameters.getReceivedTimestampField() != null) {
+                                            if (parameters.getReceivedTimestampField() != null) {
                                                 builder = builder.addField(
                                                         parameters.getReceivedTimestampField(),
-                                                                org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                                                        Schema.FieldType.DATETIME.withNullable(true));
                                             }
-                                            if(parameters.getEventtimeField() != null) {
+                                            if (parameters.getEventtimeField() != null) {
                                                 builder = builder.addField(
                                                         parameters.getEventtimeField(),
-                                                        org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(true));
+                                                        Schema.FieldType.DATETIME.withNullable(true));
                                             }
                                             return builder.build();
                                         }));
@@ -416,7 +359,7 @@ public class WebSocketSource implements SourceModule {
                         final Map<String, FCollection<?>> collections = new HashMap<>();
                         final Coder<Row> outputCoder = RowCoder.of(outputSchema);
                         collections.put(config.getName(), FCollection.of(config.getName(), outputs.get(outputTag).setCoder(outputCoder), DataType.ROW, outputSchema));
-                        for(final KV<TupleTag<Row>, SourceConfig.Output> kv : additionalOutputs) {
+                        for (final KV<TupleTag<Row>, SourceConfig.Output> kv : additionalOutputs) {
                             final String name = config.getName() + "." + kv.getValue().getName();
                             final Schema additionalOutputSchema = additionalOutputSchemas.get(kv.getValue().getName());
                             final Coder<Row> additionalOutputCoder = RowCoder.of(additionalOutputSchema);
@@ -424,12 +367,11 @@ public class WebSocketSource implements SourceModule {
                         }
                         return collections;
                     }
-                    default:
-                        throw new IllegalStateException("WebSocket source module does not support outputType: " + parameters.getOutputType());
+                    default ->
+                            throw new IllegalStateException("WebSocket source module does not support outputType: " + parameters.getOutputType());
                 }
             }
-            case text:
-            default: {
+            default -> {
                 throw new IllegalStateException("WebSocket source module does not support format: " + parameters.getFormat());
             }
         }
@@ -546,30 +488,27 @@ public class WebSocketSource implements SourceModule {
                             .into(TypeDescriptors.kvs(TypeDescriptors.strings(), TypeDescriptors.longs()))
                             .via((beat) -> KV.of("", beat)));
 
-            switch (format) {
-                case json: {
-                    TupleTagList tagList = TupleTagList.of(failuresTag);
-                    for(final KV<TupleTag<T>, SourceConfig.Output> kv : additionalOutputs) {
-                        tagList = tagList.and(kv.getKey());
-                    }
-                    return beats
-                            .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(
-                                    name, endpoint, requests,
-                                    heartbeatRequests, heartbeatIntervalMillis, checkIntervalMillis, requestIntervalMillis, pruning)))
-                            .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()))
-                            .apply("JsonToRecord", ParDo
-                                    .of(new JsonConvertDoFn<>(
-                                            name,
-                                            failuresTag,
-                                            inputSchema, additionalOutputInputSchemas,
-                                            schemaConverter, jsonConverter,
-                                            valuesSetter, timestampConverter,
-                                            receivedTimestampField, eventtimeField, ignoreError, isArrayContent, additionalOutputs))
-                                    .withOutputTags(outputTag, tagList));
+            if (Objects.requireNonNull(format) == Format.json) {
+                TupleTagList tagList = TupleTagList.of(failuresTag);
+                for (final KV<TupleTag<T>, SourceConfig.Output> kv : additionalOutputs) {
+                    tagList = tagList.and(kv.getKey());
                 }
-                default:
-                    throw new IllegalArgumentException();
+                return beats
+                        .apply("ReceiveMessage", ParDo.of(new WebSocketDoFn(
+                                name, endpoint, requests,
+                                heartbeatRequests, heartbeatIntervalMillis, checkIntervalMillis, requestIntervalMillis, pruning)))
+                        .setCoder(KvCoder.of(InstantCoder.of(), StringUtf8Coder.of()))
+                        .apply("JsonToRecord", ParDo
+                                .of(new JsonConvertDoFn<>(
+                                        name,
+                                        failuresTag,
+                                        inputSchema, additionalOutputInputSchemas,
+                                        schemaConverter, jsonConverter,
+                                        valuesSetter, timestampConverter,
+                                        receivedTimestampField, eventtimeField, ignoreError, isArrayContent, additionalOutputs))
+                                .withOutputTags(outputTag, tagList));
             }
+            throw new IllegalArgumentException();
         }
 
         private static class WebSocketDoFn extends DoFn<KV<String, Long>, KV<Instant, String>> {

@@ -241,6 +241,52 @@ public class DocumentSchemaUtil {
 
     }
 
+    public static Instant getTimestamp(final Document document, final String fieldName) {
+        return getTimestamp(document, fieldName, Instant.ofEpochSecond(0L));
+    }
+
+    public static Instant getTimestamp(final Document document, final String fieldName, final Instant timestampDefault) {
+        final Value value = document.getFieldsMap().get(fieldName);
+        if(value == null) {
+            return timestampDefault;
+        }
+        switch (value.getValueTypeCase()) {
+            case STRING_VALUE: {
+                final String stringValue = value.getStringValue();
+                try {
+                    final java.time.Instant instant = DateTimeUtil.toInstant(stringValue);
+                    if(instant == null) {
+                        return timestampDefault;
+                    }
+                    return DateTimeUtil.toJodaInstant(instant);
+                } catch (Exception e) {
+                    return timestampDefault;
+                }
+            }
+            case INTEGER_VALUE: {
+                try {
+                    return Instant.ofEpochMilli(value.getIntegerValue());
+                } catch (Exception e){
+                    return Instant.ofEpochMilli(value.getIntegerValue() / 1000);
+                }
+            }
+            case TIMESTAMP_VALUE: {
+                return Instant.ofEpochMilli(Timestamps.toMillis(value.getTimestampValue()));
+            }
+            case BOOLEAN_VALUE:
+            case DOUBLE_VALUE:
+            case BYTES_VALUE:
+            case GEO_POINT_VALUE:
+            case MAP_VALUE:
+            case ARRAY_VALUE:
+            case NULL_VALUE:
+            case VALUETYPE_NOT_SET:
+            default:
+                return timestampDefault;
+        }
+    }
+
+
     public static List<Float> getAsFloatList(final Document document, final String fieldName) {
         if(document == null || fieldName == null) {
             return new ArrayList<>();

@@ -6,13 +6,13 @@
 
   <groupId>com.mercari</groupId>
   <artifactId>solution</artifactId>
-  <version>0.10.0</version>
+  <version>0.11.0</version>
   <name>Mercari Dataflow Template</name>
 
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.51.0</beam.version>
+    <beam.version>2.53.0</beam.version>
 
     <freemarker.version>2.3.32</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>

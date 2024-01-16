@@ -22,7 +22,10 @@ import com.mercari.solution.util.schema.SchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
-import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
@@ -254,7 +257,7 @@ public class SpannerSource implements SourceModule {
 
         }
 
-        private static class ChangeStreamFilterParameter {
+        private static class ChangeStreamFilterParameter implements Serializable {
 
             private String startType;
             private String endType;
@@ -433,7 +436,7 @@ public class SpannerSource implements SourceModule {
     public Map<String, FCollection<?>> expand(PBegin begin, SourceConfig config, PCollection<Long> beats, List<FCollection<?>> waits) {
         final SpannerSourceParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSourceParameters.class);
         if(parameters == null) {
-            throw new IllegalArgumentException("Spanner SourceConfig must not be empty!");
+            throw new IllegalArgumentException("Spanner source module parameters must not be empty!");
         }
         final boolean isStreaming = OptionUtil.isStreaming(begin.getPipeline().getOptions());
         final Mode mode = Optional
@@ -449,11 +452,15 @@ public class SpannerSource implements SourceModule {
     }
 
     public static FCollection<Struct> batch(final PBegin begin, final SourceConfig config, final SpannerSourceParameters parameters) {
-        parameters.validateBatchParameters();
-        parameters.setBatchDefaultParameters();
-        final SpannerBatchSource source = new SpannerBatchSource(config, parameters);
-        final PCollection<Struct> output = begin.apply(config.getName(), source);
-        return FCollection.of(config.getName(), output, DataType.STRUCT, source.type);
+        if(parameters.getQuery() == null && parameters.getTable() == null) {
+            return FCollection.of("", new HashMap<>(), PCollectionTuple.empty(null), new HashMap<>(), new HashMap<>());
+        } else {
+            parameters.validateBatchParameters();
+            parameters.setBatchDefaultParameters();
+            final SpannerBatchSource source = new SpannerBatchSource(config, parameters);
+            final PCollection<Struct> output = begin.apply(config.getName(), source);
+            return FCollection.of(config.getName(), output, DataType.STRUCT, source.type);
+        }
     }
 
     public static Map<String, FCollection<?>> changestream(
@@ -512,6 +519,10 @@ public class SpannerSource implements SourceModule {
         final SpannerMicrobatchRead source = new SpannerMicrobatchRead(config, parameters);
         final PCollection<Struct> output = beats.apply(config.getName(), source);
         return FCollection.of(config.getName(), output, DataType.STRUCT, source.type);
+    }
+
+    public static FCollection<Struct> batchDatabase() {
+        return null;
     }
 
     public static class SpannerBatchSource extends PTransform<PBegin, PCollection<Struct>> {

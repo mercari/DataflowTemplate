@@ -38,7 +38,7 @@ public class FirestoreSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(FirestoreSource.class);
 
-    private class FirestoreSourceParameters implements Serializable {
+    private static class FirestoreSourceParameters implements Serializable {
 
         private String projectId;
         private String databaseId;
@@ -59,106 +59,54 @@ public class FirestoreSource implements SourceModule {
             return projectId;
         }
 
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
-        }
-
         public String getDatabaseId() {
             return databaseId;
-        }
-
-        public void setDatabaseId(String databaseId) {
-            this.databaseId = databaseId;
         }
 
         public String getCollection() {
             return collection;
         }
 
-        public void setCollection(String collection) {
-            this.collection = collection;
-        }
-
         public String getFilter() {
             return filter;
-        }
-
-        public void setFilter(String filter) {
-            this.filter = filter;
         }
 
         public List<String> getFields() {
             return fields;
         }
 
-        public void setFields(List<String> fields) {
-            this.fields = fields;
-        }
-
         public String getOrderField() {
             return orderField;
-        }
-
-        public void setOrderField(String orderField) {
-            this.orderField = orderField;
         }
 
         public StructuredQuery.Direction getOrderDirection() {
             return orderDirection;
         }
 
-        public void setOrderDirection(StructuredQuery.Direction orderDirection) {
-            this.orderDirection = orderDirection;
-        }
-
         public Integer getPageSize() {
             return pageSize;
-        }
-
-        public void setPageSize(Integer pageSize) {
-            this.pageSize = pageSize;
         }
 
         public String getParent() {
             return parent;
         }
 
-        public void setParent(String parent) {
-            this.parent = parent;
-        }
-
         public Boolean getAllDescendants() {
             return allDescendants;
-        }
-
-        public void setAllDescendants(Boolean allDescendants) {
-            this.allDescendants = allDescendants;
         }
 
         public Boolean getParallel() {
             return parallel;
         }
 
-        public void setParallel(Boolean parallel) {
-            this.parallel = parallel;
-        }
-
         public Long getPartitionCount() {
             return partitionCount;
-        }
-
-        public void setPartitionCount(Long partitionCount) {
-            this.partitionCount = partitionCount;
         }
 
         private OutputType outputType;
 
         public OutputType getOutputType() {
             return outputType;
-        }
-
-        public void setOutputType(OutputType outputType) {
-            this.outputType = outputType;
         }
 
 
@@ -233,13 +181,16 @@ public class FirestoreSource implements SourceModule {
     public static FCollection batch(final PBegin begin, final SourceConfig config) {
 
         final FirestoreSourceParameters parameters = new Gson().fromJson(config.getParameters(), FirestoreSourceParameters.class);
+        if(parameters == null) {
+            throw new IllegalArgumentException("firestore source module parameters must not empty!");
+        }
         parameters.validate();
         parameters.setDefaults(begin);
 
         final Schema outputSchema = SourceConfig.convertSchema(config.getSchema());
         switch (parameters.getOutputType()) {
-            case row: {
-                final BatchSource<Schema,Schema,Row> source = new BatchSource<>(
+            case row -> {
+                final BatchSource<Schema, Schema, Row> source = new BatchSource<>(
                         outputSchema,
                         parameters,
                         outputSchema,
@@ -250,7 +201,7 @@ public class FirestoreSource implements SourceModule {
                         .setCoder(RowCoder.of(outputSchema));
                 return FCollection.of(config.getName(), rows, DataType.ROW, outputSchema);
             }
-            case avro: {
+            case avro -> {
                 final org.apache.avro.Schema outputAvroSchema = SourceConfig.convertAvroSchema(config.getSchema());
                 final BatchSource<String, org.apache.avro.Schema, GenericRecord> source = new BatchSource<>(
                         outputSchema,
@@ -263,7 +214,7 @@ public class FirestoreSource implements SourceModule {
                         .setCoder(AvroCoder.of(outputAvroSchema));
                 return FCollection.of(config.getName(), records, DataType.AVRO, outputAvroSchema);
             }
-            case document: {
+            case document -> {
                 final Schema dummyOutputSchema = Schema.builder().addField("dummy", Schema.FieldType.STRING).build();
                 final BatchSource<Schema, Schema, Document> source = new BatchSource<>(
                         outputSchema,
@@ -276,8 +227,8 @@ public class FirestoreSource implements SourceModule {
                         .setCoder(SerializableCoder.of(Document.class));
                 return FCollection.of(config.getName(), documents, DataType.DOCUMENT, dummyOutputSchema);
             }
-            default:
-                throw new IllegalArgumentException("firestore source module not support format: " + parameters.getOutputType());
+            default ->
+                    throw new IllegalArgumentException("firestore source module not support format: " + parameters.getOutputType());
         }
     }
 
@@ -520,22 +471,15 @@ public class FirestoreSource implements SourceModule {
         }
 
         private static StructuredQuery.FieldFilter.Operator convertOp(final String op) {
-            switch (op.trim()) {
-                case "=":
-                    return StructuredQuery.FieldFilter.Operator.EQUAL;
-                case ">":
-                    return StructuredQuery.FieldFilter.Operator.GREATER_THAN;
-                case "<":
-                    return StructuredQuery.FieldFilter.Operator.LESS_THAN;
-                case ">=":
-                    return StructuredQuery.FieldFilter.Operator.GREATER_THAN_OR_EQUAL;
-                case "<=":
-                    return StructuredQuery.FieldFilter.Operator.LESS_THAN_OR_EQUAL;
-                case "!=":
-                    return StructuredQuery.FieldFilter.Operator.NOT_EQUAL;
-                default:
-                    throw new IllegalArgumentException("Not supported op type: " + op);
-            }
+            return switch (op.trim()) {
+                case "=" -> StructuredQuery.FieldFilter.Operator.EQUAL;
+                case ">" -> StructuredQuery.FieldFilter.Operator.GREATER_THAN;
+                case "<" -> StructuredQuery.FieldFilter.Operator.LESS_THAN;
+                case ">=" -> StructuredQuery.FieldFilter.Operator.GREATER_THAN_OR_EQUAL;
+                case "<=" -> StructuredQuery.FieldFilter.Operator.LESS_THAN_OR_EQUAL;
+                case "!=" -> StructuredQuery.FieldFilter.Operator.NOT_EQUAL;
+                default -> throw new IllegalArgumentException("Not supported op type: " + op);
+            };
         }
 
     }

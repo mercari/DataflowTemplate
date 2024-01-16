@@ -44,7 +44,7 @@ public class PubSubSource implements SourceModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(PubSubSource.class);
 
-    private class PubSubSourceParameters implements Serializable {
+    private static class PubSubSourceParameters implements Serializable {
 
         private String topic;
         private String subscription;
@@ -61,56 +61,64 @@ public class PubSubSource implements SourceModule {
             return topic;
         }
 
-        public void setTopic(String topic) {
-            this.topic = topic;
-        }
-
         public String getSubscription() {
             return subscription;
-        }
-
-        public void setSubscription(String subscription) {
-            this.subscription = subscription;
         }
 
         public Format getFormat() {
             return format;
         }
 
-        public void setFormat(Format format) {
-            this.format = format;
-        }
-
         public String getIdAttribute() {
             return idAttribute;
-        }
-
-        public void setIdAttribute(String idAttribute) {
-            this.idAttribute = idAttribute;
         }
 
         public OutputType getOutputType() {
             return outputType;
         }
 
-        public void setOutputType(OutputType outputType) {
-            this.outputType = outputType;
-        }
-
         public String getMessageName() {
             return messageName;
-        }
-
-        public void setMessageName(String messageName) {
-            this.messageName = messageName;
         }
 
         public Boolean getValidateUnnecessaryJsonField() {
             return validateUnnecessaryJsonField;
         }
 
-        public void setValidateUnnecessaryJsonField(Boolean validateUnnecessaryJsonField) {
-            this.validateUnnecessaryJsonField = validateUnnecessaryJsonField;
+        private void validate(final PBegin begin) {
+
+            if(!begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).isStreaming()) {
+                throw new IllegalArgumentException("PubSub source module only support streaming mode.");
+            }
+
+            // check required parameters filled
+            final List<String> errorMessages = new ArrayList<>();
+            if(topic == null && subscription == null) {
+                errorMessages.add("PubSub source module parameter must contain topic or subscription");
+            }
+            if(format == null) {
+                errorMessages.add("PubSub source module parameter must contain format");
+            }
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
+        }
+
+        private void setDefaults() {
+            if(outputType == null) {
+                switch (format) {
+                    case avro, message -> {
+                        outputType = OutputType.avro;
+                    }
+                    case protobuf, json -> {
+                        outputType = OutputType.row;
+                    }
+                    default -> outputType = OutputType.row;
+                }
+            }
+            if(validateUnnecessaryJsonField == null) {
+                validateUnnecessaryJsonField = false;
+            }
         }
     }
 
@@ -135,112 +143,71 @@ public class PubSubSource implements SourceModule {
     public static FCollection<?> stream(final PBegin begin, final SourceConfig config) {
 
         final PubSubSourceParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSourceParameters.class);
-        validateParameters(begin, parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("PubSub source module parameters must not be empty!");
+        }
+        parameters.validate(begin);
+        parameters.setDefaults();
 
         switch (parameters.getFormat()) {
-            case avro: {
+            case avro -> {
                 final Schema avroSchema = SourceConfig.convertAvroSchema(config.getSchema());
                 final PubSubStream<GenericRecord> stream = new PubSubStream<>(config, parameters);
                 final PCollection<GenericRecord> output = begin.apply(config.getName(), stream);
                 return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
             }
-            case json: {
+            case json -> {
                 switch (parameters.getOutputType()) {
-                    case avro: {
+                    case avro -> {
                         final Schema avroSchema = SourceConfig.convertAvroSchema(config.getSchema());
                         final PubSubStream<GenericRecord> stream = new PubSubStream<>(config, parameters);
                         final PCollection<GenericRecord> output = begin.apply(config.getName(), stream);
                         return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
                     }
-                    case row: {
+                    case row -> {
                         final org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(config.getSchema());
                         final PubSubStream<Row> stream = new PubSubStream<>(config, parameters);
                         final PCollection<Row> output = begin.apply(config.getName(), stream);
                         return FCollection.of(config.getName(), output, DataType.ROW, rowSchema);
                     }
-                    default:
-                        throw new IllegalStateException("PubSub source module does not support outputType: " + parameters.getOutputType());
+                    default ->
+                            throw new IllegalStateException("PubSub source module does not support outputType: " + parameters.getOutputType());
                 }
             }
-            case protobuf: {
+            case protobuf -> {
                 final byte[] descriptorBytes = StorageUtil.readBytes(config.getSchema().getProtobufDescriptor());
                 final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descriptorBytes);
                 final Descriptors.Descriptor messageDescriptor = descriptors.get(parameters.getMessageName());
                 switch (parameters.getOutputType()) {
-                    case avro: {
+                    case avro -> {
                         final Schema avroSchema = ProtoToRecordConverter.convertSchema(messageDescriptor);
                         final PubSubStream<GenericRecord> stream = new PubSubStream<>(config, parameters);
                         final PCollection<GenericRecord> output = begin.apply(config.getName(), stream);
                         return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
                     }
-                    case row: {
+                    case row -> {
                         final org.apache.beam.sdk.schemas.Schema rowSchema = ProtoToRowConverter.convertSchema(messageDescriptor);
                         final PubSubStream<Row> stream = new PubSubStream<>(config, parameters);
                         final PCollection<Row> output = begin.apply(config.getName(), stream);
                         return FCollection.of(config.getName(), output, DataType.ROW, rowSchema);
                     }
-                    default:
-                        throw new IllegalStateException("PubSub source module does not support outputType: " + parameters.getOutputType());
+                    default ->
+                            throw new IllegalStateException("PubSub source module does not support outputType: " + parameters.getOutputType());
                 }
             }
-            case message: {
+            case message -> {
                 final Schema avroSchema = PubSubToRecordConverter.createMessageSchema();
                 final PubSubStream<GenericRecord> stream = new PubSubStream<>(config, parameters);
                 final PCollection<GenericRecord> output = begin.apply(config.getName(), stream);
                 return FCollection.of(config.getName(), output, DataType.AVRO, avroSchema);
             }
-            default:
-                throw new IllegalStateException("PubSub source module does not support format: " + parameters.getFormat());
+            default ->
+                    throw new IllegalStateException("PubSub source module does not support format: " + parameters.getFormat());
         }
 
     }
 
-    private static void validateParameters(final PBegin begin, final PubSubSourceParameters parameters) {
 
-        if(!begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).isStreaming()) {
-            throw new IllegalArgumentException("PubSub source module only support streaming mode.");
-        }
-
-        if(parameters == null) {
-            throw new IllegalArgumentException("PubSub source module parameters must not be empty!");
-        }
-
-        // check required parameters filled
-        final List<String> errorMessages = new ArrayList<>();
-        if(parameters.getTopic() == null && parameters.getSubscription() == null) {
-            errorMessages.add("PubSub source module parameter must contain topic or subscription");
-        }
-        if(parameters.getFormat() == null) {
-            errorMessages.add("PubSub source module parameter must contain format");
-        }
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-        }
-    }
-
-    private static void setDefaultParameters(final PubSubSourceParameters parameters) {
-        if(parameters.getOutputType() == null) {
-            switch (parameters.getFormat()) {
-                case avro:
-                case message: {
-                    parameters.setOutputType(OutputType.avro);
-                    break;
-                }
-                case protobuf:
-                case json: {
-                    parameters.setOutputType(OutputType.row);
-                    break;
-                }
-                default:
-                    parameters.setOutputType(OutputType.row);
-                    break;
-            }
-        }
-        if(parameters.getValidateUnnecessaryJsonField() == null) {
-            parameters.setValidateUnnecessaryJsonField(false);
-        }
-    }
 
     public static class PubSubStream<T> extends PTransform<PBegin, PCollection<T>> {
 
@@ -289,8 +256,9 @@ public class PubSubSource implements SourceModule {
             final PCollection<T> messages;
             final PCollection<PubsubMessage> failures;
             switch (parameters.getFormat()) {
-                case avro: {
-                    final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
+                case avro -> {
+                    final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
+                    };
                     final Schema avroSchema = SourceConfig.convertAvroSchema(schema);
                     final PCollectionTuple tuple = pubsubMessages
                             .apply("AvroToRecord", ParDo
@@ -298,12 +266,12 @@ public class PubSubSource implements SourceModule {
                                     .withOutputTags(outputAvroTag, TupleTagList.of(failuresTag)));
                     messages = (PCollection<T>) tuple.get(outputAvroTag).setCoder(AvroCoder.of(avroSchema));
                     failures = tuple.get(failuresTag);
-                    break;
                 }
-                case json: {
+                case json -> {
                     switch (parameters.getOutputType()) {
-                        case avro: {
-                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
+                        case avro -> {
+                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
+                            };
                             final Schema avroSchema = SourceConfig.convertAvroSchema(schema);
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("JsonToRecord", ParDo
@@ -312,10 +280,10 @@ public class PubSubSource implements SourceModule {
                             messages = (PCollection<T>) tuple.get(outputAvroTag)
                                     .setCoder(AvroCoder.of(avroSchema));
                             failures = tuple.get(failuresTag);
-                            break;
                         }
-                        case row: {
-                            final TupleTag<Row> outputRowTag = new TupleTag<>() {};
+                        case row -> {
+                            final TupleTag<Row> outputRowTag = new TupleTag<>() {
+                            };
                             final org.apache.beam.sdk.schemas.Schema rowSchema = SourceConfig.convertSchema(schema);
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("JsonToRow", ParDo
@@ -324,18 +292,16 @@ public class PubSubSource implements SourceModule {
                             messages = (PCollection<T>) tuple.get(outputRowTag)
                                     .setCoder(RowCoder.of(rowSchema));
                             failures = tuple.get(failuresTag);
-                            break;
                         }
-                        default:
-                            throw new IllegalStateException();
+                        default -> throw new IllegalStateException();
                     }
-                    break;
                 }
-                case protobuf: {
+                case protobuf -> {
                     final Map<String, Descriptors.Descriptor> descriptors = SourceConfig.convertProtobufDescriptors(schema);
                     switch (parameters.getOutputType()) {
                         case avro: {
-                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {};
+                            final TupleTag<GenericRecord> outputAvroTag = new TupleTag<>() {
+                            };
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("ProtobufToRecord", ParDo
                                             .of(new ProtoToRecordDoFn(sendDeadletter,
@@ -350,7 +316,8 @@ public class PubSubSource implements SourceModule {
                             break;
                         }
                         case row: {
-                            final TupleTag<Row> outputRowTag = new TupleTag<>() {};
+                            final TupleTag<Row> outputRowTag = new TupleTag<>() {
+                            };
                             final PCollectionTuple tuple = pubsubMessages
                                     .apply("ProtobufToRow", ParDo
                                             .of(new ProtoToRowDoFn(sendDeadletter, parameters.getMessageName(),
@@ -366,17 +333,14 @@ public class PubSubSource implements SourceModule {
                         default:
                             throw new IllegalStateException();
                     }
-                    break;
                 }
-                case message: {
+                case message -> {
                     messages = (PCollection<T>) pubsubMessages
                             .apply("MessageToRecord", ParDo.of(new MessageToRecordDoFn()))
                             .setCoder(AvroCoder.of(PubSubToRecordConverter.createMessageSchema()));
                     failures = null;
-                    break;
                 }
-                default:
-                    throw new IllegalArgumentException();
+                default -> throw new IllegalArgumentException();
             }
 
             if (failures != null && deadletterTopic != null) {

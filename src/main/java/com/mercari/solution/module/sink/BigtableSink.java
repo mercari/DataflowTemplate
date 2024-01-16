@@ -40,7 +40,7 @@ public class BigtableSink implements SinkModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BigtableSink.class);
 
-    private class BigtableSinkParameters {
+    private static class BigtableSinkParameters implements Serializable {
 
         private String projectId;
         private String instanceId;
@@ -65,112 +65,56 @@ public class BigtableSink implements SinkModule {
             return projectId;
         }
 
-        public void setProjectId(String projectId) {
-            this.projectId = projectId;
-        }
-
         public String getInstanceId() {
             return instanceId;
-        }
-
-        public void setInstanceId(String instanceId) {
-            this.instanceId = instanceId;
         }
 
         public String getTableId() {
             return tableId;
         }
 
-        public void setTableId(String tableId) {
-            this.tableId = tableId;
-        }
-
         public List<String> getRowKeyFields() {
             return rowKeyFields;
-        }
-
-        public void setRowKeyFields(List<String> rowKeyFields) {
-            this.rowKeyFields = rowKeyFields;
         }
 
         public String getColumnFamily() {
             return columnFamily;
         }
 
-        public void setColumnFamily(String columnFamily) {
-            this.columnFamily = columnFamily;
-        }
-
         public String getColumnQualifier() {
             return columnQualifier;
-        }
-
-        public void setColumnQualifier(String columnQualifier) {
-            this.columnQualifier = columnQualifier;
         }
 
         public String getRowKeyTemplate() {
             return rowKeyTemplate;
         }
 
-        public void setRowKeyTemplate(String rowKeyTemplate) {
-            this.rowKeyTemplate = rowKeyTemplate;
-        }
-
         public String getColumnFamilyTemplate() {
             return columnFamilyTemplate;
-        }
-
-        public void setColumnFamilyTemplate(String columnFamilyTemplate) {
-            this.columnFamilyTemplate = columnFamilyTemplate;
         }
 
         public String getColumnQualifierTemplate() {
             return columnQualifierTemplate;
         }
 
-        public void setColumnQualifierTemplate(String columnQualifierTemplate) {
-            this.columnQualifierTemplate = columnQualifierTemplate;
-        }
-
         public Format getFormat() {
             return format;
-        }
-
-        public void setFormat(Format format) {
-            this.format = format;
         }
 
         public MutationOp getMutationOp() {
             return mutationOp;
         }
 
-        public void setMutationOp(MutationOp mutationOp) {
-            this.mutationOp = mutationOp;
-        }
-
         public TimestampType getTimestampType() {
             return timestampType;
-        }
-
-        public void setTimestampType(TimestampType timestampType) {
-            this.timestampType = timestampType;
         }
 
         public String getSeparator() {
             return separator;
         }
 
-        public void setSeparator(String separator) {
-            this.separator = separator;
-        }
-
         public List<ColumnSetting> getColumnSettings() {
             return columnSettings;
-        }
-
-        public void setColumnSettings(List<ColumnSetting> columnSettings) {
-            this.columnSettings = columnSettings;
         }
 
         public void setDefaults() {
@@ -198,7 +142,7 @@ public class BigtableSink implements SinkModule {
             }
         }
 
-        public List<String> validate() {
+        public void validate() {
             final List<String> errorMessages = new ArrayList<>();
             if(projectId == null) {
                 errorMessages.add("BigtableSink module requires `projectId` parameter.");
@@ -217,10 +161,13 @@ public class BigtableSink implements SinkModule {
             }
             if(columnSettings != null) {
                 for(var setting : columnSettings) {
-                    setting.validate();
+                    errorMessages.addAll(setting.validate());
                 }
             }
-            return errorMessages;
+
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+            }
         }
 
     }
@@ -243,7 +190,7 @@ public class BigtableSink implements SinkModule {
         insertedtime
     }
 
-    public class ColumnSetting implements Serializable {
+    public static class ColumnSetting implements Serializable {
 
         private String field;
         private String columnFamily;
@@ -256,48 +203,24 @@ public class BigtableSink implements SinkModule {
             return field;
         }
 
-        public void setField(String field) {
-            this.field = field;
-        }
-
         public String getColumnFamily() {
             return columnFamily;
-        }
-
-        public void setColumnFamily(String columnFamily) {
-            this.columnFamily = columnFamily;
         }
 
         public String getColumnQualifier() {
             return columnQualifier;
         }
 
-        public void setColumnQualifier(String columnQualifier) {
-            this.columnQualifier = columnQualifier;
-        }
-
         public Boolean getExclude() {
             return exclude;
-        }
-
-        public void setExclude(Boolean exclude) {
-            this.exclude = exclude;
         }
 
         public Format getFormat() {
             return format;
         }
 
-        public void setFormat(Format format) {
-            this.format = format;
-        }
-
         public MutationOp getMutationOp() {
             return mutationOp;
-        }
-
-        public void setMutationOp(MutationOp mutationOp) {
-            this.mutationOp = mutationOp;
         }
 
         public void setDefaults(final Format format, final String defaultColumnFamily, final MutationOp defaultMutationOp) {
@@ -346,8 +269,11 @@ public class BigtableSink implements SinkModule {
 
     public static FCollection<?> write(final FCollection<?> input, final SinkConfig config, final List<FCollection<?>> waits) {
         final BigtableSinkParameters parameters = new Gson().fromJson(config.getParameters(), BigtableSinkParameters.class);
-        validateParameters(parameters);
-        setDefaultParameters(parameters);
+        if(parameters == null) {
+            throw new IllegalArgumentException("bigtable sink module parameters must not be null!");
+        }
+        parameters.validate();
+        parameters.setDefaults();
 
         try {
             config.outputAvroSchema(input.getAvroSchema());
@@ -355,64 +281,44 @@ public class BigtableSink implements SinkModule {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
 
-        final PCollection output;
-        switch (input.getDataType()) {
-            case AVRO: {
+        final PCollection output = switch (input.getDataType()) {
+            case AVRO -> {
                 final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                 final Write<GenericRecord, String, Schema> write = new Write<>(
                         parameters, input.getAvroSchema().toString(),
                         AvroSchemaUtil::convertSchema, AvroSchemaUtil::getAsString, RecordToMapConverter::convert,
                         RecordToBigtableConverter::convert, (s, r) -> r, AvroSchemaUtil::convertSchema);
-                output = inputCollection.getCollection().apply(config.getName(), write);
-                break;
+                yield inputCollection.getCollection().apply(config.getName(), write);
             }
-            case ROW: {
+            case ROW -> {
                 final FCollection<Row> inputCollection = (FCollection<Row>) input;
                 final Write<Row, org.apache.beam.sdk.schemas.Schema, org.apache.beam.sdk.schemas.Schema> write = new Write<>(
                         parameters, input.getSchema(),
                         s -> s, RowSchemaUtil::getAsString, RowToMapConverter::convert,
                         RowToBigtableConverter::convert, RowToRecordConverter::convert, RowToRecordConverter::convertSchema);
-                output = inputCollection.getCollection().apply(config.getName(), write);
-                break;
+                yield inputCollection.getCollection().apply(config.getName(), write);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
                 final Write<Struct, Type, Type> write = new Write<>(
                         parameters, input.getSpannerType(),
                         t -> t, StructSchemaUtil::getAsString, StructToMapConverter::convert,
                         StructToBigtableConverter::convert, StructToRecordConverter::convert, StructToRecordConverter::convertSchema);
-                output = inputCollection.getCollection().apply(config.getName(), write);
-                break;
+                yield inputCollection.getCollection().apply(config.getName(), write);
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
                 final Write<Entity, org.apache.beam.sdk.schemas.Schema, org.apache.beam.sdk.schemas.Schema> write = new Write<>(
                         parameters, input.getSchema(),
                         s -> s, EntitySchemaUtil::getAsString, EntityToMapConverter::convert,
                         EntityToBigtableConverter::convert, EntityToRecordConverter::convert, RowToRecordConverter::convertSchema);
-                output = inputCollection.getCollection().apply(config.getName(), write);
-                break;
+                yield inputCollection.getCollection().apply(config.getName(), write);
             }
-            default:
-                throw new IllegalStateException();
-        }
+            default -> throw new IllegalStateException();
+        };
         return FCollection.update(input, output);
     }
 
-    private static void validateParameters(final BigtableSinkParameters parameters) {
-        if(parameters == null) {
-            throw new IllegalArgumentException("BigtableSink parameters must not be empty!");
-        }
-
-        final List<String> errorMessages = parameters.validate();
-        if(errorMessages.size() > 0) {
-            throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
-        }
-    }
-
-    private static void setDefaultParameters(final BigtableSinkParameters parameters) {
-        parameters.setDefaults();
-    }
 
     public static class Write<T,InputSchemaT,RuntimeSchemaT> extends PTransform<PCollection<T>, PCollection<BigtableWriteResult>> {
 
@@ -597,19 +503,17 @@ public class BigtableSink implements SinkModule {
             // Generate timestampMicros
             final long timestampMicros;
             switch (timestampType) {
-                case insertedtime: {
+                case insertedtime -> {
                     timestampMicros = org.joda.time.Instant.now().getMillis() * 1000L;
-                    break;
                 }
-                case eventtime: {
-                    if(c.timestamp().getMillis() >= -1) {
+                case eventtime -> {
+                    if (c.timestamp().getMillis() >= -1) {
                         timestampMicros = c.timestamp().getMillis() * 1000L;
                     } else {
                         timestampMicros = -1L;
                     }
-                    break;
                 }
-                default: {
+                default -> {
                     throw new IllegalStateException("Not supported timestampType: " + timestampType);
                 }
             }
@@ -617,12 +521,10 @@ public class BigtableSink implements SinkModule {
             // Generate mutations
             final Iterable<Mutation> mutations;
             switch (format) {
-                case bytes:
-                case string: {
+                case bytes, string -> {
                     mutations = mutationConverter.convert(runtimeSchema, element, cf, format, mutationOp, columnSettings, timestampMicros);
-                    break;
                 }
-                case avro: {
+                case avro -> {
                     final GenericRecord record = avroConverter.convert(avroSchema, element);
                     final byte[] bytes = AvroSchemaUtil.encode(record);
                     final Mutation.SetCell cell = Mutation.SetCell.newBuilder()
@@ -632,9 +534,8 @@ public class BigtableSink implements SinkModule {
                             .build();
                     final Mutation mutation = Mutation.newBuilder().setSetCell(cell).build();
                     mutations = Lists.newArrayList(mutation);
-                    break;
                 }
-                default: {
+                default -> {
                     throw new IllegalStateException("BigtableSink not supported format: " + format);
                 }
             }

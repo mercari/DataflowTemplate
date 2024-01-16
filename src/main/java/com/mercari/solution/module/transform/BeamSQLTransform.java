@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -32,7 +33,7 @@ public class BeamSQLTransform implements TransformModule {
 
     private static final Logger LOG = LoggerFactory.getLogger(BeamSQLTransform.class);
 
-    private class BeamSQLTransformParameters {
+    private static class BeamSQLTransformParameters implements Serializable {
 
         private String sql;
         private Planner planner;
@@ -41,16 +42,14 @@ public class BeamSQLTransform implements TransformModule {
             return sql;
         }
 
-        public void setSql(String sql) {
-            this.sql = sql;
-        }
-
         public Planner getPlanner() {
             return planner;
         }
 
-        public void setPlanner(Planner planner) {
-            this.planner = planner;
+        private void validate() {
+            if(this.sql == null) {
+                throw new IllegalArgumentException("BeamSQL module required sql parameter!");
+            }
         }
     }
 
@@ -93,9 +92,12 @@ public class BeamSQLTransform implements TransformModule {
 
         private SQLTransform(final TransformConfig config, final Map<String,FCollection<?>> inputCollections) {
             this.parameters = new Gson().fromJson(config.getParameters(), BeamSQLTransformParameters.class);
+            if(this.parameters == null) {
+                throw new IllegalArgumentException("BeamSQL transform module parameters must not be empty!");
+            }
+            this.parameters.validate();
             this.inputCollections = inputCollections;
             this.templateArgs = config.getArgs();
-            validate();
         }
 
         @Override
@@ -161,16 +163,6 @@ public class BeamSQLTransform implements TransformModule {
                     .registerUdaf("MDT_COUNT_DISTINCT_INT64", new AggregateFunctions.CountDistinctInt64Fn())
                     );
         }
-
-        private void validate() {
-            if(this.parameters == null) {
-                throw new IllegalArgumentException("BeamSQL module parameter missing!");
-            }
-            if(this.parameters.getSql() == null) {
-                throw new IllegalArgumentException("BeamSQL module required sql parameter!");
-            }
-        }
-
     }
 
 }
