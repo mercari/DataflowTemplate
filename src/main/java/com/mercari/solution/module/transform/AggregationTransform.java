@@ -51,6 +51,8 @@ public class AggregationTransform implements TransformModule {
 
         private List<AggregationDefinition> aggregations;
 
+        private Integer fanout;
+
         private Boolean outputEmpty;
         private Boolean outputPaneInfo;
 
@@ -82,6 +84,10 @@ public class AggregationTransform implements TransformModule {
 
         public List<AggregationDefinition> getAggregations() {
             return aggregations;
+        }
+
+        public Integer getFanout() {
+            return fanout;
         }
 
         public Boolean getOutputEmpty() {
@@ -259,8 +265,8 @@ public class AggregationTransform implements TransformModule {
                 .collect(Collectors.toMap(Aggregators::getInput, s -> s));
 
         switch (outputType) {
-            case ROW: {
-                final Transform<Schema,Schema,Row> transform = new Transform<>(
+            case ROW -> {
+                final Transform<Schema, Schema, Row> transform = new Transform<>(
                         parameters,
                         s -> s,
                         RowSchemaUtil::convertPrimitive,
@@ -278,7 +284,7 @@ public class AggregationTransform implements TransformModule {
                 final PCollection<Row> output = tuple.apply(config.getName(), transform);
                 return FCollection.of(config.getName(), output.setCoder(RowCoder.of(outputSchema)), DataType.ROW, outputSchema);
             }
-            case AVRO: {
+            case AVRO -> {
                 final org.apache.avro.Schema outputAvroSchema = RowToRecordConverter.convertSchema(outputSchema);
                 final Transform<String, org.apache.avro.Schema, GenericRecord> transform = new Transform<>(
                         parameters,
@@ -298,8 +304,7 @@ public class AggregationTransform implements TransformModule {
                 final PCollection<GenericRecord> output = tuple.apply(config.getName(), transform);
                 return FCollection.of(config.getName(), output.setCoder(AvroCoder.of(outputAvroSchema)), DataType.AVRO, outputSchema);
             }
-            default:
-                throw new IllegalArgumentException();
+            default -> throw new IllegalArgumentException();
         }
     }
 
@@ -337,17 +342,6 @@ public class AggregationTransform implements TransformModule {
         return aggregationOutputFields;
     }
 
-    private static Schema createOutputSchema(
-            final List<Schema.Field> aggregationOutputFields,
-            final List<SelectFunction> selectFunctions) {
-
-        if(selectFunctions.size() == 0) {
-            return Schema.builder().addFields(aggregationOutputFields).build();
-        } else {
-            return SelectFunction.createSchema(selectFunctions);
-        }
-    }
-
     public static class Transform<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollectionTuple, PCollection<T>> {
 
         private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
@@ -362,6 +356,7 @@ public class AggregationTransform implements TransformModule {
         private final WindowUtil.WindowParameters windowParameters;
         private final TriggerUtil.TriggerParameters triggerParameters;
         private final WindowUtil.AccumulationMode accumulationMode;
+        private final Integer fanout;
 
         private final Boolean outputEmpty;
         private final Boolean outputPaneInfo;
@@ -397,6 +392,7 @@ public class AggregationTransform implements TransformModule {
             this.triggerParameters = parameters.getTrigger();
             this.accumulationMode = parameters.getAccumulationMode();
             this.aggregatorsMap = aggregatorsMap;
+            this.fanout = parameters.getFanout();
 
             this.outputEmpty = parameters.getOutputEmpty();
             this.outputPaneInfo = parameters.getOutputPaneInfo();
@@ -410,7 +406,7 @@ public class AggregationTransform implements TransformModule {
         @Override
         public PCollection<T> expand(PCollectionTuple inputs) {
 
-            Window<KV<String,UnionValue>> window = WindowUtil.createWindow(windowParameters);
+            Window window = WindowUtil.createWindow(windowParameters);
             if(triggerParameters != null) {
                 window = window.triggering(TriggerUtil.createTrigger(triggerParameters));
                 if(WindowUtil.AccumulationMode.accumulating.equals(accumulationMode)) {
@@ -428,16 +424,64 @@ public class AggregationTransform implements TransformModule {
                 window = window.withTimestampCombiner(windowParameters.getTimestampCombiner());
             }
 
+            if(this.groupFields == null || this.groupFields.isEmpty()) {
+                return flatten(inputs, window);
+            } else {
+                return withKey(inputs, window);
+            }
+        }
+
+        private PCollection<T> withKey(final PCollectionTuple inputs, final Window<KV<String,UnionValue>> window) {
             final List<String> groupFieldNames = groupFields.stream()
                     .map(Schema.Field::getName)
                     .collect(Collectors.toList());
 
-            return inputs
-                    .apply("Union", Union.withKey(tags, inputTypes, groupFieldNames, inputNames))
-                    .apply("WithWindow", window)
-                    .apply("Aggregate", Combine.perKey(new AggregationCombineFn(inputNames, aggregatorsMap)))
+            final PCollection<KV<String, UnionValue>> withKey = inputs
+                    .apply("UnionWithKey", Union.withKey(tags, inputTypes, groupFieldNames, inputNames))
+                    .apply("WithWindow", window);
+
+            final PCollection<KV<String,Accumulator>> output;
+            if(fanout != null) {
+                output = withKey
+                        .apply("AggregateFanOut", Combine
+                                .<String, UnionValue, Accumulator>perKey(new AggregationCombineFn(inputNames, aggregatorsMap))
+                                .withHotKeyFanout(fanout));
+            } else {
+                output = withKey
+                        .apply("Aggregate", Combine
+                                .perKey(new AggregationCombineFn(inputNames, aggregatorsMap)));
+            }
+
+            return output
                     .setCoder(KvCoder.of(StringUtf8Coder.of(), Accumulator.coder()))
-                    .apply("Values", ParDo.of(new AggregationOutputDoFn(
+                    .apply("Values", ParDo.of(new AggregationOutputWithKeyDoFn(
+                            inputOutputSchema, schemaConverter, valueConverter, valueCreator,
+                            groupFields, filterJson, selectFunctions,
+                            aggregatorsMap, outputEmpty, outputPaneInfo, outputType)));
+        }
+
+        private PCollection<T> flatten(final PCollectionTuple inputs, final Window<UnionValue> window) {
+            final PCollection<UnionValue> flatten = inputs
+                    .apply("UnionFlatten", Union.flatten(tags, inputTypes, inputNames))
+                    .apply("WithWindow", window);
+
+            final PCollection<Accumulator> output;
+            if(fanout != null) {
+                output = flatten
+                        .apply("AggregateFanOut", Combine
+                                .globally(new AggregationCombineFn(inputNames, aggregatorsMap))
+                                .withFanout(fanout)
+                                .withoutDefaults());
+            } else {
+                output = flatten
+                        .apply("Aggregate", Combine
+                                .globally(new AggregationCombineFn(inputNames, aggregatorsMap))
+                                .withoutDefaults());
+            }
+
+            return output
+                    .setCoder(Accumulator.coder())
+                    .apply("Values", ParDo.of(new AggregationOutputFlattenDoFn(
                             inputOutputSchema, schemaConverter, valueConverter, valueCreator,
                             groupFields, filterJson, selectFunctions,
                             aggregatorsMap, outputEmpty, outputPaneInfo, outputType)));
@@ -503,7 +547,69 @@ public class AggregationTransform implements TransformModule {
 
         }
 
-        private class AggregationOutputDoFn extends DoFn<KV<String,Accumulator>, T> {
+        private class AggregationOutputWithKeyDoFn extends AggregationOutputDoFn<KV<String,Accumulator>> {
+
+            AggregationOutputWithKeyDoFn(
+                    final InputSchemaT inputSchema,
+                    final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
+                    final SchemaUtil.PrimitiveValueConverter valueConverter,
+                    final SchemaUtil.ValueCreator<RuntimeSchemaT,T> valueCreator,
+                    final List<Schema.Field> groupFields,
+                    final String filterJson,
+                    final List<SelectFunction> selectFunctions,
+                    final Map<String, Aggregators> aggregatorsMap,
+                    final Boolean outputEmpty,
+                    final Boolean outputPaneInfo,
+                    final DataType outputType) {
+
+                super(inputSchema, schemaConverter, valueConverter, valueCreator, groupFields, filterJson, selectFunctions, aggregatorsMap, outputEmpty, outputPaneInfo, outputType);
+            }
+
+            @Setup
+            public void setup() {
+                super.setup();
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final Accumulator accumulator = c.element().getValue();
+                super.process(accumulator, c);
+            }
+
+        }
+
+        private class AggregationOutputFlattenDoFn extends AggregationOutputDoFn<Accumulator> {
+
+            AggregationOutputFlattenDoFn(
+                    final InputSchemaT inputSchema,
+                    final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
+                    final SchemaUtil.PrimitiveValueConverter valueConverter,
+                    final SchemaUtil.ValueCreator<RuntimeSchemaT,T> valueCreator,
+                    final List<Schema.Field> groupFields,
+                    final String filterJson,
+                    final List<SelectFunction> selectFunctions,
+                    final Map<String, Aggregators> aggregatorsMap,
+                    final Boolean outputEmpty,
+                    final Boolean outputPaneInfo,
+                    final DataType outputType) {
+
+                super(inputSchema, schemaConverter, valueConverter, valueCreator, groupFields, filterJson, selectFunctions, aggregatorsMap, outputEmpty, outputPaneInfo, outputType);
+            }
+
+            @Setup
+            public void setup() {
+                super.setup();
+            }
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final Accumulator accumulator = c.element();
+                super.process(accumulator, c);
+            }
+
+        }
+
+        protected class AggregationOutputDoFn<InputT> extends DoFn<InputT, T> {
 
             private final InputSchemaT inputSchema;
             private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
@@ -547,8 +653,7 @@ public class AggregationTransform implements TransformModule {
                 this.outputType = outputType;
             }
 
-            @Setup
-            public void setup() {
+            protected void setup() {
                 this.runtimeSchema = schemaConverter.convert(inputSchema);
                 for(final Aggregators aggregators : aggregatorsMap.values()) {
                     aggregators.setup();
@@ -564,10 +669,9 @@ public class AggregationTransform implements TransformModule {
                 }
             }
 
-            @ProcessElement
-            public void processElement(ProcessContext c) {
-                final Accumulator accumulator = c.element().getValue();
+            protected void process(Accumulator accumulator, ProcessContext c) {
                 if(accumulator == null) {
+                    LOG.info("Skip null aggregation result");
                     return;
                 }
                 if(!outputEmpty && accumulator.empty) {
@@ -604,8 +708,6 @@ public class AggregationTransform implements TransformModule {
                 if(conditionNode == null || Filter.filter(conditionNode, values)) {
                     final T output = valueCreator.create(runtimeSchema, values);
                     c.output(output);
-                } else if(conditionNode != null) {
-                    //LOG.info("Filter condition: " + conditionNode.toString() + "\n for values: " + values);
                 }
 
             }
