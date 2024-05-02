@@ -27,6 +27,7 @@ public interface SelectFunction extends Serializable {
         constant,
         rename,
         expression,
+        text,
         concat,
         uuid,
         hash,
@@ -72,6 +73,8 @@ public interface SelectFunction extends Serializable {
                 }
             } else if(jsonObject.has("expression")) {
                 func = Func.expression;
+            } else if(jsonObject.has("text")) {
+                func = Func.text;
             } else {
                 throw new IllegalArgumentException("selectField requires func parameter");
             }
@@ -89,6 +92,7 @@ public interface SelectFunction extends Serializable {
             case rename -> Rename.of(name, jsonObject, outputType, inputFields, ignore);
             case constant -> Constant.of(name, jsonObject, ignore);
             case expression -> Expression.of(name, jsonObject, ignore);
+            case text -> Text.of(name, jsonObject, ignore);
             case concat -> Concat.of(name, inputFields, jsonObject, ignore);
             case uuid -> Uuid.of(name, jsonObject, ignore);
             case hash -> Hash.of(name, jsonObject, ignore);
