@@ -12,23 +12,23 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.53.0</beam.version>
+    <beam.version>2.55.1</beam.version>
 
     <freemarker.version>2.3.32</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>
     <hbase.version>2.5.5</hbase.version>
-    <onnxruntime.version>1.16.3</onnxruntime.version>
-    <onnx.version>1.14.0-1.5.9</onnx.version>
-    <solr.version>9.4.0</solr.version>
+    <onnxruntime.version>1.17.3</onnxruntime.version>
+    <onnx.version>1.15.0-1.5.10</onnx.version>
+    <solr.version>9.4.1</solr.version>
     <lucene.version>9.8.0</lucene.version>
-    <neo4j.version>5.12.0</neo4j.version>
+    <neo4j.version>5.19.0</neo4j.version>
     <h2.version>2.2.224</h2.version>
     <pdfbox.version>2.0.30</pdfbox.version>
     <jts.version>1.19.0</jts.version>
-    <mysql-connector.version>8.1.0</mysql-connector.version>
-    <postgresql-connector.version>42.6.0</postgresql-connector.version>
+    <mysql-connector.version>8.3.0</mysql-connector.version>
+    <postgresql-connector.version>42.7.1</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.14.0</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.15.2</jdbc-socket-factory.version>
     <secretmanager.version>2.24.0</secretmanager.version>
     <iamcredentials.version>2.24.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
@@ -392,6 +392,18 @@
         <exclusion>
           <groupId>org.eclipse.jetty</groupId>
           <artifactId>jetty-webapp</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.glassfish.jersey.containers</groupId>
+          <artifactId>jersey-container-servlet</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.glassfish.jaxb</groupId>
+          <artifactId>jaxb-runtime</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.fasterxml.jackson.jaxrs</groupId>
+          <artifactId>jackson-jaxrs-json-provider</artifactId>
         </exclusion>
       </exclusions>
     </dependency>

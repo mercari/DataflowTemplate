@@ -10,7 +10,7 @@ The same processing can be performed in batch and streaming.
 |------------|----------|---------------------|---------------------------------------------------|
 | name       | required | String              | Step name. specified to be unique in config file. |
 | module     | required | String              | Specified `localNeo4j`                            |
-| inputs     | required | Array<String\>      | Specify the input names to be aggregated.         |
+| inputs     | required | Array<String\>      | Specify the input names to be processed.          |
 | parameters | required | Map<String,Object\> | Specify the following individual parameters.      |
 
 ## LocalNeo4j transform module parameters
@@ -19,18 +19,18 @@ The same processing can be performed in batch and streaming.
 |------------------|----------|---------------------|-----------------------------------------------------------------------|
 | index            | required | IndexConfig         | Definition of input transformation from input data to graph database. |
 | queries          | required | Array<QueryConfig\> | Definition of queries and responses to the graph database.            |
-| groupFields      | optional | Array<String\>      | names of fields to be referenced to group the data.　                  |
 
 ## IndexConfig parameters
 
-| parameter     | optional | type                                            | description                                                                                                                                                           |
-|---------------|----------|-------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| path          | optional | String                                          | GCS path to initially load the graph database                                                                                                                         |
-| database      | optional | String                                          | Database name. The default is `neo4j`                                                                                                                                 |
-| nodes         | required | Array<[NodeConfig](../sink/localneo4j.md)\>     | Definition of conversion from input records to the [Node](https://neo4j.com/docs/getting-started/appendix/graphdb-concepts/#graphdb-node) to be saved                 |
-| relationships | required | Array<[RelationConfig](../sink/localneo4j.md)\> | Definition of conversion from input records to the [Relationship](https://neo4j.com/docs/getting-started/appendix/graphdb-concepts/#graphdb-relationship) to be saved |
-| setupCyphers  | optional | Array<String\>                                  | Cypher queries you wish to run at startup, such as index definitions.                                                                                                 |
-| bufferSize    | optional | Integer                                         | Buffer size to write to the database. The default is 500                                                                                                              |
+| parameter     | optional | type                                            | description                                                                                                                                                                                                                                                                        |
+|---------------|----------|-------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| path          | optional | String                                          | GCS path to initially load the graph database                                                                                                                                                                                                                                      |
+| database      | optional | String                                          | Database name. The default is `neo4j`                                                                                                                                                                                                                                              |
+| nodes         | required | Array<[NodeConfig](../sink/localneo4j.md)\>     | Definition of conversion from input records to the [Node](https://neo4j.com/docs/getting-started/appendix/graphdb-concepts/#graphdb-node) to be saved                                                                                                                              |
+| relationships | required | Array<[RelationConfig](../sink/localneo4j.md)\> | Definition of conversion from input records to the [Relationship](https://neo4j.com/docs/getting-started/appendix/graphdb-concepts/#graphdb-relationship) to be saved                                                                                                              |
+| setupCyphers  | optional | Array<String\>                                  | Cypher queries you wish to run at startup, such as index definitions.                                                                                                                                                                                                              |
+| bufferSize    | optional | Integer                                         | Buffer size to write to the database. The default is 500                                                                                                                                                                                                                           |
+| useGDS        | optional | Boolean                                         | Specify true if you want to use the [GDS library](https://neo4j.com/docs/graph-data-science/current/). In this case, you need to [download the GDS library jar file](https://neo4j.com/deployment-center/#gds-tab) and place it under src/main/resources/libs and deploy Template. |
 
 ## QueryConfig parameters
 

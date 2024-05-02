@@ -10,11 +10,9 @@ import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Relationship;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
+
 
 public class Neo4jSchemaUtil implements Serializable {
 
@@ -43,153 +41,14 @@ public class Neo4jSchemaUtil implements Serializable {
         }
 
         switch (fieldType.getTypeName()) {
-            case STRING: {
-                if(value instanceof String) {
+            case STRING -> {
+                if (value instanceof String) {
                     return value;
                 } else {
                     return value.toString();
                 }
             }
-            case BOOLEAN: {
-                if(value instanceof Boolean) {
-                    return value;
-                } else if(value instanceof String) {
-                    return Boolean.valueOf((String) value);
-                } else if(value instanceof Long) {
-                    return ((Long) value) > 0;
-                } else if(value instanceof Integer) {
-                    return ((Integer) value) > 0;
-                } else if(value instanceof Double) {
-                    return ((Double) value) > 0;
-                } else if(value instanceof Float) {
-                    return ((Float) value) > 0;
-                } else {
-                    throw new IllegalStateException("Could not convert to boolean: " + value);
-                }
-            }
-            case INT32: {
-                if(value instanceof Integer) {
-                    return value;
-                } else if(value instanceof Long) {
-                    return ((Long) value).intValue();
-                } else if(value instanceof Double) {
-                    return ((Double) value).intValue();
-                } else if(value instanceof Float) {
-                    return ((Float) value).intValue();
-                } else if(value instanceof String) {
-                    return Integer.valueOf((String) value);
-                } else if(value instanceof Boolean) {
-                    return (Boolean) value ? 1 : 0;
-                } else {
-                    throw new IllegalStateException("Could not convert to integer: " + value);
-                }
-            }
-            case INT64: {
-                if(value instanceof Long) {
-                    return value;
-                } else if(value instanceof Integer) {
-                    return ((Integer) value).longValue();
-                } else if(value instanceof Double) {
-                    return ((Double) value).longValue();
-                } else if(value instanceof Float) {
-                    return ((Float) value).longValue();
-                } else if(value instanceof String) {
-                    return Long.valueOf((String) value);
-                } else if(value instanceof Boolean) {
-                    return (Boolean) value ? 1L : 0L;
-                } else {
-                    throw new IllegalStateException("Could not convert to long: " + value);
-                }
-            }
-            case FLOAT: {
-                if(value instanceof Float) {
-                    return value;
-                } else if(value instanceof Double) {
-                    return ((Double) value).floatValue();
-                } else if(value instanceof Long) {
-                    return ((Long) value).floatValue();
-                } else if(value instanceof Integer) {
-                    return ((Integer) value).floatValue();
-                } else if(value instanceof String) {
-                    return Float.valueOf((String) value);
-                } else if(value instanceof Boolean) {
-                    return (Boolean) value ? 1F : 0F;
-                } else {
-                    throw new IllegalStateException("Could not convert to float: " + value);
-                }
-            }
-            case DOUBLE: {
-                if(value instanceof Double) {
-                    return value;
-                } else if(value instanceof Float) {
-                    return ((Float) value).doubleValue();
-                } else if(value instanceof Long) {
-                    return ((Long) value).doubleValue();
-                } else if(value instanceof Integer) {
-                    return ((Integer) value).doubleValue();
-                } else if(value instanceof String) {
-                    return Double.valueOf((String) value);
-                } else if(value instanceof Boolean) {
-                    return (Boolean) value ? 1D : 0D;
-                } else {
-                    throw new IllegalStateException("Could not convert to float: " + value);
-                }
-            }
-            case DATETIME: {
-                if(value instanceof String) {
-                    return DateTimeUtil.toJodaInstant((String) value);
-                } else if(value instanceof Long) {
-                    return Instant.ofEpochMilli(((Long) value) / 1000L);
-                } else {
-                    return value.toString();
-                }
-            }
-            case ROW: {
-                if(value instanceof Node) {
-                    final Node node = (Node) value;
-                    return convert(fieldType.getRowSchema(), node.getAllProperties());
-                } else if(value instanceof Relationship) {
-                    final Relationship relationship = (Relationship) value;
-                    return convert(fieldType.getRowSchema(), relationship.getAllProperties());
-                } else if(value instanceof Map) {
-                    return convert(fieldType.getRowSchema(), (Map<String,Object>) value);
-                } else {
-                    throw new IllegalStateException("Could not convert to row: " + value);
-                }
-            }
-            case ARRAY:
-            case ITERABLE: {
-                if(value instanceof List) {
-                    return ((List) value).stream()
-                            .map(o ->  getRowValue(fieldType.getCollectionElementType(), o))
-                            .collect(Collectors.toList());
-
-                } else {
-                    throw new IllegalStateException("Could not convert to list: " + value);
-                }
-            }
-            default:
-                throw new IllegalStateException("Not supported type: " + fieldType.getTypeName() + " for value: " + value);
-
-        }
-
-    }
-
-    private static Object getRecordValue(final org.apache.avro.Schema fieldSchema, final Object value) {
-        if (value == null) {
-            switch (AvroSchemaUtil.unnestUnion(fieldSchema).getType()) {
-                case ARRAY:
-                    return new ArrayList<>();
-                default:
-                    return null;
-            }
-        }
-
-        switch (AvroSchemaUtil.unnestUnion(fieldSchema).getType()) {
-            case ENUM:
-            case STRING:
-                return value.toString();
-            case BOOLEAN: {
+            case BOOLEAN -> {
                 if (value instanceof Boolean) {
                     return value;
                 } else if (value instanceof String) {
@@ -206,7 +65,7 @@ public class Neo4jSchemaUtil implements Serializable {
                     throw new IllegalStateException("Could not convert to boolean: " + value);
                 }
             }
-            case INT: {
+            case INT32 -> {
                 if (value instanceof Integer) {
                     return value;
                 } else if (value instanceof Long) {
@@ -223,7 +82,7 @@ public class Neo4jSchemaUtil implements Serializable {
                     throw new IllegalStateException("Could not convert to integer: " + value);
                 }
             }
-            case LONG: {
+            case INT64 -> {
                 if (value instanceof Long) {
                     return value;
                 } else if (value instanceof Integer) {
@@ -240,7 +99,7 @@ public class Neo4jSchemaUtil implements Serializable {
                     throw new IllegalStateException("Could not convert to long: " + value);
                 }
             }
-            case FLOAT: {
+            case FLOAT -> {
                 if (value instanceof Float) {
                     return value;
                 } else if (value instanceof Double) {
@@ -257,7 +116,7 @@ public class Neo4jSchemaUtil implements Serializable {
                     throw new IllegalStateException("Could not convert to float: " + value);
                 }
             }
-            case DOUBLE: {
+            case DOUBLE -> {
                 if (value instanceof Double) {
                     return value;
                 } else if (value instanceof Float) {
@@ -274,32 +133,221 @@ public class Neo4jSchemaUtil implements Serializable {
                     throw new IllegalStateException("Could not convert to float: " + value);
                 }
             }
-            case RECORD: {
-                if(value instanceof Node) {
+            case DATETIME -> {
+                if (value instanceof String) {
+                    return DateTimeUtil.toJodaInstant((String) value);
+                } else if (value instanceof Long) {
+                    return Instant.ofEpochMilli(((Long) value) / 1000L);
+                } else {
+                    return value.toString();
+                }
+            }
+            case ROW -> {
+                if (value instanceof Node) {
                     final Node node = (Node) value;
-                    return convert(fieldSchema, node.getAllProperties());
-                } else if(value instanceof Relationship) {
+                    return convert(fieldType.getRowSchema(), node.getAllProperties());
+                } else if (value instanceof Relationship) {
                     final Relationship relationship = (Relationship) value;
-                    return convert(fieldSchema, relationship.getAllProperties());
+                    return convert(fieldType.getRowSchema(), relationship.getAllProperties());
                 } else if (value instanceof Map) {
-                    return convert(fieldSchema, (Map<String,Object>) value);
+                    return convert(fieldType.getRowSchema(), (Map<String, Object>) value);
                 } else {
                     throw new IllegalStateException("Could not convert to row: " + value);
                 }
             }
-            case ARRAY: {
+            case ARRAY, ITERABLE -> {
+                if (value instanceof List) {
+                    return ((List) value).stream()
+                            .map(o -> getRowValue(fieldType.getCollectionElementType(), o))
+                            .collect(Collectors.toList());
+
+                } else if(value instanceof float[]) {
+                    final List<Float> floats = new ArrayList<>();
+                    for(float f : (float[]) value) {
+                        floats.add(f);
+                    }
+                    return floats.stream()
+                            .map(o -> getRowValue(fieldType.getCollectionElementType(), o))
+                            .toList();
+                } else if(value instanceof double[]) {
+                    return Arrays.stream((double[]) value)
+                            .boxed()
+                            .map(o -> getRowValue(fieldType.getCollectionElementType(), o))
+                            .toList();
+                } else if(value instanceof int[]) {
+                    return Arrays.stream((int[]) value)
+                            .boxed()
+                            .map(o -> getRowValue(fieldType.getCollectionElementType(), o))
+                            .toList();
+                } else if(value instanceof long[]) {
+                    return Arrays.stream((long[]) value)
+                            .boxed()
+                            .map(o -> getRowValue(fieldType.getCollectionElementType(), o))
+                            .toList();
+                } else if(value instanceof String[]) {
+                    return Arrays.stream((String[]) value)
+                            .map(o -> getRowValue(fieldType.getCollectionElementType(), o))
+                            .toList();
+                } else {
+                    throw new IllegalStateException("Could not convert to list: " + value);
+                }
+            }
+            default ->
+                    throw new IllegalStateException("Not supported type: " + fieldType.getTypeName() + " for value: " + value);
+        }
+
+    }
+
+    private static Object getRecordValue(final org.apache.avro.Schema fieldSchema, final Object value) {
+        if (value == null) {
+            switch (AvroSchemaUtil.unnestUnion(fieldSchema).getType()) {
+                case ARRAY:
+                    return new ArrayList<>();
+                default:
+                    return null;
+            }
+        }
+
+        switch (AvroSchemaUtil.unnestUnion(fieldSchema).getType()) {
+            case ENUM, STRING -> {
+                return value.toString();
+            }
+            case BOOLEAN -> {
+                if (value instanceof Boolean) {
+                    return value;
+                } else if (value instanceof String) {
+                    return Boolean.valueOf((String) value);
+                } else if (value instanceof Long) {
+                    return ((Long) value) > 0;
+                } else if (value instanceof Integer) {
+                    return ((Integer) value) > 0;
+                } else if (value instanceof Double) {
+                    return ((Double) value) > 0;
+                } else if (value instanceof Float) {
+                    return ((Float) value) > 0;
+                } else {
+                    throw new IllegalStateException("Could not convert to boolean: " + value);
+                }
+            }
+            case INT -> {
+                if (value instanceof Integer) {
+                    return value;
+                } else if (value instanceof Long) {
+                    return ((Long) value).intValue();
+                } else if (value instanceof Double) {
+                    return ((Double) value).intValue();
+                } else if (value instanceof Float) {
+                    return ((Float) value).intValue();
+                } else if (value instanceof String) {
+                    return Integer.valueOf((String) value);
+                } else if (value instanceof Boolean) {
+                    return (Boolean) value ? 1 : 0;
+                } else {
+                    throw new IllegalStateException("Could not convert to integer: " + value);
+                }
+            }
+            case LONG -> {
+                if (value instanceof Long) {
+                    return value;
+                } else if (value instanceof Integer) {
+                    return ((Integer) value).longValue();
+                } else if (value instanceof Double) {
+                    return ((Double) value).longValue();
+                } else if (value instanceof Float) {
+                    return ((Float) value).longValue();
+                } else if (value instanceof String) {
+                    return Long.valueOf((String) value);
+                } else if (value instanceof Boolean) {
+                    return (Boolean) value ? 1L : 0L;
+                } else {
+                    throw new IllegalStateException("Could not convert to long: " + value);
+                }
+            }
+            case FLOAT -> {
+                if (value instanceof Float) {
+                    return value;
+                } else if (value instanceof Double) {
+                    return ((Double) value).floatValue();
+                } else if (value instanceof Long) {
+                    return ((Long) value).floatValue();
+                } else if (value instanceof Integer) {
+                    return ((Integer) value).floatValue();
+                } else if (value instanceof String) {
+                    return Float.valueOf((String) value);
+                } else if (value instanceof Boolean) {
+                    return (Boolean) value ? 1F : 0F;
+                } else {
+                    throw new IllegalStateException("Could not convert to float: " + value);
+                }
+            }
+            case DOUBLE -> {
+                if (value instanceof Double) {
+                    return value;
+                } else if (value instanceof Float) {
+                    return ((Float) value).doubleValue();
+                } else if (value instanceof Long) {
+                    return ((Long) value).doubleValue();
+                } else if (value instanceof Integer) {
+                    return ((Integer) value).doubleValue();
+                } else if (value instanceof String) {
+                    return Double.valueOf((String) value);
+                } else if (value instanceof Boolean) {
+                    return (Boolean) value ? 1D : 0D;
+                } else {
+                    throw new IllegalStateException("Could not convert to double: " + value);
+                }
+            }
+            case RECORD -> {
+                if (value instanceof Node) {
+                    final Node node = (Node) value;
+                    return convert(fieldSchema, node.getAllProperties());
+                } else if (value instanceof Relationship) {
+                    final Relationship relationship = (Relationship) value;
+                    return convert(fieldSchema, relationship.getAllProperties());
+                } else if (value instanceof Map) {
+                    return convert(fieldSchema, (Map<String, Object>) value);
+                } else {
+                    throw new IllegalStateException("Could not convert to row: " + value);
+                }
+            }
+            case ARRAY -> {
                 if (value instanceof List) {
                     return ((List) value).stream()
                             .map(o -> getRecordValue(fieldSchema.getElementType(), o))
                             .collect(Collectors.toList());
 
+                } else if(value instanceof float[]) {
+                    final List<Float> floats = new ArrayList<>();
+                    for(float f : (float[]) value) {
+                        floats.add(f);
+                    }
+                    return floats.stream()
+                            .map(f -> getRecordValue(fieldSchema.getElementType(), f))
+                            .toList();
+                } else if(value instanceof double[]) {
+                    return Arrays.stream((double[]) value)
+                            .boxed()
+                            .map(f -> getRecordValue(fieldSchema.getElementType(), f))
+                            .toList();
+                } else if(value instanceof int[]) {
+                    return Arrays.stream((int[]) value)
+                            .boxed()
+                            .map(f -> getRecordValue(fieldSchema.getElementType(), f))
+                            .toList();
+                } else if(value instanceof long[]) {
+                    return Arrays.stream((long[]) value)
+                            .boxed()
+                            .map(f -> getRecordValue(fieldSchema.getElementType(), f))
+                            .toList();
+                } else if(value instanceof String[]) {
+                    return Arrays.stream((String[]) value)
+                            .map(f -> getRecordValue(fieldSchema.getElementType(), f))
+                            .toList();
                 } else {
-                    throw new IllegalStateException("Could not convert to list: " + value);
+                    throw new IllegalStateException("Could not convert to list: " + value + ", class: " + value.getClass());
                 }
             }
-            default:
-                throw new IllegalStateException("Not supported type: " + fieldSchema + " for value: " + value);
-
+            default -> throw new IllegalStateException("Not supported type: " + fieldSchema + " for value: " + value);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.mercari.solution.module.transform;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.mercari.solution.config.SourceConfig;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
@@ -10,7 +11,6 @@ import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.RowToRecordConverter;
 import com.mercari.solution.util.domain.search.Neo4jUtil;
-import com.mercari.solution.util.domain.search.ZipFileUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.pipeline.union.Union;
 import com.mercari.solution.util.pipeline.union.UnionValue;
@@ -35,6 +35,7 @@ import org.neo4j.graphdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -66,29 +67,50 @@ public class LocalNeo4jTransform implements TransformModule {
             return queries;
         }
 
-        public List<String> validate(final List<String> inputNames) {
+
+        public static LocalNeo4jTransformParameters of(
+                final JsonElement jsonElement,
+                final String name,
+                final List<String> inputNames,
+                final List<Schema> inputSchemas) {
+
+            final LocalNeo4jTransformParameters parameters = new Gson().fromJson(jsonElement, LocalNeo4jTransformParameters.class);
+            if (parameters == null) {
+                throw new IllegalArgumentException("LocalNeo4jTransform config parameters must not be empty!");
+            }
+
+            parameters.validate(name, inputNames);
+            parameters.setDefaults(inputNames, inputSchemas);
+
+            return parameters;
+        }
+
+        public List<String> validate(final String name, final List<String> inputNames) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.index == null) {
-                errorMessages.add("localNeo4j.index must not be null.");
+                errorMessages.add("localNeo4j[" + name + "].index must not be null.");
             } else {
-                errorMessages.addAll(this.index.validate(inputNames));
+                errorMessages.addAll(this.index.validate(name, inputNames));
             }
             if(this.queries == null || this.queries.size() == 0) {
                 errorMessages.add("localNeo4j.queries must not be null or size zero.");
             } else {
                 for(int i=0; i<queries.size(); i++) {
-                    errorMessages.addAll(queries.get(i).validate(i, inputNames));
+                    errorMessages.addAll(queries.get(i).validate(name, i, inputNames));
                 }
             }
             return errorMessages;
         }
 
-        public void setDefaults() {
+        public void setDefaults(final List<String> inputNames, final List<Schema> inputSchemas) {
             if(this.groupFields == null) {
                 this.groupFields = new ArrayList<>();
             }
             this.index.setDefaults();
-            this.queries.forEach(QueryDefinition::setDefaults);
+            for(final QueryDefinition queryDefinition : this.queries) {
+                int index = inputNames.indexOf(queryDefinition.getInput());
+                queryDefinition.setDefaults(inputSchemas.get(index));
+            }
         }
 
     }
@@ -97,9 +119,12 @@ public class LocalNeo4jTransform implements TransformModule {
 
         private String path;
         private String database;
+        private String conf;
         private List<Neo4jUtil.NodeConfig> nodes;
         private List<Neo4jUtil.RelationshipConfig> relationships;
         private List<String> setupCyphers;
+        private List<String> teardownCyphers;
+        private Boolean useGDS;
         private Boolean mutable;
         private Integer bufferSize;
 
@@ -109,6 +134,10 @@ public class LocalNeo4jTransform implements TransformModule {
 
         public String getDatabase() {
             return database;
+        }
+
+        public String getConf() {
+            return conf;
         }
 
         public List<Neo4jUtil.NodeConfig> getNodes() {
@@ -123,6 +152,14 @@ public class LocalNeo4jTransform implements TransformModule {
             return setupCyphers;
         }
 
+        public List<String> getTeardownCyphers() {
+            return teardownCyphers;
+        }
+
+        public Boolean getUseGDS() {
+            return useGDS;
+        }
+
         public Boolean getMutable() {
             return mutable;
         }
@@ -131,19 +168,19 @@ public class LocalNeo4jTransform implements TransformModule {
             return bufferSize;
         }
 
-        public List<String> validate(final List<String> inputNames) {
+        public List<String> validate(final String name, final List<String> inputNames) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.path == null) {
-                errorMessages.add("localNeo4j.index.path must not be null.");
+                errorMessages.add("localNeo4j[" + name + "].index.path must not be null.");
             }
             if((nodes == null || nodes.isEmpty()) && (relationships == null || relationships.isEmpty())) {
-                errorMessages.add("localNeo4j transform module requires `nodes` or `relationships` parameter.");
+                errorMessages.add("localNeo4j[" + name + "] transform module requires `nodes` or `relationships` parameter.");
             } else {
                 if(nodes != null) {
                     for(int i=0; i<nodes.size(); i++) {
                         errorMessages.addAll(nodes.get(i).validate(i));
                         if(!inputNames.contains(nodes.get(i).getInput())) {
-                            errorMessages.add("localNeo4j.nodes[" + i + "].input does not exist in module inputs: " + inputNames);
+                            errorMessages.add("localNeo4j[" + name + "].nodes[" + i + "].input does not exist in module inputs: " + inputNames);
                         }
                     }
                 }
@@ -151,7 +188,7 @@ public class LocalNeo4jTransform implements TransformModule {
                     for(int i=0; i<relationships.size(); i++) {
                         errorMessages.addAll(relationships.get(i).validate(i));
                         if(!inputNames.contains(relationships.get(i).getInput())) {
-                            errorMessages.add("localNeo4j.relationships[" + i + "].input does not exist in module inputs: " + inputNames);
+                            errorMessages.add("localNeo4j[" + name + "].relationships[" + i + "].input does not exist in module inputs: " + inputNames);
                         }
                     }
                 }
@@ -176,8 +213,14 @@ public class LocalNeo4jTransform implements TransformModule {
             if(setupCyphers == null) {
                 setupCyphers = new ArrayList<>();
             }
+            if(teardownCyphers == null) {
+                teardownCyphers = new ArrayList<>();
+            }
+            if(useGDS == null) {
+                useGDS = false;
+            }
             if(mutable == null) {
-                this.mutable = nodes.size() == 0 && relationships.size() == 0;
+                mutable = nodes.isEmpty() && relationships.isEmpty();
             }
             if(bufferSize == null) {
                 bufferSize = 500;
@@ -193,7 +236,7 @@ public class LocalNeo4jTransform implements TransformModule {
         private List<String> fields;
         private String cypher;
         private SourceConfig.InputSchema schema;
-
+        private List<String> requiredFields;
         private transient Template cypherTemplate;
 
         public String getName() {
@@ -216,32 +259,43 @@ public class LocalNeo4jTransform implements TransformModule {
             return schema;
         }
 
+        public List<String> getRequiredFields() {
+            return requiredFields;
+        }
+
         public Template getCypherTemplate() {
             return cypherTemplate;
         }
 
-        public List<String> validate(int i, final List<String> inputNames) {
+        public List<String> validate(String name, int i, final List<String> inputNames) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.name == null) {
-                errorMessages.add("localNeo4j.queries[" + i + "].name must not be null.");
+                errorMessages.add("localNeo4j[" + name + "].queries[" + i + "].name must not be null.");
             }
             if(this.input == null) {
-                errorMessages.add("localNeo4j.queries[" + i + "].input must not be null.");
+                errorMessages.add("localNeo4j[" + name + "].queries[" + i + "].input must not be null.");
             } else if(!inputNames.contains(this.input)) {
-                errorMessages.add("localNeo4j.queries[" + i + "].input does not exists in module inputs: " + inputNames);
+                errorMessages.add("localNeo4j[" + name + "].queries[" + i + "].input does not exists in module inputs: " + inputNames);
             }
             if(this.cypher == null) {
-                errorMessages.add("localNeo4j.queries[" + i + "].cypher must not be null.");
+                errorMessages.add("localNeo4j[" + name + "].queries[" + i + "].cypher must not be null.");
             }
             if(this.schema == null) {
-                errorMessages.add("localNeo4j.queries[" + i + "].schema must not be null.");
+                errorMessages.add("localNeo4j[" + name + "].queries[" + i + "].schema must not be null.");
             }
             return errorMessages;
         }
 
-        public void setDefaults() {
+        public void setDefaults(final Schema inputSchema) {
             if(fields == null) {
                 fields = new ArrayList<>();
+            }
+            requiredFields = new ArrayList<>(this.fields);
+            final List<String> cypherTemplateArgs = TemplateUtil.extractTemplateArgs(cypher, inputSchema);
+            for(final String arg : cypherTemplateArgs) {
+                if(!requiredFields.contains(arg)) {
+                    requiredFields.add(arg);
+                }
             }
         }
 
@@ -262,11 +316,6 @@ public class LocalNeo4jTransform implements TransformModule {
     }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
-        final LocalNeo4jTransformParameters parameters = new Gson().fromJson(config.getParameters(), LocalNeo4jTransformParameters.class);
-        if (parameters == null) {
-            throw new IllegalArgumentException("LocalNeo4jTransform config parameters must not be empty!");
-        }
-
         final List<TupleTag<?>> tags = new ArrayList<>();
         final List<String> inputNames = new ArrayList<>();
         final List<DataType> inputTypes = new ArrayList<>();
@@ -284,12 +333,15 @@ public class LocalNeo4jTransform implements TransformModule {
             tuple = tuple.and(tag, input.getCollection());
         }
 
-        parameters.validate(inputNames);
-        parameters.setDefaults();
+        final LocalNeo4jTransformParameters parameters = LocalNeo4jTransformParameters.of(
+                config.getParameters(),
+                config.getName(),
+                inputNames,
+                inputSchemas);
 
         final Map<String, FCollection<?>> outputs = new HashMap<>();
         switch (outputType) {
-            case ROW: {
+            case ROW -> {
                 final Transform<Schema, Row> transform = new Transform<>(
                         config.getName(),
                         parameters,
@@ -304,16 +356,18 @@ public class LocalNeo4jTransform implements TransformModule {
 
                 final PCollectionTuple output = tuple.apply(config.getName(), transform);
                 final Map<TupleTag<Row>, Schema> outputSchemas = transform.getOutputSchemas();
-                for(final Map.Entry<TupleTag<Row>, String> entry : transform.getOutputNames().entrySet()) {
+                for (final Map.Entry<TupleTag<Row>, String> entry : transform.getOutputNames().entrySet()) {
                     final String outputName = config.getName() + "." + entry.getValue();
                     final Schema outputSchema = outputSchemas.get(entry.getKey());
                     final PCollection<Row> pCollection = output.get(entry.getKey());
                     final FCollection<?> fCollection = FCollection.of(outputName, pCollection.setCoder(RowCoder.of(outputSchema)), DataType.ROW, outputSchema);
                     outputs.put(outputName, fCollection);
+                    if(transform.getOutputNames().size() == 1) {
+                        outputs.put(config.getName(), fCollection);
+                    }
                 }
-                break;
             }
-            case AVRO: {
+            case AVRO -> {
                 final Transform<org.apache.avro.Schema, GenericRecord> transform = new Transform<>(
                         config.getName(),
                         parameters,
@@ -328,17 +382,18 @@ public class LocalNeo4jTransform implements TransformModule {
 
                 final PCollectionTuple output = tuple.apply(config.getName(), transform);
                 final Map<TupleTag<GenericRecord>, Schema> outputSchemas = transform.getOutputSchemas();
-                for(final Map.Entry<TupleTag<GenericRecord>, String> entry : transform.getOutputNames().entrySet()) {
+                for (final Map.Entry<TupleTag<GenericRecord>, String> entry : transform.getOutputNames().entrySet()) {
                     final String outputName = config.getName() + "." + entry.getValue();
                     final org.apache.avro.Schema outputSchema = RowToRecordConverter.convertSchema(outputSchemas.get(entry.getKey()));
                     final PCollection<GenericRecord> pCollection = output.get(entry.getKey());
                     final FCollection<GenericRecord> fCollection = FCollection.of(outputName, pCollection.setCoder(AvroCoder.of(outputSchema)), DataType.AVRO, outputSchema);
                     outputs.put(outputName, fCollection);
+                    if(transform.getOutputNames().size() == 1) {
+                        outputs.put(config.getName(), fCollection);
+                    }
                 }
-                break;
             }
-            default:
-                throw new IllegalArgumentException("Not supported outputType: " + outputType);
+            default -> throw new IllegalArgumentException("Not supported outputType: " + outputType);
         }
 
         return outputs;
@@ -482,11 +537,11 @@ public class LocalNeo4jTransform implements TransformModule {
         private Schema createOutputSchema(final QueryDefinition query, final Schema inputSchema, final Schema resultSchema) {
             Schema.Builder builder = Schema.builder();
             for(final String field : query.getFields()) {
-                builder = builder.addField(field, inputSchema.getField(field).getType());
+                builder = builder.addField(field, inputSchema.getField(field).getType().withNullable(true));
             }
             return builder
                     .addField("cypher", Schema.FieldType.STRING.withNullable(true))
-                    .addField("results", Schema.FieldType.array(Schema.FieldType.row(resultSchema)))
+                    .addField("results", Schema.FieldType.array(Schema.FieldType.row(resultSchema)).withNullable(true))
                     .addField("timestamp", Schema.FieldType.DATETIME)
                     .build();
         }
@@ -517,7 +572,7 @@ public class LocalNeo4jTransform implements TransformModule {
             private final SchemaUtil.ValueCreator<RuntimeSchemaT, T> neo4jValueCreator;
             private final TimestampConverter timestampConverter;
 
-            private transient GraphDatabaseService graphDB;
+            private static GraphDatabaseService graphDB;
             private transient Map<String, RuntimeSchemaT> outputRuntimeSchemas;
             private transient Map<String, RuntimeSchemaT> outputResultRuntimeSchemas;
             private transient RuntimeSchemaT outputFailureRuntimeSchema;
@@ -545,34 +600,7 @@ public class LocalNeo4jTransform implements TransformModule {
             }
 
             synchronized protected void setupIndex() throws IOException {
-
-                final Path indexDirPath = Paths.get(indexPath);
-                final File indexDir = indexDirPath.toFile();
-                final boolean init = !indexDir.exists();
-                if(init) {
-                    indexDir.mkdir();
-                    if(StorageUtil.exists(index.getPath())) {
-                        ZipFileUtil.downloadZipFiles(index.getPath(), indexPath);
-                        LOG.info("Downloaded Neo4j initial database file from: " + index.getPath() + " to " + indexPath);
-                    } else if(index.getPath() != null) {
-                        LOG.warn("Not found Neo4j initial database file: " + index.getPath());
-                    }
-                }
-
-                final DatabaseManagementService service = new DatabaseManagementServiceBuilder(indexDirPath).build();
-                this.graphDB = service.database(index.getDatabase());
-                Neo4jUtil.registerShutdownHook(service);
-
-                if(init && index.getSetupCyphers() != null && index.getSetupCyphers().size() > 0) {
-                    try(final Transaction tx = graphDB.beginTx()) {
-                        for(final String setupCypher : index.getSetupCyphers()) {
-                            final Result result = tx.execute(setupCypher);
-                            LOG.info("setup cypher query: " + setupCypher + ". result: " + result.resultAsString());
-                        }
-                        tx.commit();
-                    }
-                }
-
+                setupIndex(this.indexPath, this.index);
             }
 
             protected void setupQuery() {
@@ -587,8 +615,23 @@ public class LocalNeo4jTransform implements TransformModule {
                 }
             }
 
-            protected void uploadIndex() throws IOException {
-                ZipFileUtil.uploadZipFile(this.indexPath, index.path);
+            synchronized protected void teardownIndex() throws IOException {
+                if(!index.getTeardownCyphers().isEmpty()) {
+                    try(final Transaction tx = graphDB.beginTx()) {
+                        for(final String teardownCypher : index.getTeardownCyphers()) {
+                            final Result result = tx.execute(teardownCypher);
+                            LOG.info("teardown cypher query: " + teardownCypher + ". result: " + result.resultAsString());
+                        }
+                        tx.commit();
+                    }
+                }
+
+                //ZipFileUtil.uploadZipFile(this.indexPath, index.path);
+                final ByteArrayOutputStream os = new ByteArrayOutputStream();
+                Neo4jUtil.dump(this.indexPath, index.getDatabase(), os);
+                os.flush();
+                os.close();
+                StorageUtil.writeBytes(this.index.getPath(), os.toByteArray(), "application/zstd", new HashMap<>(), new HashMap<>());
             }
 
             protected void query(final ProcessContext c) {
@@ -601,7 +644,7 @@ public class LocalNeo4jTransform implements TransformModule {
                             continue;
                         }
 
-                        final Map<String, Object> input = unionValue.getMap(null);
+                        final Map<String, Object> input = unionValue.getMap(query.getRequiredFields());
                         final String cypher = TemplateUtil.executeStrictTemplate(query.getCypherTemplate(), input);
 
                         try(final Result result = tx.execute(cypher)) {
@@ -609,7 +652,8 @@ public class LocalNeo4jTransform implements TransformModule {
                             final T output = createOutput(query, input, cypher, result, timestamp.getMillis());
                             c.output(outputTag, output);
                         } catch (final Throwable e) {
-                            LOG.error("Failed to execute cypher: " + cypher + ". cause: " + e.getMessage());
+                            final String message = "Failed to execute cypher: " + cypher + ". cause: " + e.getMessage();
+                            LOG.error(message);
                             final T outputFailure = createFailure(inputName, "query", cypher, timestamp.getMillis(), e);
                             c.output(outputFailure);
                         }
@@ -670,6 +714,51 @@ public class LocalNeo4jTransform implements TransformModule {
                 return this.valueCreator.create(outputFailureRuntimeSchema, values);
             }
 
+            static synchronized protected void setupIndex(String indexPath, IndexDefinition index) throws IOException {
+
+                LOG.info("Start setup database PID: " + ProcessHandle.current().pid() + ", ThreadID:" + Thread.currentThread().getId());
+
+                final Path indexDirPath = Paths.get(indexPath);
+                final File indexDir = indexDirPath.toFile();
+                if(!indexDir.exists()) {
+                    indexDir.mkdir();
+                    if(StorageUtil.exists(index.getPath())) {
+                        Neo4jUtil.load(indexPath, index.getDatabase(), index.getPath());
+                        //ZipFileUtil.downloadZipFiles(index.getPath(), indexPath);
+                        LOG.info("Load Neo4j initial database file from: " + index.getPath() + " to " + indexPath);
+                    } else if(index.getPath() != null) {
+                        LOG.warn("Not found Neo4j initial database file: " + index.getPath());
+                    }
+                }
+
+                if(graphDB == null) {
+                    LOG.info("Start neo4j database");
+                    final DatabaseManagementService service = new DatabaseManagementServiceBuilder(indexDirPath).build();
+                    graphDB = service.database(index.getDatabase());
+                    if(index.getUseGDS()) {
+                        Neo4jUtil.setupGds(graphDB);
+                    }
+                    if(!index.getSetupCyphers().isEmpty()) {
+                        try(final Transaction tx = graphDB.beginTx()) {
+                            for(final String setupCypher : index.getSetupCyphers()) {
+                                final Result result = tx.execute(setupCypher);
+                                LOG.info("setup cypher query: " + setupCypher + ". result: " + result.resultAsString());
+                            }
+                            tx.commit();
+                        }
+                    }
+                    Neo4jUtil.registerShutdownHook(service);
+                }
+
+                LOG.info("Finish setup database");
+            }
+
+            static synchronized protected void teardownIndex(String indexPath, IndexDefinition index) {
+                if(graphDB != null) {
+                    graphDB = null;
+                }
+            }
+
         }
 
         private class Neo4jQueryDoFn extends Neo4jDoFn {
@@ -690,7 +779,7 @@ public class LocalNeo4jTransform implements TransformModule {
             }
 
             @Setup
-            public void setup() throws IOException {
+            synchronized public void setup() throws IOException {
                 super.setupIndex();
                 super.setupQuery();
             }
