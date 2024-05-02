@@ -155,25 +155,15 @@ public class ProcessingBuffer {
         if(value == null) {
             return null;
         }
-        switch (FieldType.of(type)) {
-            case bool:
-                return ((Boolean) value) ? 1D : 0D;
-            case date:
-            case int32:
-                return ((Integer) value).doubleValue();
-            case time:
-            case timestamp:
-            case int64:
-                return ((Long) value).doubleValue();
-            case float32:
-                return ((Float) value).doubleValue();
-            case float64:
-                return ((Double) value);
-            case numeric:
-                return ((BigDecimal) value).doubleValue();
-            default:
-                throw new IllegalArgumentException();
-        }
+        return switch (FieldType.of(type)) {
+            case bool -> ((Boolean) value) ? 1D : 0D;
+            case date, int32 -> ((Integer) value).doubleValue();
+            case time, timestamp, int64 -> ((Long) value).doubleValue();
+            case float32 -> ((Float) value).doubleValue();
+            case float64 -> ((Double) value);
+            case numeric -> ((BigDecimal) value).doubleValue();
+            default -> throw new IllegalArgumentException();
+        };
     }
 
     public Integer getAsInteger(final String name, final int index) {
@@ -185,34 +175,23 @@ public class ProcessingBuffer {
         if(value == null) {
             return null;
         }
-        switch (FieldType.of(type)) {
-            case bool:
-                return ((Boolean) value) ? 1 : 0;
-            case date:
-            case int32:
-            case enumeration:
-                return ((Integer) value);
-            case time:
-            case timestamp:
-            case int64:
-                return ((Long) value).intValue();
-            case float32:
-                return ((Float) value).intValue();
-            case float64:
-                return ((Double) value).intValue();
-            case numeric:
-                return ((BigDecimal) value).intValue();
-            default:
-                throw new IllegalArgumentException("Not supported buffer type: " + FieldType.of(type));
-        }
+        return switch (FieldType.of(type)) {
+            case bool -> ((Boolean) value) ? 1 : 0;
+            case date, int32, enumeration -> ((Integer) value);
+            case time, timestamp, int64 -> ((Long) value).intValue();
+            case float32 -> ((Float) value).intValue();
+            case float64 -> ((Double) value).intValue();
+            case numeric -> ((BigDecimal) value).intValue();
+            default -> throw new IllegalArgumentException("Not supported buffer type: " + FieldType.of(type));
+        };
     }
 
     public List<Object> getValues(final String field, final int offset, final int size, final Processor.SizeUnit sizeUnit) {
         switch (sizeUnit) {
             case count: {
-                final int m = Math.max(Math.min(size, values.get(field).size() - offset), 0);
+                //final int m = Math.max(Math.min(size, values.get(field).size() - offset), 0);
                 final List<Object> values = new ArrayList<>();
-                for(int index=0; index<m; index++) {
+                for(int index=0; index<size; index++) {
                     final Object value = get(field, index + offset);
                     values.add(value);
                 }
@@ -271,9 +250,9 @@ public class ProcessingBuffer {
     public double[] getColVector(final String field, final int offset, final int size, final Processor.SizeUnit sizeUnit) {
         switch (sizeUnit) {
             case count: {
-                final int m = Math.max(Math.min(size, values.get(field).size() - offset), 0);
-                final double[] doubles = new double[m];
-                for(int index=0; index<m; index++) {
+                //final int m = Math.max(Math.min(size, values.get(field).size() - offset), 0);
+                final double[] doubles = new double[size];
+                for(int index=0; index<size; index++) {
                     final Double value = getAsDouble(field, index + offset);
                     doubles[index] = Optional.ofNullable(value).orElse(Double.NaN);
                 }

@@ -62,6 +62,20 @@ public class ProcessingTransform implements TransformModule {
             return outputType;
         }
 
+
+        public static ProcessingTransformParameters of(final JsonElement jsonElement, final String name) {
+            final ProcessingTransformParameters parameters = new Gson().fromJson(jsonElement, ProcessingTransformParameters.class);
+            if (parameters == null) {
+                throw new IllegalArgumentException("ProcessingTransform config parameters must not be empty!");
+            }
+
+            parameters.validate(name);
+            parameters.setDefaults();
+
+            return parameters;
+        }
+
+
         public List<String> validate(final String name) {
             final List<String> errorMessages = new ArrayList<>();
             if(stages == null || stages.size() == 0) {
@@ -286,17 +300,10 @@ public class ProcessingTransform implements TransformModule {
     }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
-        final ProcessingTransformParameters parameters = new Gson().fromJson(config.getParameters(), ProcessingTransformParameters.class);
-        if (parameters == null) {
-            throw new IllegalArgumentException("ProcessingTransform config parameters must not be empty!");
-        }
-
-        parameters.validate(config.getName());
-        parameters.setDefaults();
+        final ProcessingTransformParameters parameters = ProcessingTransformParameters.of(config.getParameters(), config.getName());
 
         final String lastStageName = parameters.getStages().get(parameters.getStages().size() - 1).getName();
 
-        //
         final Map<TupleTag<?>, String> inputNames = new HashMap<>();
         final Map<TupleTag<?>, DataType> inputTypes = new HashMap<>();
         final Map<TupleTag<?>, Schema> inputSchemas = new HashMap<>();
@@ -314,7 +321,7 @@ public class ProcessingTransform implements TransformModule {
 
         //
         switch (parameters.outputType) {
-            case row: {
+            case row -> {
                 final Transform<Schema, Row> transform = new Transform<>(
                         parameters,
                         s -> s,
@@ -328,7 +335,7 @@ public class ProcessingTransform implements TransformModule {
                 final Map<TupleTag<Row>, Schema> outputSchemas = transform.getOutputSchemas();
 
                 final Map<String, FCollection<?>> outputs = new HashMap<>();
-                for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : outputTuple.getAll().entrySet()) {
+                for (final Map.Entry<TupleTag<?>, PCollection<?>> entry : outputTuple.getAll().entrySet()) {
                     final TupleTag<Row> outputTag = (TupleTag<Row>) entry.getKey();
                     final PCollection<Row> output = (PCollection<Row>) entry.getValue();
                     final Schema outputSchema = outputSchemas.get(outputTag);
@@ -336,14 +343,14 @@ public class ProcessingTransform implements TransformModule {
                     final String name = config.getName() + "." + stageName;
                     final FCollection<?> collection = FCollection.of(name, output.setCoder(RowCoder.of(outputSchema)), DataType.ROW, outputSchema);
                     outputs.put(name, collection);
-                    if(lastStageName.equals(stageName)) {
+                    if (lastStageName.equals(stageName)) {
                         final FCollection<?> lastCollection = FCollection.of(config.getName(), output.setCoder(RowCoder.of(outputSchema)), DataType.ROW, outputSchema);
                         outputs.put(config.getName(), lastCollection);
                     }
                 }
                 return outputs;
             }
-            case avro: {
+            case avro -> {
                 final Transform<org.apache.avro.Schema, GenericRecord> transform = new Transform<>(
                         parameters,
                         RowToRecordConverter::convertSchema,
@@ -357,7 +364,7 @@ public class ProcessingTransform implements TransformModule {
                 final Map<TupleTag<GenericRecord>, Schema> outputSchemas = transform.getOutputSchemas();
 
                 final Map<String, FCollection<?>> outputs = new HashMap<>();
-                for(final Map.Entry<TupleTag<?>, PCollection<?>> entry : outputTuple.getAll().entrySet()) {
+                for (final Map.Entry<TupleTag<?>, PCollection<?>> entry : outputTuple.getAll().entrySet()) {
                     final TupleTag<GenericRecord> outputTag = (TupleTag<GenericRecord>) entry.getKey();
                     final PCollection<GenericRecord> output = (PCollection<GenericRecord>) entry.getValue();
                     final Schema outputSchema = outputSchemas.get(outputTag);
@@ -366,15 +373,14 @@ public class ProcessingTransform implements TransformModule {
                     final org.apache.avro.Schema outputAvroSchema = RowToRecordConverter.convertSchema(outputSchema);
                     final FCollection<?> collection = FCollection.of(name, output.setCoder(AvroCoder.of(outputAvroSchema)), DataType.AVRO, outputAvroSchema);
                     outputs.put(name, collection);
-                    if(lastStageName.equals(stageName)) {
+                    if (lastStageName.equals(stageName)) {
                         final FCollection<?> lastCollection = FCollection.of(config.getName(), output.setCoder(AvroCoder.of(outputAvroSchema)), DataType.AVRO, outputAvroSchema);
                         outputs.put(config.getName(), lastCollection);
                     }
                 }
                 return outputs;
             }
-            default:
-                throw new IllegalArgumentException("Not supported input type: " + parameters.getOutputType());
+            default -> throw new IllegalArgumentException("Not supported input type: " + parameters.getOutputType());
         }
     }
 
@@ -435,10 +441,13 @@ public class ProcessingTransform implements TransformModule {
         @Override
         public PCollectionTuple expand(PCollectionTuple inputTuple) {
 
-            final Set<String> allStageInputFieldNames = stages.stream()
-                    .flatMap(s -> s.getProcessors().stream())
-                    .flatMap(p -> p.getBufferSizes().keySet().stream())
-                    .collect(Collectors.toSet());
+            final Set<String> allStageInputFieldNames = new HashSet<>();
+            for(final Stage stage : stages) {
+                for(final Processor processor : stage.getProcessors()) {
+                    allStageInputFieldNames.addAll(processor.getBufferSizes().keySet());
+                }
+                allStageInputFieldNames.addAll(stage.getRemainFields());
+            }
 
             final Map<String, TupleTag<Map<String, Object>>> stageOutputTags = new HashMap<>();
             final Map<TupleTag<Map<String, Object>>, String> stageOutputNames = new HashMap<>();
@@ -522,25 +531,14 @@ public class ProcessingTransform implements TransformModule {
             MapDoFn(final String source, final List<Schema.Field> fields, final DataType dataType) {
                 this.source = source;
                 this.fields = fields;
-                switch (dataType) {
-                    case ROW:
-                        this.valueGetter = RowSchemaUtil::getAsPrimitive;
-                        break;
-                    case AVRO:
-                        this.valueGetter = AvroSchemaUtil::getAsPrimitive;
-                        break;
-                    case STRUCT:
-                        this.valueGetter = StructSchemaUtil::getAsPrimitive;
-                        break;
-                    case DOCUMENT:
-                        this.valueGetter = DocumentSchemaUtil::getAsPrimitive;
-                        break;
-                    case ENTITY:
-                        this.valueGetter = EntitySchemaUtil::getAsPrimitive;
-                        break;
-                    default:
-                        throw new IllegalStateException("Not supported dataType: " + dataType);
-                }
+                this.valueGetter = switch (dataType) {
+                    case ROW -> RowSchemaUtil::getAsPrimitive;
+                    case AVRO -> AvroSchemaUtil::getAsPrimitive;
+                    case STRUCT -> StructSchemaUtil::getAsPrimitive;
+                    case DOCUMENT -> DocumentSchemaUtil::getAsPrimitive;
+                    case ENTITY -> EntitySchemaUtil::getAsPrimitive;
+                    default -> throw new IllegalStateException("Not supported dataType: " + dataType);
+                };
             }
 
             @ProcessElement
@@ -694,8 +692,8 @@ public class ProcessingTransform implements TransformModule {
 
             final PCollection<Map<String,Object>> output;
             switch (type) {
-                case normal: {
-                    if(groupFields.size() > 0) {
+                case normal -> {
+                    if (!groupFields.isEmpty()) {
                         output = mapsWithKeyWindow
                                 .apply("GroupByKey", GroupByKey.create())
                                 .apply("StatelessGroupProcess", ParDo.of(new AggregateDoFn(name, remainFields, processors)));
@@ -703,15 +701,14 @@ public class ProcessingTransform implements TransformModule {
                         output = mapsWithKeyWindow
                                 .apply("StatelessSingleProcess", ParDo.of(new StatelessDoFn(name, remainFields, processors)));
                     }
-                    break;
                 }
-                case timeseries: {
+                case timeseries -> {
                     final Map<String, Integer> bufferSizes = Processor.getBufferSizes(processors);
                     final Map<String, Schema.FieldType> bufferTypes = Processor.getBufferTypes(processors, bufferInputTypes);
                     final Map<String, Processor.SizeUnit> bufferUnits = Processor.getBufferUnits(processors);
 
                     final Window<KV<String, Map<String, Object>>> window = createStatefulWindow();
-                    if(OptionUtil.isStreaming(inputs)) {
+                    if (OptionUtil.isStreaming(inputs)) {
                         output = mapsWithKeyWindow
                                 .apply("WithWindow", window)
                                 .apply("StatefulStreamingProcess", ParDo.of(new StatefulStreamingDoFn(name, remainFields, processors, bufferSizes, bufferTypes, bufferUnits, triggerInputs)));
@@ -720,10 +717,8 @@ public class ProcessingTransform implements TransformModule {
                                 .apply("WithWindow", window)
                                 .apply("StatefulBatchProcess", ParDo.of(new StatefulBatchDoFn(name, remainFields, processors, bufferSizes, bufferTypes, bufferUnits, triggerInputs)));
                     }
-                    break;
                 }
-                default:
-                    throw new IllegalStateException("Not supported processing type: " + type);
+                default -> throw new IllegalStateException("Not supported processing type: " + type);
             }
 
             if(outputFields.isEmpty() && outputRenameFields.isEmpty() && condition == null) {

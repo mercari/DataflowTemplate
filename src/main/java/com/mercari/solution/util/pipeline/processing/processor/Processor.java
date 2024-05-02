@@ -5,11 +5,8 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.util.pipeline.processing.ProcessingBuffer;
 import com.mercari.solution.util.pipeline.processing.ProcessingState;
 import com.mercari.solution.util.pipeline.processing.processor.feature.Binning;
-import com.mercari.solution.util.pipeline.processing.processor.utility.Constant;
-import com.mercari.solution.util.pipeline.processing.processor.utility.CurrentTimestamp;
-import com.mercari.solution.util.pipeline.processing.processor.utility.Expression;
+import com.mercari.solution.util.pipeline.processing.processor.utility.*;
 import com.mercari.solution.util.pipeline.processing.processor.learner.LinearRegression;
-import com.mercari.solution.util.pipeline.processing.processor.utility.Hash;
 import com.mercari.solution.util.pipeline.processing.processor.window.*;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.KV;
@@ -44,6 +41,7 @@ public interface Processor extends Serializable {
 
     enum Op {
         // utility
+        remain,
         constant,
         expression,
         current_timestamp,
@@ -90,18 +88,13 @@ public interface Processor extends Serializable {
         }
 
         public static long getMicros(Integer unit, Integer size) {
-            switch (SizeUnit.of(unit)) {
-                case second:
-                    return size * 1000_000L;
-                case minute:
-                    return size * 1000_000L * 60L;
-                case hour:
-                    return size * 1000_000L * 60L * 60L;
-                case day:
-                    return size * 1000_000L * 60L * 60L * 24L;
-                default:
-                    throw new IllegalArgumentException();
-            }
+            return switch (SizeUnit.of(unit)) {
+                case second -> size * 1000_000L;
+                case minute -> size * 1000_000L * 60L;
+                case hour -> size * 1000_000L * 60L * 60L;
+                case day -> size * 1000_000L * 60L * 60L * 24L;
+                default -> throw new IllegalArgumentException();
+            };
         }
     }
 
@@ -137,40 +130,25 @@ public interface Processor extends Serializable {
         }
 
         final Op op = Op.valueOf(params.get("op").getAsString());
-        switch (op) {
-            case constant:
-                return Constant.of(name, condition, ignore, params);
-            case expression:
-                return Expression.of(name, condition, ignore, params);
-            case current_timestamp:
-                return CurrentTimestamp.of(name, condition, ignore, params);
-            case hash:
-                return Hash.of(name, condition, ignore, params);
-            case binning:
-                return Binning.of(name, condition, ignore, params);
-            case count:
-                return Count.of(name, condition, ignore, params);
-            case max:
-                return Max.of(name, condition, ignore, params);
-            case min:
-                return Max.of(name, condition, ignore, params, true);
-            case argmax:
-                return ArgMax.of(name, condition, ignore, params);
-            case argmin:
-                return ArgMax.of(name, condition, ignore, params, true);
-            case sum:
-                return Sum.of(name, condition, ignore, params);
-            case avg:
-                return Avg.of(name, condition, ignore, params);
-            case std:
-                return Std.of(name, condition, ignore, params);
-            case lag:
-                return Lag.of(name, condition, ignore, params);
-            case linear_regression:
-                return LinearRegression.of(name, condition, ignore, params);
-            default:
-                throw new IllegalArgumentException("Not supported processor: " + op);
-        }
+        return switch (op) {
+            case remain -> Remain.of(name, condition, ignore, params);
+            case constant -> Constant.of(name, condition, ignore, params);
+            case expression -> Expression.of(name, condition, ignore, params);
+            case current_timestamp -> CurrentTimestamp.of(name, condition, ignore, params);
+            case hash -> Hash.of(name, condition, ignore, params);
+            case binning -> Binning.of(name, condition, ignore, params);
+            case count -> Count.of(name, condition, ignore, params);
+            case max -> Max.of(name, condition, ignore, params);
+            case min -> Max.of(name, condition, ignore, params, true);
+            case argmax -> ArgMax.of(name, condition, ignore, params);
+            case argmin -> ArgMax.of(name, condition, ignore, params, true);
+            case sum -> Sum.of(name, condition, ignore, params);
+            case avg -> Avg.of(name, condition, ignore, params);
+            case std -> Std.of(name, condition, ignore, params);
+            case lag -> Lag.of(name, condition, ignore, params);
+            case linear_regression -> LinearRegression.of(name, condition, ignore, params);
+            default -> throw new IllegalArgumentException("Not supported processor: " + op);
+        };
 
     }
 
@@ -332,7 +310,7 @@ public interface Processor extends Serializable {
             final JsonObject params, final String singleName, final String multiName) {
 
         final List<String> list = new ArrayList<>();
-        final Boolean isSingle;
+        final boolean isSingle;
         if(params.has(singleName) || params.has(multiName)) {
             if(params.has(singleName)) {
                 if(!params.get(singleName).isJsonPrimitive()) {
