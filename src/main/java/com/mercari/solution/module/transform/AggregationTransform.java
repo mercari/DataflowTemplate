@@ -24,9 +24,12 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.state.*;
+import org.apache.beam.sdk.state.Timer;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.*;
 import org.apache.beam.sdk.values.*;
+import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +53,7 @@ public class AggregationTransform implements TransformModule {
         private WindowUtil.AccumulationMode accumulationMode;
 
         private List<AggregationDefinition> aggregations;
+        private AggregationLimit limit;
 
         private Integer fanout;
 
@@ -86,6 +90,10 @@ public class AggregationTransform implements TransformModule {
             return aggregations;
         }
 
+        public AggregationLimit getLimit() {
+            return limit;
+        }
+
         public Integer getFanout() {
             return fanout;
         }
@@ -103,6 +111,22 @@ public class AggregationTransform implements TransformModule {
         }
 
 
+        public static AggregateTransformParameters of(
+                final JsonElement jsonElement,
+                final String name,
+                final Map<String, KV<DataType, Schema>> inputSchemas) {
+
+            final AggregateTransformParameters parameters = new Gson().fromJson(jsonElement, AggregateTransformParameters.class);
+            if (parameters == null) {
+                throw new IllegalArgumentException("AggregateTransform config parameters must not be empty!");
+            }
+
+            parameters.validate(name, inputSchemas);
+            parameters.setDefaults();
+
+            return parameters;
+        }
+
         public void validate(String name, Map<String, KV<DataType, Schema>> inputSchemas) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.aggregations == null || this.aggregations.size() == 0) {
@@ -115,6 +139,9 @@ public class AggregationTransform implements TransformModule {
             }
             if(this.window != null) {
                 errorMessages.addAll(this.window.validate());
+            }
+            if(this.limit != null) {
+                errorMessages.addAll(this.limit.validate(name));
             }
 
             if(!errorMessages.isEmpty()) {
@@ -134,6 +161,10 @@ public class AggregationTransform implements TransformModule {
 
             if(this.accumulationMode == null) {
                 this.accumulationMode = WindowUtil.AccumulationMode.discarding;
+            }
+
+            if(this.limit != null) {
+                this.limit.setDefaults();
             }
 
             if(this.outputEmpty == null) {
@@ -170,24 +201,51 @@ public class AggregationTransform implements TransformModule {
 
     }
 
+    private static class AggregationLimit implements Serializable {
+
+        private Integer count;
+        private String outputStartAt;
+
+        public Integer getCount() {
+            return count;
+        }
+
+        public Instant getOutputStartAt() {
+            if(this.outputStartAt == null) {
+                return null;
+            }
+            return Instant.parse(outputStartAt);
+        }
+
+        public List<String> validate(String name) {
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.count == null && this.outputStartAt == null) {
+                errorMessages.add("Aggregation transform module[" + name + "].limit.count parameter must not be null.");
+            } else if(this.count != null) {
+                if(this.count < 1) {
+                    errorMessages.add("Aggregation transform module[" + name + "].limit.count parameter must not over zero.");
+                }
+            }
+            return errorMessages;
+        }
+
+        public void setDefaults() {
+
+        }
+
+    }
+
     private enum OutputType {
         row,
         avro;
 
         public DataType toDataType() {
-            switch (this) {
-                case avro:
-                    return DataType.AVRO;
-                case row:
-                    return DataType.ROW;
-                default:
-                    throw new IllegalArgumentException("Not supported type: " + this);
-            }
+            return switch (this) {
+                case avro -> DataType.AVRO;
+                case row -> DataType.ROW;
+                default -> throw new IllegalArgumentException("Not supported type: " + this);
+            };
         }
-    }
-
-    private enum Op {
-        current_timestamp
     }
 
 
@@ -202,17 +260,11 @@ public class AggregationTransform implements TransformModule {
     }
 
     public static FCollection<?> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
-        final AggregateTransformParameters parameters = new Gson().fromJson(config.getParameters(), AggregateTransformParameters.class);
-        if (parameters == null) {
-            throw new IllegalArgumentException("AggregateTransform config parameters must not be empty!");
-        }
-
         final Map<String, KV<DataType, Schema>> inputSchemas = inputs.stream()
                 .collect(Collectors
                         .toMap(FCollection::getName, f -> KV.of(f.getDataType(), f.getSchema())));
 
-        parameters.validate(config.getName(), inputSchemas);
-        parameters.setDefaults();
+        final AggregateTransformParameters parameters = AggregateTransformParameters.of(config.getParameters(), config.getName(), inputSchemas);
 
         final List<Schema.Field> groupFields = new ArrayList<>();
         for(final Schema.Field groupField : inputs.get(0).getSchema().getFields()) {
@@ -279,10 +331,11 @@ public class AggregationTransform implements TransformModule {
                         tags,
                         inputNames,
                         inputTypes,
-                        outputType);
+                        outputType,
+                        RowCoder.of(outputSchema));
 
                 final PCollection<Row> output = tuple.apply(config.getName(), transform);
-                return FCollection.of(config.getName(), output.setCoder(RowCoder.of(outputSchema)), DataType.ROW, outputSchema);
+                return FCollection.of(config.getName(), output, DataType.ROW, outputSchema);
             }
             case AVRO -> {
                 final org.apache.avro.Schema outputAvroSchema = RowToRecordConverter.convertSchema(outputSchema);
@@ -299,10 +352,11 @@ public class AggregationTransform implements TransformModule {
                         tags,
                         inputNames,
                         inputTypes,
-                        outputType);
+                        outputType,
+                        AvroCoder.of(outputAvroSchema));
 
                 final PCollection<GenericRecord> output = tuple.apply(config.getName(), transform);
-                return FCollection.of(config.getName(), output.setCoder(AvroCoder.of(outputAvroSchema)), DataType.AVRO, outputSchema);
+                return FCollection.of(config.getName(), output, DataType.AVRO, outputSchema);
             }
             default -> throw new IllegalArgumentException();
         }
@@ -356,6 +410,7 @@ public class AggregationTransform implements TransformModule {
         private final WindowUtil.WindowParameters windowParameters;
         private final TriggerUtil.TriggerParameters triggerParameters;
         private final WindowUtil.AccumulationMode accumulationMode;
+        private final AggregationLimit limit;
         private final Integer fanout;
 
         private final Boolean outputEmpty;
@@ -365,6 +420,7 @@ public class AggregationTransform implements TransformModule {
         private final List<String> inputNames;
         private final List<DataType> inputTypes;
         private final DataType outputType;
+        private final Coder<T> outputCoder;
 
         Transform(final AggregateTransformParameters parameters,
                   final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter,
@@ -378,7 +434,8 @@ public class AggregationTransform implements TransformModule {
                   final List<TupleTag<?>> tags,
                   final List<String> inputNames,
                   final List<DataType> inputTypes,
-                  final DataType outputType) {
+                  final DataType outputType,
+                  final Coder<T> outputCoder) {
 
             this.schemaConverter = schemaConverter;
             this.valueConverter = valueConverter;
@@ -392,6 +449,7 @@ public class AggregationTransform implements TransformModule {
             this.triggerParameters = parameters.getTrigger();
             this.accumulationMode = parameters.getAccumulationMode();
             this.aggregatorsMap = aggregatorsMap;
+            this.limit = parameters.getLimit();
             this.fanout = parameters.getFanout();
 
             this.outputEmpty = parameters.getOutputEmpty();
@@ -401,6 +459,8 @@ public class AggregationTransform implements TransformModule {
             this.inputNames = inputNames;
             this.inputTypes = inputTypes;
             this.outputType = outputType;
+
+            this.outputCoder = outputCoder;
         }
 
         @Override
@@ -424,14 +484,30 @@ public class AggregationTransform implements TransformModule {
                 window = window.withTimestampCombiner(windowParameters.getTimestampCombiner());
             }
 
+            final PCollection<KV<String, T>> aggregated;
             if(this.groupFields == null || this.groupFields.isEmpty()) {
-                return flatten(inputs, window);
+                aggregated = flatten(inputs, window);
             } else {
-                return withKey(inputs, window);
+                aggregated = withKey(inputs, window);
             }
+
+            final PCollection<T> limited;
+            if(limit != null) {
+                final DoFn<KV<String,T>, T> limitDoFn;
+                if(OptionUtil.isStreaming(inputs)) {
+                    limitDoFn = new AggregationLimitStreamingDoFn<>(limit, outputCoder);
+                } else {
+                    limitDoFn = new AggregationLimitBatchDoFn<>(limit, outputCoder);
+                }
+                limited = aggregated.apply("Limit", ParDo.of(limitDoFn));
+            } else {
+                limited = aggregated.apply("Values", Values.create());
+            }
+
+            return limited.setCoder(outputCoder);
         }
 
-        private PCollection<T> withKey(final PCollectionTuple inputs, final Window<KV<String,UnionValue>> window) {
+        private PCollection<KV<String, T>> withKey(final PCollectionTuple inputs, final Window<KV<String,UnionValue>> window) {
             final List<String> groupFieldNames = groupFields.stream()
                     .map(Schema.Field::getName)
                     .collect(Collectors.toList());
@@ -454,13 +530,14 @@ public class AggregationTransform implements TransformModule {
 
             return output
                     .setCoder(KvCoder.of(StringUtf8Coder.of(), Accumulator.coder()))
-                    .apply("Values", ParDo.of(new AggregationOutputWithKeyDoFn(
+                    .apply("Filter", ParDo.of(new AggregationOutputWithKeyDoFn(
                             inputOutputSchema, schemaConverter, valueConverter, valueCreator,
                             groupFields, filterJson, selectFunctions,
-                            aggregatorsMap, outputEmpty, outputPaneInfo, outputType)));
+                            aggregatorsMap, outputEmpty, outputPaneInfo, outputType)))
+                    .setCoder(KvCoder.of(StringUtf8Coder.of(), outputCoder));
         }
 
-        private PCollection<T> flatten(final PCollectionTuple inputs, final Window<UnionValue> window) {
+        private PCollection<KV<String, T>> flatten(final PCollectionTuple inputs, final Window<UnionValue> window) {
             final PCollection<UnionValue> flatten = inputs
                     .apply("UnionFlatten", Union.flatten(tags, inputTypes, inputNames))
                     .apply("WithWindow", window);
@@ -481,10 +558,11 @@ public class AggregationTransform implements TransformModule {
 
             return output
                     .setCoder(Accumulator.coder())
-                    .apply("Values", ParDo.of(new AggregationOutputFlattenDoFn(
+                    .apply("Filter", ParDo.of(new AggregationOutputFlattenDoFn(
                             inputOutputSchema, schemaConverter, valueConverter, valueCreator,
                             groupFields, filterJson, selectFunctions,
-                            aggregatorsMap, outputEmpty, outputPaneInfo, outputType)));
+                            aggregatorsMap, outputEmpty, outputPaneInfo, outputType)))
+                    .setCoder(KvCoder.of(StringUtf8Coder.of(), outputCoder));
         }
 
         private static class AggregationCombineFn extends Combine.CombineFn<UnionValue, Accumulator, Accumulator> {
@@ -572,8 +650,9 @@ public class AggregationTransform implements TransformModule {
 
             @ProcessElement
             public void processElement(ProcessContext c) {
+                final String key = c.element().getKey();
                 final Accumulator accumulator = c.element().getValue();
-                super.process(accumulator, c);
+                super.process(accumulator, c, key);
             }
 
         }
@@ -604,12 +683,12 @@ public class AggregationTransform implements TransformModule {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 final Accumulator accumulator = c.element();
-                super.process(accumulator, c);
+                super.process(accumulator, c, "");
             }
 
         }
 
-        protected class AggregationOutputDoFn<InputT> extends DoFn<InputT, T> {
+        protected class AggregationOutputDoFn<InputT> extends DoFn<InputT, KV<String,T>> {
 
             private final InputSchemaT inputSchema;
             private final SchemaUtil.SchemaConverter<InputSchemaT,RuntimeSchemaT> schemaConverter;
@@ -669,7 +748,7 @@ public class AggregationTransform implements TransformModule {
                 }
             }
 
-            protected void process(Accumulator accumulator, ProcessContext c) {
+            protected void process(Accumulator accumulator, ProcessContext c, String key) {
                 if(accumulator == null) {
                     LOG.info("Skip null aggregation result");
                     return;
@@ -707,9 +786,191 @@ public class AggregationTransform implements TransformModule {
 
                 if(conditionNode == null || Filter.filter(conditionNode, values)) {
                     final T output = valueCreator.create(runtimeSchema, values);
-                    c.output(output);
+                    c.output(KV.of(key, output));
                 }
 
+            }
+
+        }
+
+
+        private static class AggregationLimitBatchDoFn<InputT> extends DoFn<KV<String,InputT>, InputT> {
+
+            protected static final String STATEID_COUNT = "aggregationLimitCount";
+            protected static final String STATEID_BUFFER = "aggregationLimitBuffer";
+
+            @StateId(STATEID_COUNT)
+            private final StateSpec<ValueState<Integer>> countSpec;
+            @StateId(STATEID_BUFFER)
+            private final StateSpec<ValueState<KV<Instant, InputT>>> bufferSpec;
+
+            private final Integer limitCount;
+            private final Instant outputStartAt;
+
+
+            AggregationLimitBatchDoFn(
+                    final AggregationLimit limit,
+                    final Coder<InputT> coder) {
+
+                this.countSpec = StateSpecs.value(VarIntCoder.of());
+                this.bufferSpec = StateSpecs.value(KvCoder.of(InstantCoder.of(), coder));
+
+                this.limitCount = limit.getCount();
+                this.outputStartAt = limit.getOutputStartAt();
+
+
+            }
+
+
+            @Setup
+            public void setup() {
+
+            }
+
+            @ProcessElement
+            @RequiresTimeSortedInput
+            public void processElement(
+                    final ProcessContext c,
+                    final @AlwaysFetched @StateId(STATEID_COUNT) ValueState<Integer> countValueState,
+                    final @AlwaysFetched @StateId(STATEID_BUFFER) ValueState<KV<Instant, InputT>> bufferValueState) {
+
+                if(c.element() == null) {
+                    return;
+                }
+
+                final InputT input = c.element().getValue();
+                final Instant timestamp = c.timestamp();
+
+                if(this.outputStartAt != null) {
+                    final KV<Instant, InputT> buffer = bufferValueState.read();
+                    if(this.outputStartAt.isAfter(timestamp)) {
+                        if(buffer == null || timestamp.isAfter(buffer.getKey())) {
+                            bufferValueState.write(KV.of(timestamp, input));
+                        }
+                        return;
+                    } else if(buffer != null) {
+
+                    }
+                }
+
+                if(this.limitCount != null) {
+                    final Integer outputCount = Optional
+                            .ofNullable(countValueState.read())
+                            .orElse(0);
+                    if(this.limitCount > outputCount) {
+                        c.output(input);
+                        countValueState.write(outputCount + 1);
+                    }
+                } else {
+                    c.output(input);
+                }
+
+            }
+
+            /*
+            @OnWindowExpiration
+            public void onWindowExpiration(
+                    final OutputReceiver<Row> receiver,
+                    final @StateId(STATE_ID_BUFFER) BagState<MatchingEngineUtil.DataPoint> bufferState,
+                    final @StateId(STATE_ID_BUFFER_SIZE) CombiningState<Long, long[], Long> bufferSizeState) {
+
+                LOG.info("onWindowExpiration");
+
+                flush(receiver, bufferState, bufferSizeState);
+            }
+
+             */
+
+
+        }
+
+        private static class AggregationLimitStreamingDoFn<InputT> extends DoFn<KV<String,InputT>, InputT> {
+
+            protected static final String STATEID_COUNT = "aggregationLimitCount";
+            protected static final String STATEID_BUFFER = "aggregationLimitBuffer";
+            protected static final String TIMERID_OUTPUT = "aggregationLimitOutput";
+
+            @StateId(STATEID_COUNT)
+            private final StateSpec<ValueState<Integer>> countSpec;
+            @StateId(STATEID_BUFFER)
+            private final StateSpec<ValueState<KV<Instant, InputT>>> bufferSpec;
+
+            @TimerId(TIMERID_OUTPUT)
+            private final TimerSpec timer = TimerSpecs.timer(TimeDomain.EVENT_TIME);
+
+            private final Integer limitCount;
+            private final Instant outputStartAt;
+
+
+            AggregationLimitStreamingDoFn(final AggregationLimit limit, final Coder<InputT> coder) {
+                this.countSpec = StateSpecs.value(VarIntCoder.of());
+                this.bufferSpec = StateSpecs.value(KvCoder.of(InstantCoder.of(), coder));
+                this.limitCount = limit.getCount();
+                this.outputStartAt = limit.getOutputStartAt();
+            }
+
+
+            @Setup
+            public void setup() {
+
+            }
+
+            @ProcessElement
+            public void processElement(
+                    final ProcessContext c,
+                    final @AlwaysFetched @StateId(STATEID_COUNT) ValueState<Integer> countValueState,
+                    final @AlwaysFetched @StateId(STATEID_BUFFER) ValueState<KV<Instant, InputT>> bufferValueState,
+                    final @TimerId(TIMERID_OUTPUT) Timer timer) {
+
+                if(c.element() == null) {
+                    return;
+                }
+
+                final InputT input = c.element().getValue();
+                final Instant timestamp = c.timestamp();
+
+                if(this.outputStartAt != null && this.outputStartAt.isAfter(timestamp)) {
+                    final KV<Instant, InputT> buffer = Optional
+                            .ofNullable(bufferValueState.read())
+                            .orElseGet(() -> KV.of(Instant.ofEpochMilli(0L), input));
+                    if(timestamp.isAfter(buffer.getKey())) {
+                        bufferValueState.write(KV.of(timestamp, input));
+                        timer.set(this.outputStartAt);
+                    }
+                    LOG.info("buffer timestamp: " + timestamp);
+                    return;
+                }
+
+                if(this.limitCount != null) {
+                    final Integer outputCount = Optional
+                            .ofNullable(countValueState.read())
+                            .orElse(0);
+                    if(this.limitCount > outputCount) {
+                        c.output(input);
+                        countValueState.write(outputCount + 1);
+                        LOG.info("output count: " + outputCount);
+                    } else {
+                        LOG.info("limit count: " + outputCount);
+                    }
+                } else {
+                    c.output(input);
+                }
+
+            }
+
+            @OnTimer(TIMERID_OUTPUT)
+            public void onTimer(final OnTimerContext c,
+                                final @AlwaysFetched @StateId(STATEID_COUNT) ValueState<Integer> countValueState,
+                                final @AlwaysFetched @StateId(STATEID_BUFFER) ValueState<KV<Instant,InputT>> bufferValueState) {
+
+                final KV<Instant, InputT> buffer = bufferValueState.read();
+                if(buffer != null) {
+                    c.output(buffer.getValue());
+                    final Integer outputCount = Optional
+                            .ofNullable(countValueState.read())
+                            .orElse(0);
+                    countValueState.write(outputCount + 1);
+                }
             }
 
         }
