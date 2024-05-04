@@ -156,7 +156,7 @@ At first, you should register the container for local execution.
 mvn clean package -DskipTests -Dimage="{region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/cloud"
 
 # Create Docker image for local run
-docker build --tag="{region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local .
+docker build --tag="{region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local" .
 
 # If you need to push the image to the GAR,
 # you may do so by using the following commands
