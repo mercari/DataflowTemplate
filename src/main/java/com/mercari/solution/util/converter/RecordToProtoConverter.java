@@ -6,6 +6,8 @@ import com.mercari.solution.util.schema.ProtoSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
@@ -18,6 +20,8 @@ import java.util.Optional;
 
 public class RecordToProtoConverter {
 
+    private static final Logger LOG = LoggerFactory.getLogger(RecordToProtoConverter.class);
+
     public static DynamicMessage convert(final Descriptors.Descriptor messageDescriptor, final GenericRecord record) {
         final DynamicMessage.Builder builder = DynamicMessage.newBuilder(messageDescriptor);
         if(record == null) {
@@ -25,7 +29,13 @@ public class RecordToProtoConverter {
         }
         final Schema schema = record.getSchema();
         for(final Descriptors.FieldDescriptor field : messageDescriptor.getFields()) {
-            final Schema fieldSchema = AvroSchemaUtil.unnestUnion(schema.getField(field.getName()).schema());
+            final Schema fieldSchema;
+            try {
+                fieldSchema = AvroSchemaUtil.unnestUnion(schema.getField(field.getName()).schema());
+            } catch (NullPointerException e) { // just log and re-throw.
+                LOG.error("Field of message descriptor: {} not found in schema: {}", field.getName(), schema);
+                throw e;
+            }
             if(field.isRepeated()) {
                 if(field.isMapField()) {
                     // NOT support map
