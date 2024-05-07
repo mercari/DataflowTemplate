@@ -183,7 +183,7 @@ If you want to run in streaming mode, specify streaming=true in the argument as 
 ```sh
 docker run \
   -v ~/.config/gcloud:/mnt/gcloud:ro \
-  -v /{your_work_dir}:/mnt/config:ro \  
+  -v /{your_work_dir}:/mnt/config:ro \
   --rm {region}-docker.pkg.dev/{deploy_project}/{template_repo_name}/local \
   --project={project} \
   --config=/mnt/config/{my_config}.json
