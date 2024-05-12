@@ -1,6 +1,7 @@
 package com.mercari.solution.module.sink.fileio;
 
 import com.mercari.solution.module.DataType;
+import com.mercari.solution.module.sink.StorageSink;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.Schema;
@@ -23,7 +24,7 @@ import static org.apache.parquet.hadoop.ParquetFileWriter.Mode.OVERWRITE;
 public class UnionValueParquetSink implements FileIO.Sink<KV<String, UnionValue>> {
 
     private final String jsonSchema;
-    private final CompressionCodecName codec;
+    private final StorageSink.CodecName codecName;
     private final boolean fitSchema;
 
     private transient Schema schema;
@@ -32,19 +33,19 @@ public class UnionValueParquetSink implements FileIO.Sink<KV<String, UnionValue>
 
     public static UnionValueParquetSink of(
             final Schema schema,
-            final CompressionCodecName codec,
+            final StorageSink.CodecName codecName,
             final boolean fitSchema) {
 
-        return new UnionValueParquetSink(schema.toString(), codec, fitSchema);
+        return new UnionValueParquetSink(schema.toString(), codecName, fitSchema);
     }
 
     private UnionValueParquetSink(
             final String jsonSchema,
-            final CompressionCodecName codec,
+            final StorageSink.CodecName codecName,
             final boolean fitSchema) {
 
         this.jsonSchema = jsonSchema;
-        this.codec = codec;
+        this.codecName = codecName;
         this.fitSchema = fitSchema;
     }
 
@@ -53,9 +54,19 @@ public class UnionValueParquetSink implements FileIO.Sink<KV<String, UnionValue>
         this.schema = new Schema.Parser().parse(this.jsonSchema);
         final BeamParquetOutputFile beamParquetOutputFile =
                 new BeamParquetOutputFile(Channels.newOutputStream(channel));
+        final CompressionCodecName compressionCodecName = switch (this.codecName) {
+            case LZO -> CompressionCodecName.LZO;
+            case LZ4 -> CompressionCodecName.LZ4;
+            case LZ4_RAW -> CompressionCodecName.LZ4_RAW;
+            case ZSTD -> CompressionCodecName.ZSTD;
+            case SNAPPY -> CompressionCodecName.SNAPPY;
+            case GZIP -> CompressionCodecName.GZIP;
+            case BROTLI -> CompressionCodecName.BROTLI;
+            default -> CompressionCodecName.UNCOMPRESSED;
+        };
         this.writer = AvroParquetWriter.<GenericRecord>builder(beamParquetOutputFile)
                 .withSchema(schema)
-                .withCompressionCodec(codec)
+                .withCompressionCodec(compressionCodecName)
                 .withWriteMode(OVERWRITE)
                 .enableValidation()
                 .build();

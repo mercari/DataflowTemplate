@@ -53,7 +53,7 @@ public class UnionValueJsonSink implements FileIO.Sink<KV<String, UnionValue>> {
     public void write(KV<String, UnionValue> element) throws IOException {
         final UnionValue input = element.getValue();
         final String json = UnionValue.getAsJson(input);
-        writer.append(json);
+        writer.println(json);
     }
 
     @Override

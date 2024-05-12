@@ -170,7 +170,7 @@ public class StorageSink implements SinkModule {
         public static StorageSinkParameters of(final JsonElement jsonElement, final String name) {
             final StorageSinkParameters parameters = new Gson().fromJson(jsonElement, StorageSinkParameters.class);
             if(parameters == null) {
-                throw new IllegalArgumentException("storage sink module[" + name + "] parameters must not be empty!");
+                throw new IllegalArgumentException("storage sink[" + name + "].parameters must not be empty!");
             }
             parameters.validate(name);
             parameters.setDefaults();
@@ -180,10 +180,10 @@ public class StorageSink implements SinkModule {
         private void validate(String name) {
             final List<String> errorMessages = new ArrayList<>();
             if(this.output == null) {
-                errorMessages.add("storage sink[" + name + "] parameters.output must not be null");
+                errorMessages.add("storage sink[" + name + "].parameters.output must not be null");
             }
             if(this.format == null) {
-                errorMessages.add("storage sink[" + name + "] parameters.format must not be null");
+                errorMessages.add("storage sink[" + name + "].parameters.format must not be null");
             }
 
             if(errorMessages.size() > 0) {
@@ -236,7 +236,7 @@ public class StorageSink implements SinkModule {
         parquet
     }
 
-    private enum CodecName {
+    public enum CodecName {
         // common
         SNAPPY,
         UNCOMPRESSED,
@@ -411,29 +411,8 @@ public class StorageSink implements SinkModule {
                     final boolean fitSchema = parameters.getAvroSchema() != null;
                     final Schema outputAvroSchema = AvroSchemaUtil.convertSchema(outputAvroSchemaJson);
                     yield switch (this.parameters.getFormat()) {
-                        case avro -> {
-                            final CodecFactory codecFactory = switch (parameters.getCodec()) {
-                                case BZIP2 -> CodecFactory.bzip2Codec();
-                                case SNAPPY -> CodecFactory.snappyCodec();
-                                case DEFLATE -> CodecFactory.deflateCodec(CodecFactory.DEFAULT_DEFLATE_LEVEL);
-                                case XZ -> CodecFactory.xzCodec(CodecFactory.DEFAULT_XZ_LEVEL);
-                                default -> CodecFactory.nullCodec();
-                            };
-                            yield UnionValueAvroSink.of(outputAvroSchema, codecFactory, fitSchema);
-                        }
-                        case parquet -> {
-                            final CompressionCodecName codecName = switch (parameters.getCodec()) {
-                                case LZO -> CompressionCodecName.LZO;
-                                case LZ4 -> CompressionCodecName.LZ4;
-                                case LZ4_RAW -> CompressionCodecName.LZ4_RAW;
-                                case ZSTD -> CompressionCodecName.ZSTD;
-                                case SNAPPY -> CompressionCodecName.SNAPPY;
-                                case GZIP -> CompressionCodecName.GZIP;
-                                case BROTLI -> CompressionCodecName.BROTLI;
-                                default -> CompressionCodecName.UNCOMPRESSED;
-                            };
-                            yield UnionValueParquetSink.of(outputAvroSchema, codecName, fitSchema);
-                        }
+                        case avro -> UnionValueAvroSink.of(outputAvroSchema, parameters.getCodec(), fitSchema);
+                        case parquet -> UnionValueParquetSink.of(outputAvroSchema, parameters.getCodec(), fitSchema);
                         default -> throw new IllegalArgumentException();
                     };
                 }
@@ -1418,9 +1397,6 @@ public class StorageSink implements SinkModule {
             final String key,
             final String suffix,
             final Integer numShards) {
-
-        //final String[] paths = key.split("/");
-        //final String filename = paths[paths.length - 1];
 
         if(isTemplatePath(suffix)) {
             return new TemplateFileNaming(key, suffix);

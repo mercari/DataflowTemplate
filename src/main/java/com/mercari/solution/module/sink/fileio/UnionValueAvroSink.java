@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.mercari.solution.module.DataType;
+import com.mercari.solution.module.sink.StorageSink;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.Schema;
@@ -23,7 +24,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 public class UnionValueAvroSink implements FileIO.Sink<KV<String, UnionValue>> {
 
     private final String jsonSchema;
-    private final CodecFactory codecFactory;
+    private final StorageSink.CodecName codecName;
     private final Map<String, String> metadata;
     private final boolean fitSchema;
 
@@ -32,19 +33,19 @@ public class UnionValueAvroSink implements FileIO.Sink<KV<String, UnionValue>> {
 
     public static UnionValueAvroSink of(
             final Schema schema,
-            final CodecFactory codecFactory,
+            final StorageSink.CodecName codecName,
             final boolean fitSchema) {
 
-        return new UnionValueAvroSink(schema.toString(), codecFactory, fitSchema);
+        return new UnionValueAvroSink(schema.toString(), codecName, fitSchema);
     }
 
     UnionValueAvroSink(
             final String jsonSchema,
-            final CodecFactory codecFactory,
+            final StorageSink.CodecName codecName,
             final boolean fitSchema) {
 
         this.jsonSchema = jsonSchema;
-        this.codecFactory = codecFactory;
+        this.codecName = codecName;
         this.metadata = new HashMap<>();
         this.fitSchema = fitSchema;
     }
@@ -53,8 +54,14 @@ public class UnionValueAvroSink implements FileIO.Sink<KV<String, UnionValue>> {
     public void open(WritableByteChannel channel) throws IOException {
         this.schema = new Schema.Parser().parse(jsonSchema);
         final DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(schema);
-        this.writer = new DataFileWriter<>(datumWriter)
-                .setCodec(codecFactory);
+        final CodecFactory codecFactory = switch (this.codecName) {
+            case BZIP2 -> CodecFactory.bzip2Codec();
+            case SNAPPY -> CodecFactory.snappyCodec();
+            case DEFLATE -> CodecFactory.deflateCodec(CodecFactory.DEFAULT_DEFLATE_LEVEL);
+            case XZ -> CodecFactory.xzCodec(CodecFactory.DEFAULT_XZ_LEVEL);
+            default -> CodecFactory.nullCodec();
+        };
+        this.writer = new DataFileWriter<>(datumWriter).setCodec(codecFactory);
         for (Map.Entry<String, String> entry : metadata.entrySet()) {
             Object v = entry.getValue();
             if (v instanceof String) {

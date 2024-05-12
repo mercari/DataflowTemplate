@@ -63,7 +63,7 @@ public class UnionValueCsvSink implements FileIO.Sink<KV<String, UnionValue>> {
     public void write(KV<String, UnionValue> element) throws IOException {
         final UnionValue input = element.getValue();
         final String line = UnionValue.getAsCsvLine(input, fields);
-        writer.append(line);
+        writer.println(line);
     }
 
     @Override
