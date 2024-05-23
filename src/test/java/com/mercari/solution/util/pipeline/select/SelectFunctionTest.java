@@ -56,6 +56,17 @@ public class SelectFunctionTest {
             select.add(hash);
         }
         {
+            final JsonObject hash = new JsonObject();
+            hash.addProperty("name", "hashArrayField");
+            hash.addProperty("func", "hash");
+            final JsonArray fields = new JsonArray();
+            fields.add("stringField");
+            fields.add("longField");
+            hash.add("fields", fields);
+            hash.addProperty("secret", "mysecret");
+            select.add(hash);
+        }
+        {
             final JsonObject currentTimestamp = new JsonObject();
             currentTimestamp.addProperty("name", "currentTimestampField");
             currentTimestamp.addProperty("func", "current_timestamp");
@@ -93,6 +104,7 @@ public class SelectFunctionTest {
         Assert.assertTrue(outputSchema.hasField("constantStringField"));
         Assert.assertTrue(outputSchema.hasField("expressionField"));
         Assert.assertTrue(outputSchema.hasField("hashField"));
+        Assert.assertTrue(outputSchema.hasField("hashArrayField"));
         Assert.assertTrue(outputSchema.hasField("currentTimestampField"));
         Assert.assertTrue(outputSchema.hasField("concatField"));
         Assert.assertEquals(Schema.FieldType.INT64.getTypeName(), outputSchema.getField("longField").getType().getTypeName());
@@ -100,6 +112,7 @@ public class SelectFunctionTest {
         Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("constantStringField").getType().getTypeName());
         Assert.assertEquals(Schema.FieldType.DOUBLE.getTypeName(), outputSchema.getField("expressionField").getType().getTypeName());
         Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("hashField").getType().getTypeName());
+        Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("hashArrayField").getType().getTypeName());
         Assert.assertEquals(Schema.FieldType.DATETIME.getTypeName(), outputSchema.getField("currentTimestampField").getType().getTypeName());
         Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("concatField").getType().getTypeName());
 
@@ -127,6 +140,7 @@ public class SelectFunctionTest {
         Assert.assertEquals("constantStringValue", output.getString("constantStringField"));
         Assert.assertEquals((Double)32.32, output.getDouble("expressionField"));
         Assert.assertEquals("3f6f120a3879bfbcb45bfb78a0ce80a0d53de6c8b4e5b0b9b94f282a6b0a2b63", output.getString("hashField"));
+        Assert.assertEquals("13e90672ae28e846323e1d0ea8c0918f8bd49b8adc9cc6eaeb1d56c4ef4e26ea", output.getString("hashArrayField"));
         Assert.assertNotNull(output.getDateTime("currentTimestampField"));
         Assert.assertEquals("stringValue 32 10", output.getString("concatField"));
 

@@ -1,5 +1,6 @@
 package com.mercari.solution.util.pipeline.select;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.gcp.SecretManagerUtil;
 import org.apache.beam.sdk.schemas.Schema;
@@ -18,34 +19,49 @@ public class Hash implements SelectFunction {
     private static final String ALGORITHM_HMAC_SHA256 = "HmacSHA256";
 
     private final String name;
-    private final String field;
+    private final List<String> fields;
     private final String algorithm;
     private final String secret;
     private final Integer size;
+    private final String delimiter;
     private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
     private transient Mac mac;
 
-    Hash(String name, String field, String secret, String algorithm, Integer size, boolean ignore) {
+    Hash(String name, List<String> fields, String secret, String algorithm, Integer size, String delimiter, boolean ignore) {
         this.name = name;
-        this.field = field;
+        this.fields = fields;
         this.secret = secret;
         this.algorithm = algorithm;
         this.size = size;
+        this.delimiter = delimiter;
 
         this.inputFields = new ArrayList<>();
-        this.inputFields.add(Schema.Field.of(field, Schema.FieldType.STRING.withNullable(true)));
+        for(final String field : fields) {
+            this.inputFields.add(Schema.Field.of(field, Schema.FieldType.STRING.withNullable(true)));
+        }
         this.outputFieldType = Schema.FieldType.STRING.withNullable(true);
         this.ignore = ignore;
     }
 
     public static Hash of(String name, JsonObject jsonObject, boolean ignore) {
-        if(!jsonObject.has("field")) {
-            throw new IllegalArgumentException("SelectField hash: " + name + " requires field parameter");
+        if(!jsonObject.has("field") && !jsonObject.has("fields")) {
+            throw new IllegalArgumentException("SelectField hash: " + name + " requires field or fields parameter");
         }
-        final String field = jsonObject.get("field").getAsString();
+        final List<String> fields = new ArrayList<>();
+        if(jsonObject.has("field")) {
+            final String field = jsonObject.get("field").getAsString();
+            fields.add(field);
+        } else if(jsonObject.has("fields")) {
+            if(!jsonObject.get("fields").isJsonArray()) {
+                throw new IllegalArgumentException("SelectField hash: " + name + " fields parameter must be array");
+            }
+            for(JsonElement element : jsonObject.getAsJsonArray("fields")) {
+                fields.add(element.getAsString());
+            }
+        }
 
         final String algorithm;
         if(jsonObject.has("algorithm")) {
@@ -59,10 +75,10 @@ public class Hash implements SelectFunction {
             secret = jsonObject.get("secret").getAsString();
         } else {
             switch (algorithm) {
-                case ALGORITHM_HMAC_SHA256: {
+                case ALGORITHM_HMAC_SHA256 -> {
                     throw new IllegalArgumentException("SelectField hash: " + name + " requires parameter secret if algorithm is " + algorithm);
                 }
-                default:
+                default ->
                     secret = null;
             }
         }
@@ -74,7 +90,14 @@ public class Hash implements SelectFunction {
             size = null;
         }
 
-        return new Hash(name, field, secret, algorithm, size, ignore);
+        final String delimiter;
+        if(jsonObject.has("delimiter")) {
+            delimiter = jsonObject.get("delimiter").getAsString();
+        } else {
+            delimiter = "";
+        }
+
+        return new Hash(name, fields, secret, algorithm, size, delimiter, ignore);
     }
 
     @Override
@@ -101,7 +124,7 @@ public class Hash implements SelectFunction {
     public void setup() {
         try {
             switch (algorithm) {
-                case ALGORITHM_HMAC_SHA256: {
+                case ALGORITHM_HMAC_SHA256 -> {
                     this.mac = Mac.getInstance(algorithm);
                     final String secret;
                     if(SecretManagerUtil.isSecretName(this.secret)) {
@@ -111,10 +134,8 @@ public class Hash implements SelectFunction {
                     }
                     final SecretKeySpec secretKeySpec = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), algorithm);
                     this.mac.init(secretKeySpec);
-                    break;
                 }
-                default:
-                    throw new IllegalArgumentException("hash algorithm: " + algorithm + " is not supported");
+                default -> throw new IllegalArgumentException("hash algorithm: " + algorithm + " is not supported");
             }
         } catch (final NoSuchAlgorithmException e) {
             throw new IllegalArgumentException("Not supported algorithm error: ", e);
@@ -125,25 +146,27 @@ public class Hash implements SelectFunction {
 
     @Override
     public Object apply(Map<String, Object> input) {
-        final Object value = input.get(field);
-        if(value == null) {
-            return null;
+        final List<String> list = new ArrayList<>();
+        for(final String field : fields) {
+            Object value = input.get(field);
+            if(value == null) {
+                value = "";
+            }
+            list.add(value.toString());
         }
-        return hash(value.toString().getBytes(StandardCharsets.UTF_8));
+
+        final String str = String.join(delimiter, list);
+        return hash(str.getBytes(StandardCharsets.UTF_8));
     }
 
     private String hash(final byte[] bytes) {
         if(bytes == null) {
             return null;
         }
-        final String output;
-        switch (algorithm) {
-            case ALGORITHM_HMAC_SHA256:
-                output = hashHMACSHA256(bytes);
-                break;
-            default:
-                throw new IllegalArgumentException();
-        }
+        final String output = switch (algorithm) {
+            case ALGORITHM_HMAC_SHA256 -> hashHMACSHA256(bytes);
+            default -> throw new IllegalArgumentException();
+        };
 
         if(size == null) {
             return output;
