@@ -52,7 +52,6 @@ public class SelectFunctionTest {
             hash.addProperty("name", "hashField");
             hash.addProperty("func", "hash");
             hash.addProperty("field", "stringField");
-            hash.addProperty("secret", "mysecret");
             select.add(hash);
         }
         {
@@ -63,7 +62,6 @@ public class SelectFunctionTest {
             fields.add("stringField");
             fields.add("longField");
             hash.add("fields", fields);
-            hash.addProperty("secret", "mysecret");
             select.add(hash);
         }
         {
@@ -139,8 +137,8 @@ public class SelectFunctionTest {
         Assert.assertEquals((Integer) 32, output.getInt32("renameIntField"));
         Assert.assertEquals("constantStringValue", output.getString("constantStringField"));
         Assert.assertEquals((Double)32.32, output.getDouble("expressionField"));
-        Assert.assertEquals("3f6f120a3879bfbcb45bfb78a0ce80a0d53de6c8b4e5b0b9b94f282a6b0a2b63", output.getString("hashField"));
-        Assert.assertEquals("13e90672ae28e846323e1d0ea8c0918f8bd49b8adc9cc6eaeb1d56c4ef4e26ea", output.getString("hashArrayField"));
+        Assert.assertEquals("dbcc96aec884f7d5057672df21e7446c1415ca7669fdabac78e49f4d852d5a0a", output.getString("hashField"));
+        Assert.assertEquals("e6c8c04775d64362367b36c61dc00615eabd1c00887fec05ceae4e5ab9cd215b", output.getString("hashArrayField"));
         Assert.assertNotNull(output.getDateTime("currentTimestampField"));
         Assert.assertEquals("stringValue 32 10", output.getString("concatField"));
 

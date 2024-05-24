@@ -9,6 +9,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.Map;
 
 public class Hash implements SelectFunction {
 
+    private static final String ALGORITHM_SHA256 = "SHA256";
     private static final String ALGORITHM_HMAC_SHA256 = "HmacSHA256";
 
     private final String name;
@@ -28,6 +30,7 @@ public class Hash implements SelectFunction {
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
+    private transient MessageDigest messageDigest;
     private transient Mac mac;
 
     Hash(String name, List<String> fields, String secret, String algorithm, Integer size, String delimiter, boolean ignore) {
@@ -67,7 +70,7 @@ public class Hash implements SelectFunction {
         if(jsonObject.has("algorithm")) {
             algorithm = jsonObject.get("algorithm").getAsString();
         } else {
-            algorithm = ALGORITHM_HMAC_SHA256;
+            algorithm = ALGORITHM_SHA256;
         }
 
         final String secret;
@@ -75,9 +78,7 @@ public class Hash implements SelectFunction {
             secret = jsonObject.get("secret").getAsString();
         } else {
             switch (algorithm) {
-                case ALGORITHM_HMAC_SHA256 -> {
-                    throw new IllegalArgumentException("SelectField hash: " + name + " requires parameter secret if algorithm is " + algorithm);
-                }
+                case ALGORITHM_HMAC_SHA256 -> throw new IllegalArgumentException("SelectField hash: " + name + " requires parameter secret if algorithm is " + algorithm);
                 default ->
                     secret = null;
             }
@@ -124,6 +125,9 @@ public class Hash implements SelectFunction {
     public void setup() {
         try {
             switch (algorithm) {
+                case ALGORITHM_SHA256 -> {
+                    this.messageDigest = MessageDigest.getInstance(this.algorithm);
+                }
                 case ALGORITHM_HMAC_SHA256 -> {
                     this.mac = Mac.getInstance(algorithm);
                     final String secret;
@@ -164,8 +168,9 @@ public class Hash implements SelectFunction {
             return null;
         }
         final String output = switch (algorithm) {
+            case ALGORITHM_SHA256 -> hashSHA256(bytes);
             case ALGORITHM_HMAC_SHA256 -> hashHMACSHA256(bytes);
-            default -> throw new IllegalArgumentException();
+            default -> throw new IllegalArgumentException("Not supported algorithm: " + algorithm);
         };
 
         if(size == null) {
@@ -175,6 +180,15 @@ public class Hash implements SelectFunction {
         } else {
             return output.substring(0, size);
         }
+    }
+
+    private String hashSHA256(final byte[] bytes) {
+        final byte[] hashed = messageDigest.digest(bytes);
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for(byte b : hashed) {
+            sb.append(String.format("%02x", b&0xff));
+        }
+        return sb.toString();
     }
 
     private String hashHMACSHA256(final byte[] bytes) {
