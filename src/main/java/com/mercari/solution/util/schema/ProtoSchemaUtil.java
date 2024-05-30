@@ -7,9 +7,16 @@ import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.Timestamps;
 import com.google.type.*;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,6 +25,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class ProtoSchemaUtil {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ProtoSchemaUtil.class);
+
+    private static final String PROTO_TMP_PATH = "/tmp/proto";
 
     public enum ProtoType {
 
@@ -122,61 +133,43 @@ public class ProtoSchemaUtil {
 
         boolean isNull = value == null;
 
-        switch (field.getJavaType()) {
-            case BOOLEAN:
-                return isNull ? false : (Boolean)value;
-            case STRING:
-                return isNull ? "" : (String)value;
-            case INT:
-                return isNull ? 0 : (Integer)value;
-            case LONG:
-                return isNull ? 0 : (Long)value;
-            case FLOAT:
-                return isNull ? 0f : (Float)value;
-            case DOUBLE:
-                return isNull ? 0d : (Double)value;
-            case ENUM: {
-                return isNull ? new EnumerationType.Value(0) : new EnumerationType.Value(((Descriptors.EnumValueDescriptor)value).getIndex());
-            }
-            case BYTE_STRING:
-                return isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray();
-            case MESSAGE: {
+        return switch (field.getJavaType()) {
+            case BOOLEAN -> isNull ? false : (Boolean)value;
+            case STRING -> isNull ? "" : (String)value;
+            case INT -> isNull ? 0 : (Integer)value;
+            case LONG -> isNull ? 0 : (Long)value;
+            case FLOAT -> isNull ? 0f : (Float)value;
+            case DOUBLE -> isNull ? 0d : (Double)value;
+            case ENUM -> isNull ? new EnumerationType.Value(0) : new EnumerationType.Value(((Descriptors.EnumValueDescriptor)value).getIndex());
+            case BYTE_STRING -> isNull ? ByteArray.copyFrom("").toByteArray() : ((ByteString) value).toByteArray();
+            case MESSAGE -> {
                 final Object object  = convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                 isNull = object == null;
-                switch (ProtoType.of(field.getMessageType().getFullName())) {
-                    case BOOL_VALUE:
-                        return !isNull && ((BoolValue) object).getValue();
-                    case BYTES_VALUE:
-                        return isNull ? ByteArray.copyFrom ("").toByteArray() : ((BytesValue) object).getValue().toByteArray();
-                    case STRING_VALUE:
-                        return isNull ? "" : ((StringValue) object).getValue();
-                    case INT32_VALUE:
-                        return isNull ? 0 : ((Int32Value) object).getValue();
-                    case INT64_VALUE:
-                        return isNull ? 0 : ((Int64Value) object).getValue();
-                    case UINT32_VALUE:
-                        return isNull ? 0 : ((UInt32Value) object).getValue();
-                    case UINT64_VALUE:
-                        return isNull ? 0 : ((UInt64Value) object).getValue();
-                    case FLOAT_VALUE:
-                        return isNull ? 0f : ((FloatValue) object).getValue();
-                    case DOUBLE_VALUE:
-                        return isNull ? 0d : ((DoubleValue) object).getValue();
-                    case DATE: {
+                yield switch (ProtoType.of(field.getMessageType().getFullName())) {
+                    case BOOL_VALUE -> !isNull && ((BoolValue) object).getValue();
+                    case BYTES_VALUE -> isNull ? ByteArray.copyFrom ("").toByteArray() : ((BytesValue) object).getValue().toByteArray();
+                    case STRING_VALUE -> isNull ? "" : ((StringValue) object).getValue();
+                    case INT32_VALUE -> isNull ? 0 : ((Int32Value) object).getValue();
+                    case INT64_VALUE -> isNull ? 0 : ((Int64Value) object).getValue();
+                    case UINT32_VALUE -> isNull ? 0 : ((UInt32Value) object).getValue();
+                    case UINT64_VALUE -> isNull ? 0 : ((UInt64Value) object).getValue();
+                    case FLOAT_VALUE -> isNull ? 0f : ((FloatValue) object).getValue();
+                    case DOUBLE_VALUE -> isNull ? 0d : ((DoubleValue) object).getValue();
+                    case DATE -> {
                         if(isNull) {
-                            return LocalDate.of(1, 1, 1);
+                            yield LocalDate.of(1, 1, 1);
                         }
                         final Date date = (Date) object;
-                        return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
+                        yield LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
                     }
-                    case TIME: {
+                    case TIME -> {
                         if(isNull) {
-                            return LocalTime.of(0, 0, 0, 0);
+                            yield LocalTime.of(0, 0, 0, 0);
                         }
                         final TimeOfDay timeOfDay = (TimeOfDay) object;
-                        return LocalTime.of(timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos());
+                        yield LocalTime.of(timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds(), timeOfDay.getNanos());
                     }
-                    case DATETIME: {
+                    case DATETIME -> {
                         if(isNull) {
                             long epochMilli = LocalDateTime.of(
                                     1, 1, 1,
@@ -184,7 +177,7 @@ public class ProtoSchemaUtil {
                                     .atOffset(ZoneOffset.UTC)
                                     .toInstant()
                                     .toEpochMilli();
-                            return org.joda.time.Instant.ofEpochMilli(epochMilli);
+                            yield org.joda.time.Instant.ofEpochMilli(epochMilli);
                         }
                         final DateTime dt = (DateTime) object;
                         long epochMilli = LocalDateTime.of(
@@ -193,41 +186,38 @@ public class ProtoSchemaUtil {
                                 .atOffset(ZoneOffset.ofTotalSeconds((int)dt.getUtcOffset().getSeconds()))
                                 .toInstant()
                                 .toEpochMilli();
-                        return org.joda.time.Instant.ofEpochMilli(epochMilli);
+                        yield org.joda.time.Instant.ofEpochMilli(epochMilli);
                     }
-                    case TIMESTAMP:
-                        if(isNull) {
+                    case TIMESTAMP -> {
+                        if (isNull) {
                             long epochMilli = LocalDateTime.of(
-                                    1, 1, 1,
-                                    0, 0, 0, 0)
+                                            1, 1, 1,
+                                            0, 0, 0, 0)
                                     .atOffset(ZoneOffset.UTC)
                                     .toInstant()
                                     .toEpochMilli();
-                            return org.joda.time.Instant.ofEpochMilli(epochMilli);
+                            yield org.joda.time.Instant.ofEpochMilli(epochMilli);
                         }
-                        return org.joda.time.Instant.ofEpochMilli(Timestamps.toMillis((Timestamp) object));
-                    case ANY: {
+                        yield org.joda.time.Instant.ofEpochMilli(Timestamps.toMillis((Timestamp) object));
+                    }
+                    case ANY -> {
                         if(isNull) {
-                            return "";
+                            yield "";
                         }
                         final Any any = (Any) object;
                         try {
-                            return printer.print(any);
+                            yield printer.print(any);
                         } catch (InvalidProtocolBufferException e) {
-                            return any.getValue().toStringUtf8();
+                            yield any.getValue().toStringUtf8();
                         }
                     }
-                    case EMPTY:
-                    case NULL_VALUE:
-                        return null;
-                    case CUSTOM:
-                    default:
-                        return object;
-                }
+                    case EMPTY, NULL_VALUE -> null;
+                    case CUSTOM -> object;
+                    default -> object;
+                };
             }
-            default:
-                return null;
-        }
+            default -> null;
+        };
     }
 
     public static Object convertBuildInValue(final String typeFullName, final DynamicMessage value) {
@@ -275,13 +265,13 @@ public class ProtoSchemaUtil {
                 return TimeOfDay.newBuilder().setHours(hours).setMinutes(minutes).setSeconds(seconds).setNanos(nanos).build();
             }
             case DATETIME: {
-                Integer year = 0;
-                Integer month = 0;
-                Integer day = 0;
-                Integer hours = 0;
-                Integer minutes = 0;
-                Integer seconds = 0;
-                Integer nanos = 0;
+                int year = 0;
+                int month = 0;
+                int day = 0;
+                int hours = 0;
+                int minutes = 0;
+                int seconds = 0;
+                int nanos = 0;
                 Duration duration = null;
                 TimeZone timeZone = null;
                 for(final Map.Entry<Descriptors.FieldDescriptor, Object> entry : value.getAllFields().entrySet()) {
@@ -559,6 +549,65 @@ public class ProtoSchemaUtil {
         }
 
         return descriptors;
+    }
+
+    public static Map<String, Descriptors.Descriptor> executeProtoc(
+            final String name,
+            final String protoText) throws IOException, InterruptedException {
+
+        final String basePath = String.format("%s/%s", PROTO_TMP_PATH, name);
+
+        final String protoPath = String.format("%s/protobuf.proto", basePath);
+        final String javaPath = String.format("%s/", basePath);
+        final String descriptorPath = String.format("%s/descriptor.desc", basePath);
+
+        final Path workPath = Paths.get(basePath);
+        workPath.toFile().mkdirs();
+
+        try (final FileWriter filewriter = new FileWriter(protoPath)) {
+            filewriter.write(protoText);
+        }
+
+        final String cmd = String.format("""
+                protoc \
+                  %s \
+                  --java_out=%s \
+                  --descriptor_set_out=%s \
+                  --include_imports \
+                  --include_source_info \
+                  -I/template/FlexPipeline/resources/proto/common/
+                """, protoPath, javaPath, descriptorPath);
+
+        Process process = Runtime.getRuntime().exec(cmd);
+        int ret = process.waitFor();
+        LOG.info("protoc code: " + ret);
+
+        try(final BufferedReader r = process.errorReader()) {
+            r.lines().forEach(LOG::error);
+        }
+
+        byte[] bytes = Files.readAllBytes(Path.of(descriptorPath));
+        return ProtoSchemaUtil.getDescriptors(bytes);
+    }
+
+    public static void installProtoc() throws Exception {
+        final Runtime runtime = Runtime.getRuntime();
+        final String text0 = "apt-get update";
+        final Process process0 = runtime.exec(text0);
+        final int ret0 = process0.waitFor();
+        try(final BufferedReader r = process0.errorReader()) {
+            r.lines().forEach(LOG::error);
+        }
+        LOG.info("apt-get update code: " + ret0);
+
+        final String text1 = "apt-get install -y protobuf-compiler";
+
+        final Process process1 = runtime.exec(text1);
+        final int ret1 = process1.waitFor();
+        try(final BufferedReader r = process1.errorReader()) {
+            r.lines().forEach(LOG::error);
+        }
+        LOG.info("apt-get install code: " + ret1);
     }
 
 }
