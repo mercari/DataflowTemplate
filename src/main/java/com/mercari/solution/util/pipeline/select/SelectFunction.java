@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.schema.*;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -16,7 +17,7 @@ import java.util.Map;
 public interface SelectFunction extends Serializable {
 
     String getName();
-    Object apply(Map<String, Object> input);
+    Object apply(Map<String, Object> input, Instant timestamp);
     void setup();
     List<Schema.Field> getInputFields();
     Schema.FieldType getOutputFieldType();
@@ -26,12 +27,16 @@ public interface SelectFunction extends Serializable {
         pass,
         constant,
         rename,
+        cast,
         expression,
         text,
         concat,
         uuid,
         hash,
-        current_timestamp
+        event_timestamp,
+        current_timestamp,
+        struct,
+        map
     }
 
 
@@ -64,7 +69,11 @@ public interface SelectFunction extends Serializable {
             if(jsonObject.size() == 1) {
                 func = Func.pass;
             } else if(jsonObject.has("field")) {
-                func = Func.rename;
+                if(jsonObject.has("type")) {
+                    func = Func.cast;
+                } else {
+                    func = Func.rename;
+                }
             } else if(jsonObject.has("value")) {
                 if(jsonObject.has("type")) {
                     func = Func.constant;
@@ -90,13 +99,17 @@ public interface SelectFunction extends Serializable {
         return switch (func) {
             case pass -> Pass.of(name, outputType, inputFields, ignore);
             case rename -> Rename.of(name, jsonObject, outputType, inputFields, ignore);
+            case cast -> Cast.of(name, jsonObject, outputType, inputFields, ignore);
             case constant -> Constant.of(name, jsonObject, ignore);
             case expression -> Expression.of(name, jsonObject, ignore);
             case text -> Text.of(name, jsonObject, ignore);
             case concat -> Concat.of(name, inputFields, jsonObject, ignore);
             case uuid -> Uuid.of(name, jsonObject, ignore);
-            case hash -> Hash.of(name, jsonObject, ignore);
+            case hash -> Hash.of(name, jsonObject, inputFields, ignore);
+            case event_timestamp -> EventTimestamp.of(name, ignore);
             case current_timestamp -> CurrentTimestamp.of(name, ignore);
+            case struct -> Struct.of(name, jsonObject, outputType, inputFields, ignore);
+            case map -> Maps.of(name, jsonObject, outputType, inputFields, ignore);
         };
     }
 
@@ -118,7 +131,13 @@ public interface SelectFunction extends Serializable {
         return Schema.builder().addFields(selectOutputFields).build();
     }
 
-    static Map<String, Object> apply(List<SelectFunction> selectFunctions, Object element, DataType inputType, DataType outputType) {
+    static Map<String, Object> apply(
+            List<SelectFunction> selectFunctions,
+            Object element,
+            DataType inputType,
+            DataType outputType,
+            Instant timestamp) {
+
         final Map<String, Object> primitiveValues = new HashMap<>();
         for(final SelectFunction selectFunction : selectFunctions) {
             for(final Schema.Field inputField : selectFunction.getInputFields()) {
@@ -133,16 +152,21 @@ public interface SelectFunction extends Serializable {
                 primitiveValues.put(inputField.getName(), primitiveValue);
             }
         }
-        return apply(selectFunctions, primitiveValues, outputType);
+        return apply(selectFunctions, primitiveValues, outputType, timestamp);
     }
 
-    static Map<String, Object> apply(List<SelectFunction> selectFunctions, Map<String, Object> primitiveValues, DataType outputType) {
+    static Map<String, Object> apply(
+            List<SelectFunction> selectFunctions,
+            Map<String, Object> primitiveValues,
+            DataType outputType,
+            Instant timestamp) {
+
         for(final SelectFunction selectFunction : selectFunctions) {
             if(selectFunction.ignore()) {
                 continue;
             }
             final Schema.FieldType fieldType = selectFunction.getOutputFieldType();
-            final Object primitiveValue = selectFunction.apply(primitiveValues);
+            final Object primitiveValue = selectFunction.apply(primitiveValues, timestamp);
             final Object value = switch (outputType) {
                 case ROW -> RowSchemaUtil.convertPrimitive(fieldType, primitiveValue);
                 case AVRO -> AvroSchemaUtil.convertPrimitive(fieldType, primitiveValue);
@@ -179,6 +203,5 @@ public interface SelectFunction extends Serializable {
         }
         throw new IllegalArgumentException("Not found field: " + field + " in input fields: " + inputFields);
     }
-
 
 }

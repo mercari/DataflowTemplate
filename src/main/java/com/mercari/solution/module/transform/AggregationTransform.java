@@ -140,6 +140,11 @@ public class AggregationTransform implements TransformModule {
             if(this.window != null) {
                 errorMessages.addAll(this.window.validate());
             }
+            if(this.filter != null && !this.filter.isJsonNull()) {
+                if(this.filter.isJsonPrimitive()) {
+                    errorMessages.add("Aggregation transform module[" + name + "].filter parameter must be array or object.");
+                }
+            }
             if(this.limit != null) {
                 errorMessages.addAll(this.limit.validate(name));
             }
@@ -782,7 +787,7 @@ public class AggregationTransform implements TransformModule {
                     values.put("paneTiming", c.pane().getTiming().name());
                 }
 
-                values = SelectFunction.apply(selectFunctions, values, outputType);
+                values = SelectFunction.apply(selectFunctions, values, outputType, c.timestamp());
 
                 if(conditionNode == null || Filter.filter(conditionNode, values)) {
                     final T output = valueCreator.create(runtimeSchema, values);

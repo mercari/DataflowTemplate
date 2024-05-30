@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class CurrentTimestamp implements SelectFunction {
+public class EventTimestamp implements SelectFunction {
 
     private final String name;
 
@@ -16,15 +16,15 @@ public class CurrentTimestamp implements SelectFunction {
     private final boolean ignore;
 
 
-    CurrentTimestamp(String name, boolean ignore) {
+    EventTimestamp(String name, boolean ignore) {
         this.name = name;
         this.inputFields = new ArrayList<>();
         this.outputFieldType = Schema.FieldType.DATETIME.withNullable(true);
         this.ignore = ignore;
     }
 
-    public static CurrentTimestamp of(String name, boolean ignore) {
-        return new CurrentTimestamp(name, ignore);
+    public static EventTimestamp of(String name, boolean ignore) {
+        return new EventTimestamp(name, ignore);
     }
 
     @Override
@@ -54,7 +54,7 @@ public class CurrentTimestamp implements SelectFunction {
 
     @Override
     public Object apply(Map<String, Object> input, Instant timestamp) {
-        return Instant.now().getMillis() * 1000L;
+        return timestamp.getMillis() * 1000L;
     }
 
 }

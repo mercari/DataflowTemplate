@@ -2,6 +2,7 @@ package com.mercari.solution.util.pipeline.select;
 
 import com.google.gson.JsonObject;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +64,7 @@ public class Uuid implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         final String str = UUID.randomUUID().toString();
         if(size == null) {
             return str;

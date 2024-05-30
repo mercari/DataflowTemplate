@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.util.TemplateUtil;
 import freemarker.template.Template;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,7 +77,7 @@ public class Text implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         final Map<String, Object> values = new HashMap<>(input);
         TemplateUtil.setFunctions(values);
         final String output = TemplateUtil.executeStrictTemplate(template, values);

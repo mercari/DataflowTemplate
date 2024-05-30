@@ -2,8 +2,12 @@ package com.mercari.solution.util.pipeline.select;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.gcp.SecretManagerUtil;
+import freemarker.template.Template;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -11,9 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class Hash implements SelectFunction {
 
@@ -21,37 +23,50 @@ public class Hash implements SelectFunction {
     private static final String ALGORITHM_HMAC_SHA256 = "HmacSHA256";
 
     private final String name;
+    private final String text;
     private final List<String> fields;
     private final String algorithm;
     private final String secret;
     private final Integer size;
     private final String delimiter;
+    private final List<String> templateArgs;
     private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final boolean ignore;
 
+
+    private transient Template template;
     private transient MessageDigest messageDigest;
     private transient Mac mac;
 
-    Hash(String name, List<String> fields, String secret, String algorithm, Integer size, String delimiter, boolean ignore) {
+    Hash(String name,
+         String text,
+         List<String> fields,
+         String secret,
+         String algorithm,
+         Integer size,
+         String delimiter,
+         List<Schema.Field> inputFields,
+         List<String> templateArgs,
+         boolean ignore) {
+
         this.name = name;
+        this.text = text;
         this.fields = fields;
         this.secret = secret;
         this.algorithm = algorithm;
         this.size = size;
         this.delimiter = delimiter;
+        this.templateArgs = templateArgs;
 
-        this.inputFields = new ArrayList<>();
-        for(final String field : fields) {
-            this.inputFields.add(Schema.Field.of(field, Schema.FieldType.STRING.withNullable(true)));
-        }
+        this.inputFields = inputFields;
         this.outputFieldType = Schema.FieldType.STRING.withNullable(true);
         this.ignore = ignore;
     }
 
-    public static Hash of(String name, JsonObject jsonObject, boolean ignore) {
-        if(!jsonObject.has("field") && !jsonObject.has("fields")) {
-            throw new IllegalArgumentException("SelectField hash: " + name + " requires field or fields parameter");
+    public static Hash of(String name, JsonObject jsonObject, List<Schema.Field> inputFields, boolean ignore) {
+        if(!jsonObject.has("field") && !jsonObject.has("fields") && !jsonObject.has("text")) {
+            throw new IllegalArgumentException("SelectField hash: " + name + " requires field or fields or text parameter");
         }
         final List<String> fields = new ArrayList<>();
         if(jsonObject.has("field")) {
@@ -64,6 +79,24 @@ public class Hash implements SelectFunction {
             for(JsonElement element : jsonObject.getAsJsonArray("fields")) {
                 fields.add(element.getAsString());
             }
+        }
+
+        final List<Schema.Field> hashInputFields = new ArrayList<>();
+        for(final String field : fields) {
+            hashInputFields.add(Schema.Field.of(field, SelectFunction.getInputFieldType(field, inputFields)));
+        }
+
+        final String text;
+        final List<String> templateArgs;
+        if(jsonObject.has("text")) {
+            text = jsonObject.get("text").getAsString();
+            templateArgs = TemplateUtil.extractTemplateArgs(text, Schema.builder().addFields(inputFields).build());
+            for(final String templateArg : templateArgs) {
+                hashInputFields.add(Schema.Field.of(templateArg, SelectFunction.getInputFieldType(templateArg, inputFields)));
+            }
+        } else {
+            text = null;
+            templateArgs = new ArrayList<>();
         }
 
         final String algorithm;
@@ -98,7 +131,7 @@ public class Hash implements SelectFunction {
             delimiter = "";
         }
 
-        return new Hash(name, fields, secret, algorithm, size, delimiter, ignore);
+        return new Hash(name, text, fields, secret, algorithm, size, delimiter, hashInputFields, templateArgs, ignore);
     }
 
     @Override
@@ -123,6 +156,9 @@ public class Hash implements SelectFunction {
 
     @Override
     public void setup() {
+        if(text != null) {
+            this.template = TemplateUtil.createStrictTemplate(name, text);
+        }
         try {
             switch (algorithm) {
                 case ALGORITHM_SHA256 -> {
@@ -149,17 +185,32 @@ public class Hash implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
-        final List<String> list = new ArrayList<>();
-        for(final String field : fields) {
-            Object value = input.get(field);
-            if(value == null) {
-                value = "";
+    public Object apply(Map<String, Object> input, Instant timestamp) {
+        final String str;
+        if(text != null) {
+            final Map<String, Object> values = new HashMap<>();
+            values.put("__timestamp", java.time.Instant.ofEpochMilli(timestamp.getMillis()));
+            for(final String field : templateArgs) {
+                values.put(field, input.get(field));
             }
-            list.add(value.toString());
+            TemplateUtil.setFunctions(values);
+            str = TemplateUtil.executeStrictTemplate(template, values);
+        } else {
+            final List<String> list = new ArrayList<>();
+            for(final String field : fields) {
+                if(field.startsWith("#")) {
+                    list.add(field.replaceFirst("#", ""));
+                } else if(field.equals("__timestamp")) {
+                    list.add(Long.valueOf(timestamp.getMillis() * 1000).toString());
+                } else {
+                    final Object value = Optional.ofNullable(input.get(field)).orElse("");
+                    list.add(value.toString());
+                }
+            }
+
+            str = String.join(delimiter, list);
         }
 
-        final String str = String.join(delimiter, list);
         return hash(str.getBytes(StandardCharsets.UTF_8));
     }
 

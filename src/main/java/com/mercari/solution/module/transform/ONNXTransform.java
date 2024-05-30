@@ -24,6 +24,7 @@ import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
+import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -658,13 +659,14 @@ public class ONNXTransform implements TransformModule {
                 }
                  */
 
-                inference(List.of(element), receiver);
+                inference(List.of(element), receiver, c.timestamp());
 
             }
 
             private void inference(
                     final List<UnionValue> unionValues,
-                    final MultiOutputReceiver receiver)
+                    final MultiOutputReceiver receiver,
+                    final Instant timestamp)
                     throws OrtException {
 
                 final List<Map<String,Object>> updatesList = unionValues.stream()
@@ -720,7 +722,7 @@ public class ONNXTransform implements TransformModule {
                     final RuntimeSchemaT outputSchema = outputSchemas.get(unionValue.getIndex());
                     final T output;
                     if(inference.selectFunctions != null && inference.selectFunctions.size() > 0) {
-                        final Map<String, Object> selectedValues = SelectFunction.apply(inference.selectFunctions, values, outputType);
+                        final Map<String, Object> selectedValues = SelectFunction.apply(inference.selectFunctions, values, outputType, timestamp);
                         output = (T) (UnionValue.merge(unionValue, outputSchema, selectedValues, outputType));
                     } else {
                         output = (T) (UnionValue.merge(unionValue, outputSchema, values, outputType));
