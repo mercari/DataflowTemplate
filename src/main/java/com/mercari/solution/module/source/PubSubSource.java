@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 
 public class PubSubSource implements SourceModule {
@@ -85,7 +84,7 @@ public class PubSubSource implements SourceModule {
             return validateUnnecessaryJsonField;
         }
 
-        private void validate(final PBegin begin) {
+        private void validate(final String name, final PBegin begin) {
 
             if(!begin.getPipeline().getOptions().as(DataflowPipelineOptions.class).isStreaming()) {
                 throw new IllegalArgumentException("PubSub source module only support streaming mode.");
@@ -98,9 +97,18 @@ public class PubSubSource implements SourceModule {
             }
             if(format == null) {
                 errorMessages.add("PubSub source module parameter must contain format");
+            } else {
+                switch (format) {
+                    case protobuf -> {
+                        if(this.messageName == null) {
+                            errorMessages.add("PubSub source module[" + name + "].parameters requires messageName if format is parquet");
+                        }
+                    }
+                }
             }
-            if(errorMessages.size() > 0) {
-                throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
+
+            if(!errorMessages.isEmpty()) {
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
 
@@ -120,6 +128,17 @@ public class PubSubSource implements SourceModule {
                 validateUnnecessaryJsonField = false;
             }
         }
+
+        public static PubSubSourceParameters of(final SourceConfig config, final PBegin begin) {
+            final PubSubSourceParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSourceParameters.class);
+            if(parameters == null) {
+                throw new IllegalArgumentException("PubSub source module parameters must not be empty!");
+            }
+            parameters.validate(config.getName(), begin);
+            parameters.setDefaults();
+            return parameters;
+        }
+
     }
 
     public String getName() { return "pubsub"; }
@@ -142,13 +161,7 @@ public class PubSubSource implements SourceModule {
 
     public static FCollection<?> stream(final PBegin begin, final SourceConfig config) {
 
-        final PubSubSourceParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSourceParameters.class);
-        if(parameters == null) {
-            throw new IllegalArgumentException("PubSub source module parameters must not be empty!");
-        }
-        parameters.validate(begin);
-        parameters.setDefaults();
-
+        final PubSubSourceParameters parameters = PubSubSourceParameters.of(config, begin);
         switch (parameters.getFormat()) {
             case avro -> {
                 final Schema avroSchema = SourceConfig.convertAvroSchema(config.getSchema());
@@ -177,6 +190,12 @@ public class PubSubSource implements SourceModule {
             case protobuf -> {
                 final byte[] descriptorBytes = StorageUtil.readBytes(config.getSchema().getProtobufDescriptor());
                 final Map<String, Descriptors.Descriptor> descriptors = ProtoSchemaUtil.getDescriptors(descriptorBytes);
+                if(descriptors.isEmpty()) {
+                    throw new IllegalArgumentException("protobuf descriptors must not be null for descriptor file: " + config.getSchema().getProtobufDescriptor());
+                }
+                if(!descriptors.containsKey(parameters.getMessageName())) {
+                    throw new IllegalArgumentException("protobuf descriptors does not contains messageName: " + parameters.getMessageName() + " in descriptors: " + descriptors.keySet());
+                }
                 final Descriptors.Descriptor messageDescriptor = descriptors.get(parameters.getMessageName());
                 switch (parameters.getOutputType()) {
                     case avro -> {
@@ -206,7 +225,6 @@ public class PubSubSource implements SourceModule {
         }
 
     }
-
 
 
     public static class PubSubStream<T> extends PTransform<PBegin, PCollection<T>> {
@@ -243,8 +261,8 @@ public class PubSubSource implements SourceModule {
                 deadletterTopic = null;
                 sendDeadletter = false;
             } else {
-                deadletterTopic = getDeadLetterTopic(parameters.getSubscription());
-                sendDeadletter = deadletterTopic != null;
+                deadletterTopic = getDeadLetterTopic(parameters.getSubscription());;
+                sendDeadletter = deadletterTopic != null;;
             }
 
             final TupleTag<PubsubMessage> failuresTag = new TupleTag<>() {};
@@ -363,6 +381,9 @@ public class PubSubSource implements SourceModule {
                 return subscription.getDeadLetterPolicy().getDeadLetterTopic();
             } catch (GoogleJsonResponseException e) {
                 if(e.getStatusCode() == 404) {
+                    return null;
+                } else if(e.getStatusCode() == 403) {
+                    LOG.warn("dataflow worker does not have dead-letter topic access permission for subscription: " + subscriptionName);
                     return null;
                 }
                 throw new RuntimeException(e);
