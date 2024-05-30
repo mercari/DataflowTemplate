@@ -2,15 +2,18 @@ package com.mercari.solution;
 
 import com.mercari.solution.config.*;
 import com.mercari.solution.module.*;
+import com.mercari.solution.util.gcp.PubSubUtil;
 import com.mercari.solution.util.gcp.StorageUtil;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.sql.impl.BeamSqlPipelineOptions;
 import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.StreamingOptions;
+import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.joda.time.Duration;
@@ -49,6 +52,13 @@ public class FlexPipeline {
                 .fromArgs(filterPipelineArgs(args))
                 .as(FlexPipelineOptions.class);
         final Config config = getConfig(localOptions.getConfig(), args);
+        if(Optional.ofNullable(config.getEmpty()).orElse(false)) {
+            LOG.info("Empty pipeline");
+            final Pipeline pipeline = Pipeline.create(localOptions);
+            pipeline.apply("Empty", Create.of("").withCoder(StringUtf8Coder.of()));
+            pipeline.run();
+            return;
+        }
         setSettingsOptions(localOptions, config);
         setDefaults(localOptions, args);
 
@@ -120,7 +130,7 @@ public class FlexPipeline {
                 if(dataflow.getStagingLocation() != null) {
                     options.as(DataflowPipelineOptions.class).setStagingLocation(dataflow.getStagingLocation());
                 }
-                if(dataflow.getLabels() != null && dataflow.getLabels().size() > 0) {
+                if(dataflow.getLabels() != null && !dataflow.getLabels().isEmpty()) {
                     options.as(DataflowPipelineOptions.class).setLabels(dataflow.getLabels());
                 }
                 if(dataflow.getAutoscalingAlgorithm() != null) {
@@ -272,6 +282,18 @@ public class FlexPipeline {
         if(configParam.startsWith("gs://")) {
             LOG.info("config parameter is GCS path: " + configParam);
             jsonText = StorageUtil.readString(configParam);
+        } else if(configParam.startsWith("data:")) {
+            LOG.info("config parameter is base64 encoded");
+            jsonText = new String(Base64.getDecoder().decode(configParam), StandardCharsets.UTF_8);
+        } else if(PubSubUtil.isSubscriptionResource(configParam)) {
+            LOG.info("config parameter is PubSub Subscription: " + configParam);
+            jsonText = PubSubUtil.getTextMessage(configParam);
+            if(jsonText == null) {
+                final Config config = new Config();
+                config.setEmpty(true);
+                return config;
+            }
+            LOG.info("config content: " + jsonText);
         } else  {
             Path path;
             try {
@@ -287,6 +309,11 @@ public class FlexPipeline {
                 jsonText = configParam;
             }
         }
+
+        if(jsonText == null) {
+            throw new IllegalArgumentException("Content is null for config parameter: " + configParam);
+        }
+
         return Config.parse(jsonText, args);
     }
 

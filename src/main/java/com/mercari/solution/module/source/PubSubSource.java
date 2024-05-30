@@ -1,7 +1,5 @@
 package com.mercari.solution.module.source;
 
-import com.google.api.client.googleapis.json.GoogleJsonResponseException;
-import com.google.api.services.pubsub.model.Subscription;
 import com.google.gson.Gson;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.util.JsonFormat;
@@ -33,7 +31,6 @@ import org.apache.beam.sdk.values.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -261,7 +258,7 @@ public class PubSubSource implements SourceModule {
                 deadletterTopic = null;
                 sendDeadletter = false;
             } else {
-                deadletterTopic = getDeadLetterTopic(parameters.getSubscription());;
+                deadletterTopic = PubSubUtil.getDeadLetterTopic(parameters.getSubscription());;
                 sendDeadletter = deadletterTopic != null;;
             }
 
@@ -366,30 +363,6 @@ public class PubSubSource implements SourceModule {
             }
 
             return messages;
-        }
-
-        private String getDeadLetterTopic(String subscriptionName) {
-            try {
-                final Subscription subscription = PubSubUtil.pubsub()
-                        .projects()
-                        .subscriptions()
-                        .get(subscriptionName)
-                        .execute();
-                if(subscription.getDeadLetterPolicy() == null) {
-                    return null;
-                }
-                return subscription.getDeadLetterPolicy().getDeadLetterTopic();
-            } catch (GoogleJsonResponseException e) {
-                if(e.getStatusCode() == 404) {
-                    return null;
-                } else if(e.getStatusCode() == 403) {
-                    LOG.warn("dataflow worker does not have dead-letter topic access permission for subscription: " + subscriptionName);
-                    return null;
-                }
-                throw new RuntimeException(e);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
         }
 
     }
