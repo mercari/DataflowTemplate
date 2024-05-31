@@ -77,28 +77,27 @@ public class UnionValue {
             return null;
         }
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
-                return row.getValue(field);
+                return RowSchemaUtil.getValue(row, field);
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
-                return record.get(field);
+                return AvroSchemaUtil.getValue(record, field);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
                 return StructSchemaUtil.getValue(struct, field);
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
                 return DocumentSchemaUtil.getValue(document, field);
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
                 return EntitySchemaUtil.getValue(entity, field);
             }
-            default:
-                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+            default -> throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
     }
 
@@ -126,28 +125,27 @@ public class UnionValue {
             return null;
         }
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
                 return RowSchemaUtil.getAsString(row, field);
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
                 return AvroSchemaUtil.getAsString(record, field);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
                 return StructSchemaUtil.getAsString(struct, field);
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
                 return DocumentSchemaUtil.getAsString(document, field);
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
                 return EntitySchemaUtil.getAsString(entity, field);
             }
-            default:
-                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+            default -> throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
     }
 
@@ -156,28 +154,27 @@ public class UnionValue {
             return null;
         }
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
                 return RowSchemaUtil.getAsDouble(row, field);
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
                 return AvroSchemaUtil.getAsDouble(record, field);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
                 return StructSchemaUtil.getAsDouble(struct, field);
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
                 return DocumentSchemaUtil.getAsDouble(document, field);
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
                 return EntitySchemaUtil.getAsDouble(entity, field);
             }
-            default:
-                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+            default -> throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
 
     }
@@ -187,28 +184,27 @@ public class UnionValue {
             return new HashMap<>();
         }
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
                 return RowToMapConverter.convertWithFields(row, fields);
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
                 return RecordToMapConverter.convertWithFields(record, fields);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
                 return StructToMapConverter.convertWithFields(struct, fields);
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
                 return DocumentToMapConverter.convertWithFields(document, fields);
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
                 return EntityToMapConverter.convertWithFields(entity, fields);
             }
-            default:
-                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+            default -> throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
     }
 
@@ -217,28 +213,27 @@ public class UnionValue {
             return new HashMap<>();
         }
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
                 return RowSchemaUtil.asPrimitiveMap(row);
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
                 return AvroSchemaUtil.asPrimitiveMap(record);
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
                 return StructSchemaUtil.asPrimitiveMap(struct);
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
                 return DocumentSchemaUtil.asPrimitiveMap(document);
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
                 return EntitySchemaUtil.asPrimitiveMap(entity);
             }
-            default:
-                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+            default -> throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
     }
 
@@ -248,46 +243,54 @@ public class UnionValue {
             return doubles;
         }
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
-                for(final String field : fields) {
+                for (final String field : fields) {
                     doubles.put(field, RowSchemaUtil.getAsDouble(row, field));
                 }
-                break;
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
-                for(final String field : fields) {
+                for (final String field : fields) {
                     doubles.put(field, AvroSchemaUtil.getAsDouble(record, field));
                 }
-                break;
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
-                for(final String field : fields) {
+                for (final String field : fields) {
                     doubles.put(field, StructSchemaUtil.getAsDouble(struct, field));
                 }
-                break;
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
-                for(final String field : fields) {
+                for (final String field : fields) {
                     doubles.put(field, DocumentSchemaUtil.getAsDouble(document, field));
                 }
-                break;
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
-                for(final String field : fields) {
+                for (final String field : fields) {
                     doubles.put(field, EntitySchemaUtil.getAsDouble(entity, field));
                 }
-                break;
             }
-            default:
-                throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
+            default -> throw new IllegalStateException("Union not supported data type: " + unionValue.type.name());
         }
 
         return doubles;
+    }
+
+    public static String getAsCsvLine(final UnionValue unionValue, final List<String> fields) {
+        if(unionValue == null) {
+            return null;
+        }
+        return switch (unionValue.getType()) {
+            case ROW -> RowToCsvConverter.convert((Row) unionValue.getValue(), fields);
+            case AVRO -> RecordToCsvConverter.convert((GenericRecord) unionValue.getValue(), fields);
+            case STRUCT -> StructToCsvConverter.convert((Struct) unionValue.getValue(), fields);
+            case DOCUMENT -> DocumentToCsvConverter.convert((Document) unionValue.getValue(), fields);
+            case ENTITY -> EntityToCsvConverter.convert((Entity) unionValue.getValue(), fields);
+            default -> throw new IllegalArgumentException("Not supported csv conversion: " + unionValue.getType());
+        };
     }
 
     public static String getAsJson(final UnionValue unionValue) {
@@ -302,7 +305,7 @@ public class UnionValue {
             case ENTITY -> EntityToJsonConverter.convert((Entity) unionValue.getValue());
             case MUTATION -> MutationToJsonConverter.convertJsonString((Mutation) unionValue.getValue());
             case MUTATIONGROUP -> MutationToJsonConverter.convertJsonString((MutationGroup) unionValue.getValue());
-            default -> throw new IllegalArgumentException();
+            default -> throw new IllegalArgumentException("Not supported json conversion: " + unionValue.getType());
         };
     }
 
@@ -340,84 +343,89 @@ public class UnionValue {
         }
 
         switch (unionValue.type) {
-            case ROW: {
+            case ROW -> {
                 final Row row = (Row) unionValue.value;
                 switch (dataType) {
-                    case ROW:
+                    case ROW -> {
                         return RowSchemaUtil.merge((Schema) schema, row, updates);
-                    case AVRO: {
+                    }
+                    case AVRO -> {
                         final org.apache.avro.Schema avroSchema = (org.apache.avro.Schema) schema;
                         final GenericRecord record = RowToRecordConverter.convert(avroSchema, row);
                         return AvroSchemaUtil.merge(avroSchema, record, updates);
                     }
-                    default:
-                        throw new IllegalStateException("Not supported conversion. from beam row to " + dataType.name());
+                    default ->
+                            throw new IllegalStateException("Not supported conversion. from beam row to " + dataType.name());
                 }
             }
-            case AVRO: {
+            case AVRO -> {
                 final GenericRecord record = (GenericRecord) unionValue.value;
                 switch (dataType) {
-                    case ROW: {
+                    case ROW -> {
                         final Schema rowSchema = (Schema) schema;
                         final Row row = RecordToRowConverter.convert(rowSchema, record);
                         return RowSchemaUtil.merge(rowSchema, row, updates);
                     }
-                    case AVRO:
+                    case AVRO -> {
                         return AvroSchemaUtil.merge((org.apache.avro.Schema) schema, record, updates);
-                    default:
-                        throw new IllegalStateException("Not supported conversion. from avro record to " + dataType.name());
+                    }
+                    default ->
+                            throw new IllegalStateException("Not supported conversion. from avro record to " + dataType.name());
                 }
             }
-            case STRUCT: {
+            case STRUCT -> {
                 final Struct struct = (Struct) unionValue.value;
                 switch (dataType) {
-                    case ROW: {
+                    case ROW -> {
                         final Schema rowSchema = (Schema) schema;
                         final Row row = StructToRowConverter.convert(rowSchema, struct);
                         return RowSchemaUtil.merge(rowSchema, row, updates);
                     }
-                    case AVRO:
+                    case AVRO -> {
                         final org.apache.avro.Schema avroSchema = (org.apache.avro.Schema) schema;
                         final GenericRecord record = StructToRecordConverter.convert(avroSchema, struct);
                         return AvroSchemaUtil.merge(avroSchema, record, updates);
-                    default:
-                        throw new IllegalStateException("Not supported conversion. from spanner struct to " + dataType.name());
+                    }
+                    default ->
+                            throw new IllegalStateException("Not supported conversion. from spanner struct to " + dataType.name());
                 }
             }
-            case DOCUMENT: {
+            case DOCUMENT -> {
                 final Document document = (Document) unionValue.value;
                 switch (dataType) {
-                    case ROW: {
+                    case ROW -> {
                         final Schema rowSchema = (Schema) schema;
                         final Row row = DocumentToRowConverter.convert(rowSchema, document);
                         return RowSchemaUtil.merge(rowSchema, row, updates);
                     }
-                    case AVRO:
+                    case AVRO -> {
                         final org.apache.avro.Schema avroSchema = (org.apache.avro.Schema) schema;
                         final GenericRecord record = DocumentToRecordConverter.convert(avroSchema, document);
                         return AvroSchemaUtil.merge(avroSchema, record, updates);
-                    default:
-                        throw new IllegalStateException("Not supported conversion. from firestore document to " + dataType.name());
+                    }
+                    default ->
+                            throw new IllegalStateException("Not supported conversion. from firestore document to " + dataType.name());
                 }
             }
-            case ENTITY: {
+            case ENTITY -> {
                 final Entity entity = (Entity) unionValue.value;
                 switch (dataType) {
-                    case ROW: {
+                    case ROW -> {
                         final Schema rowSchema = (Schema) schema;
                         final Row row = EntityToRowConverter.convert(rowSchema, entity);
                         return RowSchemaUtil.merge(rowSchema, row, updates);
                     }
-                    case AVRO:
+                    case AVRO -> {
                         final org.apache.avro.Schema avroSchema = (org.apache.avro.Schema) schema;
                         final GenericRecord record = EntityToRecordConverter.convert(avroSchema, entity);
                         return AvroSchemaUtil.merge(avroSchema, record, updates);
-                    default:
-                        throw new IllegalStateException("Not supported conversion. from datastore entity to " + dataType.name());
+                    }
+                    default ->
+                            throw new IllegalStateException("Not supported conversion. from datastore entity to " + dataType.name());
                 }
             }
-            default:
-                throw new IllegalStateException("Union.merge not supported data type: " + unionValue.type.name());
+            default ->
+                    throw new IllegalStateException("Union.merge not supported data type: " + unionValue.type.name());
         }
 
     }
