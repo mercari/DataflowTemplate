@@ -37,47 +37,31 @@ public class RowToMapConverter {
         if(value == null) {
             return null;
         }
-        switch (type.getTypeName()) {
-            case BYTE:
-            case INT16:
-            case INT32:
-            case INT64:
-            case BOOLEAN:
-            case FLOAT:
-            case DOUBLE:
-            case STRING:
-            case DECIMAL:
-                return value;
-            case BYTES:
-                return Base64.getEncoder().encodeToString(((byte[]) value));
-            case DATETIME:
-                return java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
-            case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(type)) {
-                    return value;
-                } else if(RowSchemaUtil.isLogicalTypeTime(type)) {
-                    return ((Instant) value).toString(FORMATTER_HH_MM_SS);
-                } else if(RowSchemaUtil.isLogicalTypeTimestamp(type)) {
-                    return java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
-                } else if(RowSchemaUtil.isLogicalTypeEnum(type)) {
+        return switch (type.getTypeName()) {
+            case BYTE, INT16, INT32, INT64, BOOLEAN, FLOAT, DOUBLE, STRING, DECIMAL -> value;
+            case BYTES -> Base64.getEncoder().encodeToString(((byte[]) value));
+            case DATETIME -> java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(type)) {
+                    yield value;
+                } else if (RowSchemaUtil.isLogicalTypeTime(type)) {
+                    yield ((Instant) value).toString(FORMATTER_HH_MM_SS);
+                } else if (RowSchemaUtil.isLogicalTypeTimestamp(type)) {
+                    yield java.time.Instant.ofEpochMilli(((ReadableInstant) value).toInstant().getMillis());
+                } else if (RowSchemaUtil.isLogicalTypeEnum(type)) {
                     final EnumerationType.Value enumValue = (EnumerationType.Value) value;
-                    return RowSchemaUtil.toString(type, enumValue);
+                    yield RowSchemaUtil.toString(type, enumValue);
                 } else {
                     throw new IllegalArgumentException("Unsupported Beam logical type: " + type.getLogicalType().getIdentifier());
                 }
             }
-            case ROW:
-                return convert((Row) value);
-            case ITERABLE:
-            case ARRAY:
-                return ((List<Object>) value).stream()
+            case ROW -> convert((Row) value);
+            case ITERABLE, ARRAY -> ((List<Object>) value).stream()
                         .map(o -> getValue(type.getCollectionElementType(), o))
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-            case MAP:
-            default:
-                return null;
-        }
+            default -> null;
+        };
     }
 
 }

@@ -5,9 +5,9 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
-import org.joda.time.Instant;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashMap;
@@ -37,72 +37,55 @@ public class StructToMapConverter {
         if(struct.isNull(field.getName())) {
             return null;
         }
-        switch (field.getType().getCode()) {
-            case BOOL:
-                return struct.getBoolean(field.getName());
-            case BYTES:
-                return struct.getBytes(field.getName()).toBase64();
-            case STRING:
-                return struct.getString(field.getName());
-            case INT64:
-                return struct.getLong(field.getName());
-            case FLOAT64:
-                return struct.getDouble(field.getName());
-            case NUMERIC:
-                return struct.getBigDecimal(field.getName()).toPlainString();
-            case DATE: {
+        return switch (field.getType().getCode()) {
+            case BOOL -> struct.getBoolean(field.getName());
+            case JSON -> struct.getJson(field.getName());
+            case PG_JSONB -> struct.getPgJsonb(field.getName());
+            case BYTES -> struct.getBytes(field.getName()).toBase64();
+            case STRING, PG_NUMERIC -> struct.getString(field.getName());
+            case INT64 -> struct.getLong(field.getName());
+            case FLOAT64 -> struct.getDouble(field.getName());
+            case NUMERIC -> struct.getBigDecimal(field.getName()).toPlainString();
+            case DATE -> {
                 final Date date = struct.getDate(field.getName());
-                return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
+                yield LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
             }
-            case TIMESTAMP: {
+            case TIMESTAMP -> {
                 final Timestamp timestamp = struct.getTimestamp(field.getName());
-                return Instant.ofEpochMilli(timestamp.toSqlTimestamp().toInstant().toEpochMilli());
+                yield Instant.ofEpochMilli(timestamp.toSqlTimestamp().toInstant().toEpochMilli());
             }
-            case STRUCT:
-                return convert(struct);
-            case ARRAY: {
-                switch (field.getType().getArrayElementType().getCode()) {
-                    case BOOL:
-                        return struct.getBooleanList(field.getName());
-                    case STRING:
-                        return struct.getStringList(field.getName());
-                    case BYTES:
-                        return struct.getBytesList(field.getName())
-                                .stream()
-                                .map(ByteArray::toBase64)
-                                .collect(Collectors.toList());
-                    case INT64:
-                        return struct.getLongList(field.getName());
-                    case FLOAT64:
-                        return struct.getDoubleList(field.getName());
-                    case DATE:
-                        return struct.getDateList(field.getName())
-                                .stream()
-                                .map(date -> LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()))
-                                .collect(Collectors.toList());
-                    case TIMESTAMP:
-                        return struct.getTimestampList(field.getName())
-                                .stream()
-                                .map(timestamp -> Instant.ofEpochMilli(timestamp.toSqlTimestamp().toInstant().toEpochMilli()))
-                                .collect(Collectors.toList());
-                    case NUMERIC:
-                        return struct.getBigDecimalList(field.getName())
-                                .stream()
-                                .map(BigDecimal::toPlainString)
-                                .collect(Collectors.toList());
-                    case STRUCT:
-                        return struct.getStructList(field.getName())
-                                .stream()
-                                .map(StructToMapConverter::convert)
-                                .collect(Collectors.toList());
-                    case ARRAY:
-                        throw new IllegalStateException("Array in Array is not supported!");
-                    default:
-                        return null;
-                }
-            }
-            default:
-                return null;
-        }
+            case STRUCT -> convert(struct);
+            case ARRAY -> switch (field.getType().getArrayElementType().getCode()) {
+                    case BOOL -> struct.getBooleanList(field.getName());
+                    case STRING -> struct.getStringList(field.getName());
+                    case JSON -> struct.getJsonList(field.getName());
+                    case PG_JSONB -> struct.getPgJsonbList(field.getName());
+                    case BYTES -> struct.getBytesList(field.getName())
+                            .stream()
+                            .map(ByteArray::toBase64)
+                            .collect(Collectors.toList());
+                    case INT64 -> struct.getLongList(field.getName());
+                    case FLOAT64 -> struct.getDoubleList(field.getName());
+                    case DATE -> struct.getDateList(field.getName())
+                            .stream()
+                            .map(date -> LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()))
+                            .collect(Collectors.toList());
+                    case TIMESTAMP -> struct.getTimestampList(field.getName())
+                            .stream()
+                            .map(timestamp -> Instant.ofEpochMilli(timestamp.toSqlTimestamp().toInstant().toEpochMilli()))
+                            .collect(Collectors.toList());
+                    case NUMERIC -> struct.getBigDecimalList(field.getName())
+                            .stream()
+                            .map(BigDecimal::toPlainString)
+                            .collect(Collectors.toList());
+                    case STRUCT -> struct.getStructList(field.getName())
+                            .stream()
+                            .map(StructToMapConverter::convert)
+                            .collect(Collectors.toList());
+                    case ARRAY -> throw new IllegalStateException("Array in Array is not supported!");
+                    default -> null;
+                };
+            default -> null;
+        };
     }
 }
