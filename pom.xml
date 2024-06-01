@@ -17,7 +17,7 @@
     <freemarker.version>2.3.32</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>
     <hbase.version>2.5.5</hbase.version>
-    <onnxruntime.version>1.17.3</onnxruntime.version>
+    <onnxruntime.version>1.18.0</onnxruntime.version>
     <onnx.version>1.15.0-1.5.10</onnx.version>
     <solr.version>9.4.1</solr.version>
     <lucene.version>9.8.0</lucene.version>
@@ -281,6 +281,13 @@
     <dependency>
       <groupId>org.apache.beam</groupId>
       <artifactId>beam-sdks-java-io-parquet</artifactId>
+      <version>${beam.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.apache.beam/beam-sdks-java-io-rrio -->
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-io-rrio</artifactId>
       <version>${beam.version}</version>
     </dependency>
 
