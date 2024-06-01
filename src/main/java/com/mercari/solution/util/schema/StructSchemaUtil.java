@@ -1,5 +1,6 @@
 package com.mercari.solution.util.schema;
 
+import com.google.api.services.bigquery.model.TableRow;
 import com.google.cloud.ByteArray;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
@@ -12,12 +13,17 @@ import com.google.protobuf.util.Timestamps;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.converter.RecordToMutationConverter;
 import com.mercari.solution.util.converter.StructToJsonConverter;
+import com.mercari.solution.util.converter.StructToTableRowConverter;
+import com.mercari.solution.util.pipeline.mutation.MutationOp;
+import com.mercari.solution.util.pipeline.mutation.UnifiedMutation;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.avro.util.Utf8;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
+import org.apache.beam.sdk.io.gcp.bigquery.RowMutation;
+import org.apache.beam.sdk.io.gcp.bigquery.RowMutationInformation;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.*;
 import org.apache.beam.sdk.schemas.Schema;
@@ -68,110 +74,84 @@ public class StructSchemaUtil {
         if(struct.isNull(fieldName)) {
             return null;
         }
-        switch (struct.getColumnType(fieldName).getCode()) {
-            case BOOL:
-                return struct.getBoolean(fieldName);
-            case BYTES:
-                return struct.getBytes(fieldName).toByteArray();
-            case STRING:
-                return struct.getString(fieldName);
-            case JSON:
-                return struct.getJson(fieldName);
-            case INT64:
-                return struct.getLong(fieldName);
-            case FLOAT64:
-                return struct.getDouble(fieldName);
-            case NUMERIC:
-                return struct.getBigDecimal(fieldName);
-            case PG_JSONB:
-            case PG_NUMERIC:
-                return struct.getString(fieldName);
-            case DATE: {
+        return switch (struct.getColumnType(fieldName).getCode()) {
+            case BOOL -> struct.getBoolean(fieldName);
+            case BYTES -> struct.getBytes(fieldName).toByteArray();
+            case STRING -> struct.getString(fieldName);
+            case JSON -> struct.getJson(fieldName);
+            case INT64 -> struct.getLong(fieldName);
+            case FLOAT64 -> struct.getDouble(fieldName);
+            case NUMERIC -> struct.getBigDecimal(fieldName);
+            case PG_JSONB, PG_NUMERIC -> struct.getString(fieldName);
+            case DATE -> {
                 final Date date = struct.getDate(fieldName);
-                return LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
+                yield LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
             }
-            case TIMESTAMP: {
-                return Instant.ofEpochMilli(Timestamps.toMillis(struct.getTimestamp(fieldName).toProto()));
-            }
-            case STRUCT:
-                return struct.getStruct(fieldName);
-            case ARRAY:
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
-        }
+            case TIMESTAMP -> Instant.ofEpochMilli(Timestamps.toMillis(struct.getTimestamp(fieldName).toProto()));
+            case STRUCT -> struct.getStruct(fieldName);
+            case ARRAY -> switch (struct.getColumnType(fieldName).getArrayElementType().getCode()) {
+                case BOOL -> struct.getBooleanList(fieldName);
+                case BYTES -> struct.getBytesList(fieldName).stream().map(ByteArray::toByteArray).toList();
+                case STRING -> struct.getStringList(fieldName);
+                case JSON -> struct.getJsonList(fieldName);
+                case INT64 -> struct.getLongList(fieldName);
+                case FLOAT64 -> struct.getDoubleList(fieldName);
+                case NUMERIC -> struct.getBigDecimalList(fieldName);
+                case PG_JSONB, PG_NUMERIC -> struct.getStringList(fieldName);
+                case DATE -> struct.getDateList(fieldName).stream()
+                        .map(date -> LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth()))
+                        .toList();
+                case TIMESTAMP -> struct.getTimestampList(fieldName).stream()
+                        .map(t -> Instant.ofEpochMilli(Timestamps.toMillis(t.toProto())))
+                        .toList();
+                case STRUCT -> struct.getStructList(fieldName);
+                default -> throw new IllegalArgumentException();
+            };
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
+        };
     }
 
     public static Object getRawValue(final Struct struct, final String fieldName) {
         if(struct == null) {
             return null;
         }
-
         if(!hasField(struct, fieldName)) {
             return null;
         }
         if(struct.isNull(fieldName)) {
             return null;
         }
-        switch (struct.getColumnType(fieldName).getCode()) {
-            case BOOL:
-                return struct.getBoolean(fieldName);
-            case BYTES:
-                return struct.getBytes(fieldName);
-            case STRING:
-                return struct.getString(fieldName);
-            case JSON:
-                return struct.getJson(fieldName);
-            case INT64:
-                return struct.getLong(fieldName);
-            case FLOAT64:
-                return struct.getDouble(fieldName);
-            case NUMERIC:
-                return struct.getBigDecimal(fieldName);
-            case PG_JSONB:
-                return struct.getPgJsonb(fieldName);
-            case PG_NUMERIC:
-                return struct.getString(fieldName);
-            case DATE: {
-                return struct.getDate(fieldName);
-            }
-            case TIMESTAMP:
-                return struct.getTimestamp(fieldName);
-            case STRUCT:
-                return struct.getStruct(fieldName);
-            case ARRAY: {
-                switch (struct.getColumnType(fieldName).getArrayElementType().getCode()) {
-                    case BOOL:
-                        return struct.getBooleanList(fieldName);
-                    case BYTES:
-                        return struct.getBytesList(fieldName);
-                    case STRING:
-                        return struct.getStringList(fieldName);
-                    case JSON:
-                        return struct.getJsonList(fieldName);
-                    case INT64:
-                        return struct.getLongList(fieldName);
-                    case FLOAT64:
-                        return struct.getDoubleList(fieldName);
-                    case NUMERIC:
-                        return struct.getBigDecimalList(fieldName);
-                    case PG_JSONB:
-                        return struct.getPgJsonbList(fieldName);
-                    case PG_NUMERIC:
-                        return struct.getStringList(fieldName);
-                    case DATE: {
-                        return struct.getDateList(fieldName);
-                    }
-                    case TIMESTAMP:
-                        return struct.getTimestampList(fieldName);
-                    case STRUCT:
-                        return struct.getStructList(fieldName);
-                    case ARRAY:
-                        throw new IllegalArgumentException("Not supported array in array for field: " + fieldName);
-                }
-            }
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
-        }
+        return switch (struct.getColumnType(fieldName).getCode()) {
+            case BOOL -> struct.getBoolean(fieldName);
+            case BYTES -> struct.getBytes(fieldName);
+            case STRING -> struct.getString(fieldName);
+            case JSON -> struct.getJson(fieldName);
+            case INT64 -> struct.getLong(fieldName);
+            case FLOAT64 -> struct.getDouble(fieldName);
+            case NUMERIC -> struct.getBigDecimal(fieldName);
+            case PG_JSONB -> struct.getPgJsonb(fieldName);
+            case PG_NUMERIC -> struct.getString(fieldName);
+            case DATE -> struct.getDate(fieldName);
+            case TIMESTAMP -> struct.getTimestamp(fieldName);
+            case STRUCT -> struct.getStruct(fieldName);
+            case ARRAY -> switch (struct.getColumnType(fieldName).getArrayElementType().getCode()) {
+                case BOOL -> struct.getBooleanList(fieldName);
+                case BYTES -> struct.getBytesList(fieldName);
+                case STRING -> struct.getStringList(fieldName);
+                case JSON -> struct.getJsonList(fieldName);
+                case INT64 -> struct.getLongList(fieldName);
+                case FLOAT64 -> struct.getDoubleList(fieldName);
+                case NUMERIC -> struct.getBigDecimalList(fieldName);
+                case PG_JSONB -> struct.getPgJsonbList(fieldName);
+                case PG_NUMERIC -> struct.getStringList(fieldName);
+                case DATE -> struct.getDateList(fieldName);
+                case TIMESTAMP -> struct.getTimestampList(fieldName);
+                case STRUCT -> struct.getStructList(fieldName);
+                case ARRAY -> throw new IllegalArgumentException("Not supported array in array for field: " + fieldName);
+                default -> throw new IllegalArgumentException();
+            };
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(fieldName).getCode().name());
+        };
     }
 
     public static Instant toInstant(final Object value) {
@@ -180,40 +160,35 @@ public class StructSchemaUtil {
     }
 
     public static Object getCSVLineValue(final Struct struct, final String field) {
+        if(struct == null) {
+            return null;
+        }
+        if(!hasField(struct, field)) {
+            return null;
+        }
         if(struct.isNull(field)) {
             return null;
         }
-        switch (struct.getColumnType(field).getCode()) {
-            case BOOL:
-                return struct.getBoolean(field);
-            case BYTES:
-                return struct.getBytes(field).toBase64();
-            case STRING:
-                return struct.getString(field);
-            case JSON:
-                return struct.getJson(field);
-            case INT64:
-                return struct.getLong(field);
-            case FLOAT64:
-                return struct.getDouble(field);
-            case NUMERIC:
-                return struct.getBigDecimal(field);
-            case PG_JSONB:
-            case PG_NUMERIC:
-                return struct.getString(field);
-            case DATE:
-                return struct.getDate(field).toString();
-            case TIMESTAMP:
-                return struct.getTimestamp(field).toString();
-            case STRUCT:
-                return struct.getStruct(field);
-            case ARRAY:
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
-        }
+        return switch (struct.getColumnType(field).getCode()) {
+            case BOOL -> struct.getBoolean(field);
+            case BYTES -> struct.getBytes(field).toBase64();
+            case STRING -> struct.getString(field);
+            case JSON -> struct.getJson(field);
+            case INT64 -> struct.getLong(field);
+            case FLOAT64 -> struct.getDouble(field);
+            case NUMERIC -> struct.getBigDecimal(field);
+            case PG_JSONB, PG_NUMERIC -> struct.getString(field);
+            case DATE -> struct.getDate(field).toString();
+            case TIMESTAMP -> struct.getTimestamp(field).toString();
+            case STRUCT -> struct.getStruct(field);
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        };
     }
 
     public static Value getStructValue(final Struct struct, final String field) {
+        if(struct == null) {
+            return null;
+        }
         if(!hasField(struct, field)) {
             return null;
         }
@@ -246,9 +221,9 @@ public class StructSchemaUtil {
                 case FLOAT64 -> Value.float64Array(struct.getDoubleArray(field));
                 case DATE -> Value.dateArray(struct.getDateList(field));
                 case TIMESTAMP -> Value.timestampArray(struct.getTimestampList(field));
-                case STRUCT ->
-                        Value.structArray(struct.getColumnType(field).getArrayElementType(), struct.getStructList(field));
-                case ARRAY, UNRECOGNIZED -> throw new IllegalArgumentException();
+                case STRUCT -> Value.structArray(struct.getColumnType(field).getArrayElementType(), struct.getStructList(field));
+                case ARRAY, UNRECOGNIZED -> throw new IllegalArgumentException("ARRAY AND UNRECOGNIZED not supported");
+                    default -> throw new IllegalArgumentException();
                 };
             default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
         };
@@ -262,133 +237,102 @@ public class StructSchemaUtil {
     }
 
     public static String getAsString(final Struct struct, final String field) {
+        if(!hasField(struct, field)) {
+            return null;
+        }
         if(struct.isNull(field)) {
             return null;
         }
-        switch (struct.getColumnType(field).getCode()) {
-            case BOOL:
-                return Boolean.toString(struct.getBoolean(field));
-            case BYTES:
-                return struct.getBytes(field).toBase64();
-            case STRING:
-                return struct.getString(field);
-            case JSON:
-                return struct.getJson(field);
-            case INT64:
-                return Long.toString(struct.getLong(field));
-            case FLOAT64:
-                return Double.toString(struct.getDouble(field));
-            case NUMERIC:
-                return struct.getBigDecimal(field).toString();
-            case PG_JSONB:
-            case PG_NUMERIC:
-                return struct.getString(field);
-            case DATE:
-                return struct.getDate(field).toString();
-            case TIMESTAMP:
-                return struct.getTimestamp(field).toString();
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
-        }
+        return switch (struct.getColumnType(field).getCode()) {
+            case BOOL -> Boolean.toString(struct.getBoolean(field));
+            case BYTES -> struct.getBytes(field).toBase64();
+            case STRING, PG_JSONB, PG_NUMERIC -> struct.getString(field);
+            case JSON -> struct.getJson(field);
+            case INT64 -> Long.toString(struct.getLong(field));
+            case FLOAT64 -> Double.toString(struct.getDouble(field));
+            case NUMERIC -> struct.getBigDecimal(field).toString();
+            case DATE -> struct.getDate(field).toString();
+            case TIMESTAMP -> struct.getTimestamp(field).toString();
+            case STRUCT -> StructToJsonConverter.convert(struct.getStruct(field));
+            case ARRAY -> "[" + switch (struct.getColumnType(field).getArrayElementType().getCode()) {
+                case BOOL -> Arrays.toString(struct.getBooleanArray(field));
+                case BYTES -> struct.getBytesList(field).stream().map(ByteArray::toBase64).collect(Collectors.joining(","));
+                case STRING, PG_JSONB, PG_NUMERIC -> String.join(",", struct.getStringList(field));
+                case JSON -> String.join(",", struct.getJsonList(field));
+                case INT64 -> struct.getLongList(field).stream().map(l -> Long.toString(l)).collect(Collectors.joining(","));
+                case FLOAT64 -> struct.getDoubleList(field).stream().map(l -> Double.toString(l)).collect(Collectors.joining(","));
+                case NUMERIC -> struct.getBigDecimalList(field).stream().map(BigDecimal::toString).collect(Collectors.joining(","));
+                case DATE -> struct.getDateList(field).stream().map(Date::toString).collect(Collectors.joining(","));
+                case TIMESTAMP -> struct.getTimestampList(field).stream().map(Timestamp::toString).collect(Collectors.joining(","));
+                case STRUCT -> struct.getStructList(field).stream().map(StructToJsonConverter::convert).collect(Collectors.joining(","));
+                default -> throw new IllegalArgumentException("Not supported array column type: " + struct.getColumnType(field).getCode().name());
+            } + "]";
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        };
     }
 
     public static Long getAsLong(final Struct struct, final String field) {
         if(struct.isNull(field)) {
             return null;
         }
-        switch (struct.getColumnType(field).getCode()) {
-            case BOOL:
-                return struct.getBoolean(field) ? 1L: 0L;
-            case STRING: {
+        return switch (struct.getColumnType(field).getCode()) {
+            case BOOL -> struct.getBoolean(field) ? 1L: 0L;
+            case STRING -> {
                 try {
-                    return Long.valueOf(struct.getString(field));
+                    yield Long.valueOf(struct.getString(field));
                 } catch (Exception e) {
-                    return null;
+                    yield null;
                 }
             }
-            case INT64:
-                return struct.getLong(field);
-            case FLOAT64:
-                return Double.valueOf(struct.getDouble(field)).longValue();
-            case NUMERIC:
-                return struct.getBigDecimal(field).longValue();
-            case PG_NUMERIC:
-                return new BigDecimal(struct.getString(field)).longValue();
-            case DATE:
-            case TIMESTAMP:
-            case BYTES:
-            case JSON:
-            case STRUCT:
-            case ARRAY:
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
-        }
+            case INT64 -> struct.getLong(field);
+            case FLOAT64 -> Double.valueOf(struct.getDouble(field)).longValue();
+            case NUMERIC -> struct.getBigDecimal(field).longValue();
+            case PG_NUMERIC -> new BigDecimal(struct.getString(field)).longValue();
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        };
     }
 
     public static Double getAsDouble(final Struct struct, final String field) {
         if(struct.isNull(field)) {
             return null;
         }
-        switch (struct.getColumnType(field).getCode()) {
-            case BOOL:
-                return struct.getBoolean(field) ? 1D: 0D;
-            case STRING: {
+        return switch (struct.getColumnType(field).getCode()) {
+            case BOOL -> struct.getBoolean(field) ? 1D: 0D;
+            case STRING -> {
                 try {
-                    return Double.valueOf(struct.getString(field));
+                    yield Double.valueOf(struct.getString(field));
                 } catch (Exception e) {
-                    return null;
+                    yield null;
                 }
             }
-            case INT64:
-                return Long.valueOf(struct.getLong(field)).doubleValue();
-            case FLOAT64:
-                return struct.getDouble(field);
-            case NUMERIC:
-                return struct.getBigDecimal(field).doubleValue();
-            case PG_NUMERIC:
-                return new BigDecimal(struct.getString(field)).doubleValue();
-            case DATE:
-            case TIMESTAMP:
-            case BYTES:
-            case JSON:
-            case STRUCT:
-            case ARRAY:
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
-        }
+            case INT64 -> Long.valueOf(struct.getLong(field)).doubleValue();
+            case FLOAT64 -> struct.getDouble(field);
+            case NUMERIC -> struct.getBigDecimal(field).doubleValue();
+            case PG_NUMERIC -> new BigDecimal(struct.getString(field)).doubleValue();
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        };
     }
 
     public static BigDecimal getAsBigDecimal(final Struct struct, final String field) {
         if(struct.isNull(field)) {
             return null;
         }
-        switch (struct.getColumnType(field).getCode()) {
-            case BOOL:
-                return BigDecimal.valueOf(struct.getBoolean(field) ? 1D: 0D);
-            case STRING: {
+        return switch (struct.getColumnType(field).getCode()) {
+            case BOOL -> BigDecimal.valueOf(struct.getBoolean(field) ? 1D: 0D);
+            case STRING -> {
                 try {
-                    return BigDecimal.valueOf(Double.valueOf(struct.getString(field)));
+                    yield BigDecimal.valueOf(Double.valueOf(struct.getString(field)));
                 } catch (Exception e) {
-                    return null;
+                    yield null;
                 }
             }
-            case INT64:
-                return BigDecimal.valueOf(struct.getLong(field));
-            case FLOAT64:
-                return BigDecimal.valueOf(struct.getDouble(field));
-            case NUMERIC:
-                return struct.getBigDecimal(field);
-            case PG_NUMERIC:
-                return new BigDecimal(struct.getString(field));
-            case DATE:
-            case TIMESTAMP:
-            case BYTES:
-            case JSON:
-            case STRUCT:
-            case ARRAY:
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
-        }
+            case INT64 -> BigDecimal.valueOf(struct.getLong(field));
+            case FLOAT64 -> BigDecimal.valueOf(struct.getDouble(field));
+            case NUMERIC -> struct.getBigDecimal(field);
+            case PG_NUMERIC -> new BigDecimal(struct.getString(field));
+            case DATE, TIMESTAMP, BYTES, JSON, STRUCT, ARRAY -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        };
     }
 
     // for bigtable
@@ -401,47 +345,25 @@ public class StructSchemaUtil {
         }
         final Type.StructField field = struct.getType().getStructFields().stream().filter(f -> f.getName().equals(fieldName)).findAny().get();
 
-        final byte[] bytes;
-        switch (field.getType().getCode()) {
-            case BOOL:
-                bytes = Bytes.toBytes(struct.getBoolean(fieldName));
-                break;
-            case STRING:
-                bytes = Bytes.toBytes(struct.getString(fieldName));
-                break;
-            case JSON:
-                bytes = Bytes.toBytes(struct.getJson(fieldName));
-                break;
-            case BYTES:
-                bytes = struct.getBytes(fieldName).toByteArray();
-                break;
-            case INT64:
-                bytes = Bytes.toBytes(struct.getLong(fieldName));
-                break;
-            case FLOAT64:
-                bytes = Bytes.toBytes(struct.getDouble(fieldName));
-                break;
-            case NUMERIC:
-                bytes = Bytes.toBytes(struct.getBigDecimal(fieldName));
-                break;
-            case PG_NUMERIC:
-                bytes = Bytes.toBytes(struct.getString(fieldName));
-                break;
-            case DATE: {
+        final byte[] bytes = switch (field.getType().getCode()) {
+            case BOOL -> Bytes.toBytes(struct.getBoolean(fieldName));
+            case STRING -> Bytes.toBytes(struct.getString(fieldName));
+            case JSON -> Bytes.toBytes(struct.getJson(fieldName));
+            case BYTES -> struct.getBytes(fieldName).toByteArray();
+            case INT64 -> Bytes.toBytes(struct.getLong(fieldName));
+            case FLOAT64 -> Bytes.toBytes(struct.getDouble(fieldName));
+            case NUMERIC -> Bytes.toBytes(struct.getBigDecimal(fieldName));
+            case PG_NUMERIC -> Bytes.toBytes(struct.getString(fieldName));
+            case DATE -> {
                 final Date date = struct.getDate(fieldName);
-                bytes = Bytes.toBytes(DateTimeUtil.toEpochDay(date));
-                break;
+                yield Bytes.toBytes(DateTimeUtil.toEpochDay(date));
             }
-            case TIMESTAMP: {
+            case TIMESTAMP -> {
                 final Timestamp timestamp = struct.getTimestamp(fieldName);
-                bytes = Bytes.toBytes(Timestamps.toMicros(timestamp.toProto()));
-                break;
+                yield Bytes.toBytes(Timestamps.toMicros(timestamp.toProto()));
             }
-            case STRUCT:
-            case ARRAY:
-            default:
-                return null;
-        }
+            default -> null;
+        };
         return ByteString.copyFrom(bytes);
     }
 
@@ -452,16 +374,12 @@ public class StructSchemaUtil {
         if(field == null) {
             return null;
         }
-        switch(field.getType().getCode()) {
-            case BYTES:
-                return struct.getBytes(field.getName()).toByteArray();
-            case STRING:
-                return Base64.getDecoder().decode(struct.getString(fieldName));
-            case JSON:
-                return Base64.getDecoder().decode(struct.getJson(fieldName));
-            default:
-                return null;
-        }
+        return switch (field.getType().getCode()) {
+            case BYTES -> struct.getBytes(field.getName()).toByteArray();
+            case STRING -> Base64.getDecoder().decode(struct.getString(fieldName));
+            case JSON -> Base64.getDecoder().decode(struct.getJson(fieldName));
+            default -> null;
+        };
     }
 
     public static List<Float> getAsFloatList(final Struct struct, final String fieldName) {
@@ -479,37 +397,24 @@ public class StructSchemaUtil {
             return new ArrayList<>();
         }
 
-        switch (field.getType().getArrayElementType().getCode()) {
-            case BOOL:
-                return struct.getBooleanList(fieldName).stream()
-                        .map(b -> Optional.ofNullable(b).orElse(false) ? 1F : 0F)
-                        .collect(Collectors.toList());
-            case STRING:
-            case PG_NUMERIC:
-                return struct.getStringList(fieldName).stream()
-                        .map(s -> Float.valueOf(Optional.ofNullable(s).orElse("0")))
-                        .collect(Collectors.toList());
-            case INT64:
-                return struct.getLongList(fieldName).stream()
-                        .map(s -> Float.valueOf(Optional.ofNullable(s).orElse(0L)))
-                        .collect(Collectors.toList());
-            case FLOAT64:
-                return struct.getDoubleList(fieldName).stream()
-                        .map(s -> Optional.ofNullable(s).orElse(0D).floatValue())
-                        .collect(Collectors.toList());
-            case NUMERIC:
-                return struct.getBigDecimalList(fieldName).stream()
-                        .map(s -> Optional.ofNullable(s).orElse(BigDecimal.ZERO).floatValue())
-                        .collect(Collectors.toList());
-            case DATE:
-            case TIMESTAMP:
-            case JSON:
-            case BYTES:
-            case STRUCT:
-            case ARRAY:
-            default:
-                return new ArrayList<>();
-        }
+        return switch (field.getType().getArrayElementType().getCode()) {
+            case BOOL -> struct.getBooleanList(fieldName).stream()
+                    .map(b -> Optional.ofNullable(b).orElse(false) ? 1F : 0F)
+                    .collect(Collectors.toList());
+            case STRING, PG_NUMERIC -> struct.getStringList(fieldName).stream()
+                    .map(s -> Float.valueOf(Optional.ofNullable(s).orElse("0")))
+                    .collect(Collectors.toList());
+            case INT64 -> struct.getLongList(fieldName).stream()
+                    .map(s -> Float.valueOf(Optional.ofNullable(s).orElse(0L)))
+                    .collect(Collectors.toList());
+            case FLOAT64 -> struct.getDoubleList(fieldName).stream()
+                    .map(s -> Optional.ofNullable(s).orElse(0D).floatValue())
+                    .collect(Collectors.toList());
+            case NUMERIC -> struct.getBigDecimalList(fieldName).stream()
+                    .map(s -> Optional.ofNullable(s).orElse(BigDecimal.ZERO).floatValue())
+                    .collect(Collectors.toList());
+            default -> new ArrayList<>();
+        };
     }
 
     public static long getEpochDay(final Date date) {
@@ -520,34 +425,23 @@ public class StructSchemaUtil {
         if(struct.isNull(field)) {
             return timestampDefault;
         }
-        switch (struct.getColumnType(field).getCode()) {
-            case STRING: {
+        return switch (struct.getColumnType(field).getCode()) {
+            case STRING -> {
                 final String stringValue = struct.getString(field);
                 try {
-                    return DateTimeUtil.toJodaInstant(stringValue);
+                    yield DateTimeUtil.toJodaInstant(stringValue);
                 } catch (IllegalArgumentException e) {
-                    return timestampDefault;
+                    yield timestampDefault;
                 }
             }
-            case DATE: {
+            case DATE -> {
                 final Date date = struct.getDate(field);
-                return new DateTime(date.getYear(), date.getMonth(), date.getDayOfMonth(),
+                yield new DateTime(date.getYear(), date.getMonth(), date.getDayOfMonth(),
                         0, 0, DateTimeZone.UTC).toInstant();
             }
-            case TIMESTAMP:
-                return Instant.ofEpochMilli(struct.getTimestamp(field).toSqlTimestamp().getTime());
-            case INT64:
-            case FLOAT64:
-            case BOOL:
-            case BYTES:
-            case JSON:
-            case NUMERIC:
-            case PG_NUMERIC:
-            case STRUCT:
-            case ARRAY:
-            default:
-                throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
-        }
+            case TIMESTAMP -> Instant.ofEpochMilli(struct.getTimestamp(field).toSqlTimestamp().getTime());
+            default -> throw new IllegalArgumentException("Not supported column type: " + struct.getColumnType(field).getCode().name());
+        };
     }
 
     public static Object getAsPrimitive(final Schema.FieldType fieldType, final Object fieldValue) {
@@ -761,6 +655,9 @@ public class StructSchemaUtil {
     }
 
     public static Object getAsPrimitive(Value value) {
+        if(value == null || value.isNull()) {
+            return null;
+        }
         return switch (value.getType().getCode()) {
             case STRING -> value.getAsString();
             case BOOL -> value.getBool();
@@ -770,8 +667,7 @@ public class StructSchemaUtil {
             case DATE -> DateTimeUtil.toEpochDay(value.getDate());
             case TIMESTAMP -> DateTimeUtil.toEpochMicroSecond(value.getTimestamp());
             case BYTES -> value.getBytes().toByteArray();
-            case NUMERIC -> value.getNumeric();
-            case PG_NUMERIC -> value.getNumeric();
+            case NUMERIC, PG_NUMERIC -> value.getNumeric();
             case PG_JSONB -> value.getPgJsonb();
             case STRUCT -> StructToJsonConverter.convert(value.getStruct());
             case ARRAY ->
@@ -781,13 +677,12 @@ public class StructSchemaUtil {
                     case JSON -> value.getJsonArray();
                     case INT64 -> value.getInt64Array();
                     case FLOAT64 -> value.getFloat64Array();
-                    case DATE -> DateTimeUtil.toEpochDay(value.getDate());
-                    case TIMESTAMP -> DateTimeUtil.toEpochMicroSecond(value.getTimestamp());
-                    case BYTES -> value.getBytes().toByteArray();
-                    case NUMERIC -> value.getNumeric();
-                    case PG_NUMERIC -> value.getNumeric();
-                    case PG_JSONB -> value.getPgJsonb();
-                    case STRUCT -> StructToJsonConverter.convert(value.getStruct());
+                    case DATE -> value.getDateArray().stream().map(DateTimeUtil::toEpochDay).collect(Collectors.toList());
+                    case TIMESTAMP -> value.getTimestampArray().stream().map(DateTimeUtil::toEpochMicroSecond).collect(Collectors.toList());
+                    case BYTES -> value.getBytesArray().stream().map(ByteArray::toByteArray).collect(Collectors.toList());
+                    case NUMERIC, PG_NUMERIC -> value.getNumericArray();
+                    case PG_JSONB -> value.getPgJsonbArray();
+                    case STRUCT -> value.getStructArray().stream().map(StructToJsonConverter::convert).collect(Collectors.toList());
                     default -> throw new IllegalArgumentException();
                 };
             default -> throw new IllegalArgumentException();
@@ -906,7 +801,7 @@ public class StructSchemaUtil {
             final Value value = getStructValue(struct, field.getName());
             if(value != null) {
                 switch (field.getType().getCode()) {
-                    case ARRAY: {
+                    case ARRAY -> {
                         if(field.getType().getArrayElementType().getCode().equals(Type.Code.STRUCT)) {
                             final List<Struct> children = new ArrayList<>();
                             for(final Struct child : struct.getStructList(field.getName())) {
@@ -920,89 +815,41 @@ public class StructSchemaUtil {
                         } else {
                             builder.set(field.getName()).to(value);
                         }
-                        break;
                     }
-                    case STRUCT: {
+                    case STRUCT -> {
                         final Struct child = toBuilder(field.getType(), struct.getStruct(field.getName())).build();
                         builder.set(field.getName()).to(child);
-                        break;
                     }
-                    default:
-                        builder.set(field.getName()).to(value);
-                        break;
+                    default -> builder.set(field.getName()).to(value);
                 }
             } else {
                 switch (field.getType().getCode()) {
-                    case BOOL:
-                        builder.set(field.getName()).to((Boolean)null);
-                        break;
-                    case JSON:
-                    case STRING:
-                        builder.set(field.getName()).to((String)null);
-                        break;
-                    case BYTES:
-                        builder.set(field.getName()).to((ByteArray) null);
-                        break;
-                    case INT64:
-                        builder.set(field.getName()).to((Long)null);
-                        break;
-                    case FLOAT64:
-                        builder.set(field.getName()).to((Double)null);
-                        break;
-                    case NUMERIC:
-                        builder.set(field.getName()).to((BigDecimal) null);
-                        break;
-                    case PG_NUMERIC:
-                        builder.set(field.getName()).to((String) null);
-                        break;
-                    case DATE:
-                        builder.set(field.getName()).to((Date)null);
-                        break;
-                    case TIMESTAMP:
-                        builder.set(field.getName()).to((Timestamp)null);
-                        break;
-                    case STRUCT:
-                        builder.set(field.getName()).to(field.getType(), null);
-                        break;
-                    case ARRAY: {
+                    case BOOL -> builder.set(field.getName()).to((Boolean)null);
+                    case JSON, STRING -> builder.set(field.getName()).to((String)null);
+                    case BYTES -> builder.set(field.getName()).to((ByteArray) null);
+                    case INT64 -> builder.set(field.getName()).to((Long)null);
+                    case FLOAT64 -> builder.set(field.getName()).to((Double)null);
+                    case NUMERIC -> builder.set(field.getName()).to((BigDecimal) null);
+                    case PG_NUMERIC -> builder.set(field.getName()).to((String) null);
+                    case DATE -> builder.set(field.getName()).to((Date)null);
+                    case TIMESTAMP -> builder.set(field.getName()).to((Timestamp)null);
+                    case STRUCT -> builder.set(field.getName()).to(field.getType(), null);
+                    case ARRAY -> {
                         switch (field.getType().getArrayElementType().getCode()) {
-                            case BOOL:
-                                builder.set(field.getName()).toBoolArray((Iterable<Boolean>)null);
-                                break;
-                            case BYTES:
-                                builder.set(field.getName()).toBytesArray(null);
-                                break;
-                            case STRING:
-                                builder.set(field.getName()).toStringArray(null);
-                                break;
-                            case JSON:
-                                builder.set(field.getName()).toJsonArray(null);
-                                break;
-                            case INT64:
-                                builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
-                                break;
-                            case FLOAT64:
-                                builder.set(field.getName()).toFloat64Array((Iterable<Double>)null);
-                                break;
-                            case NUMERIC:
-                                builder.set(field.getName()).toNumericArray(null);
-                                break;
-                            case PG_NUMERIC:
-                                builder.set(field.getName()).toPgNumericArray(null);
-                                break;
-                            case DATE:
-                                builder.set(field.getName()).toDateArray(null);
-                                break;
-                            case TIMESTAMP:
-                                builder.set(field.getName()).toTimestampArray(null);
-                                break;
-                            case STRUCT:
-                                builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
-                                break;
-                            case ARRAY:
-                                throw new IllegalStateException();
+                            case BOOL -> builder.set(field.getName()).toBoolArray((Iterable<Boolean>)null);
+                            case BYTES -> builder.set(field.getName()).toBytesArray(null);
+                            case STRING -> builder.set(field.getName()).toStringArray(null);
+                            case JSON -> builder.set(field.getName()).toJsonArray(null);
+                            case INT64 -> builder.set(field.getName()).toInt64Array((Iterable<Long>)null);
+                            case FLOAT64 -> builder.set(field.getName()).toFloat64Array((Iterable<Double>)null);
+                            case NUMERIC -> builder.set(field.getName()).toNumericArray(null);
+                            case PG_NUMERIC -> builder.set(field.getName()).toPgNumericArray(null);
+                            case DATE -> builder.set(field.getName()).toDateArray(null);
+                            case TIMESTAMP -> builder.set(field.getName()).toTimestampArray(null);
+                            case STRUCT -> builder.set(field.getName()).toStructArray(field.getType().getArrayElementType(), null);
+                            case ARRAY -> throw new IllegalStateException();
+                            default -> throw new IllegalArgumentException();
                         }
-                        break;
                     }
                 }
             }
@@ -1648,12 +1495,78 @@ public class StructSchemaUtil {
                 if(value.isNull()) {
                     yield Value.bool(null);
                 }
-                yield switch (value.getType().getCode()) {
-                    case BOOL -> value;
-                    case STRING -> Value.string(Boolean.toString(value.getBool()));
-                    case INT64 -> Value.string(Long.toString(value.getInt64()));
+                final Boolean boolValue = switch (value.getType().getCode()) {
+                    case BOOL -> value.getBool();
+                    case STRING -> Boolean.parseBoolean(value.getString());
+                    case INT64 -> value.getInt64() > 0;
+                    case FLOAT64 -> value.getFloat64() > 0;
                     default -> throw new IllegalArgumentException();
                 };
+                yield Value.bool(boolValue);
+            }
+            case INT64 -> {
+                if(value.isNull()) {
+                    yield Value.int64(null);
+                }
+                final Long longValue = switch (value.getType().getCode()) {
+                    case BOOL -> value.getBool() ? 1L : 0L;
+                    case STRING -> Long.parseLong(value.getString());
+                    case INT64 -> value.getInt64();
+                    case FLOAT64 -> Double.valueOf(value.getFloat64()).longValue();
+                    case NUMERIC -> value.getNumeric().longValue();
+                    case DATE -> DateTimeUtil.toEpochDay(value.getDate()).longValue();
+                    case TIMESTAMP -> DateTimeUtil.toEpochMicroSecond(value.getTimestamp());
+                    default -> throw new IllegalArgumentException();
+                };
+                yield Value.int64(longValue);
+            }
+            case FLOAT64 -> {
+                if(value.isNull()) {
+                    yield Value.float64(null);
+                }
+                final Double doubleValue = switch (value.getType().getCode()) {
+                    case BOOL -> value.getBool() ? 1D : 0D;
+                    case STRING -> Double.parseDouble(value.getString());
+                    case INT64 -> Long.valueOf(value.getInt64()).doubleValue();
+                    case FLOAT64 -> value.getFloat64();
+                    case NUMERIC -> value.getNumeric().doubleValue();
+                    case DATE -> DateTimeUtil.toEpochDay(value.getDate()).doubleValue();
+                    case TIMESTAMP -> DateTimeUtil.toEpochMicroSecond(value.getTimestamp()).doubleValue();
+                    default -> throw new IllegalArgumentException();
+                };
+                yield Value.float64(doubleValue);
+            }
+            case DATE -> {
+                if(value.isNull()) {
+                    yield Value.date(null);
+                }
+                final Date dateValue = switch (value.getType().getCode()) {
+                    case STRING -> Date.parseDate(value.getString());
+                    case INT64 -> {
+                        final LocalDate localDate = LocalDate.ofEpochDay(value.getInt64());
+                        yield Date.fromYearMonthDay(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
+                    }
+                    case FLOAT64 -> {
+                        final LocalDate localDate = LocalDate.ofEpochDay(Double.valueOf(value.getFloat64()).longValue());
+                        yield Date.fromYearMonthDay(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
+                    }
+                    case DATE -> value.getDate();
+                    default -> throw new IllegalArgumentException();
+                };
+                yield Value.date(dateValue);
+            }
+            case TIMESTAMP -> {
+                if(value.isNull()) {
+                    yield Value.timestamp(null);
+                }
+                final Timestamp timestampValue = switch (value.getType().getCode()) {
+                    case STRING -> Timestamp.parseTimestamp(value.getString());
+                    case INT64 -> Timestamp.ofTimeMicroseconds(value.getInt64());
+                    case FLOAT64 -> Timestamp.ofTimeMicroseconds(Double.valueOf(value.getFloat64()).longValue());
+                    case TIMESTAMP -> value.getTimestamp();
+                    default -> throw new IllegalArgumentException();
+                };
+                yield Value.timestamp(timestampValue);
             }
             default -> throw new IllegalStateException();
         };
@@ -1667,26 +1580,43 @@ public class StructSchemaUtil {
         return value.toString();
     }
 
-    public static List<KV<KV<String, String>, Mutation>> convert(final UnionValue unionValue) {
+    public static List<KV<KV<String, String>, UnifiedMutation>> convertChangeRecordToMutations(final UnionValue unionValue) {
         return switch (unionValue.getType()) {
-            case AVRO -> convert((GenericRecord) unionValue.getValue());
-            case ROW -> throw new IllegalArgumentException();
+            case AVRO -> convertChangeRecordToMutations((GenericRecord) unionValue.getValue());
+            case ROW -> throw new IllegalArgumentException("Not supported input type: " + unionValue.getType());
             default -> throw new IllegalStateException();
         };
     }
 
-    private static List<KV<KV<String, String>, Mutation>> convert(final GenericRecord record) {
+    public static List<KV<KV<String, String>, RowMutation>> convertChangeRecordToRowMutations(final UnionValue unionValue) {
+        return switch (unionValue.getType()) {
+            case AVRO -> convertChangeRecordToRowMutations((GenericRecord) unionValue.getValue());
+            case ROW -> throw new IllegalArgumentException("Not supported input type: " + unionValue.getType());
+            default -> throw new IllegalStateException();
+        };
+    }
+
+    private static List<KV<KV<String, String>, UnifiedMutation>> convertChangeRecordToMutations(final GenericRecord record) {
+
         final String table = record.get("tableName").toString();
         final ModType modType = ModType.valueOf(record.get("modType").toString());
 
+        final List<String> primaryKeyFields = new ArrayList<>();
         final Map<String, String> columnTypes = new HashMap<>();
         for(final GenericRecord rowTypeRecord : (List<GenericRecord>) record.get("rowType")) {
             final String name = rowTypeRecord.get("name").toString();
             final String code = convertChangeRecordTypeCode(rowTypeRecord.get("Type").toString());
+            final boolean isPrimaryKey = (boolean)rowTypeRecord.get("isPrimaryKey");
+            if(isPrimaryKey) {
+                primaryKeyFields.add(name);
+            }
             columnTypes.put(name, code);
         }
 
-        final List<KV<KV<String, String>, Mutation>> results = new ArrayList<>();
+        final Long commitTimestampMicros = (Long) record.get("commitTimestamp");
+        final Integer recordSequence = Optional.ofNullable(record.get("recordSequence").toString()).map(Integer::valueOf).orElse(-1);
+
+        final List<KV<KV<String, String>, UnifiedMutation>> results = new ArrayList<>();
 
         final Gson gson = new Gson();
         for(final GenericRecord modRecord : (List<GenericRecord>) record.get("mods")) {
@@ -1703,31 +1633,115 @@ public class StructSchemaUtil {
 
             final Map<String, Value> keyValues = new HashMap<>();
             Key.Builder keyBuilder = Key.newBuilder();
-            for(final Map.Entry<String, JsonElement> key : keysJson.entrySet()) {
-                final String code = columnTypes.get(key.getKey());
-                final Value value = getStructValue(code, key.getValue());
-                keyValues.put(key.getKey(), value);
+            for(final String primaryKeyField : primaryKeyFields) {
+                final String code = columnTypes.get(primaryKeyField);
+                if(code == null) {
+                    throw new IllegalArgumentException("code is null for key: " + primaryKeyField + " in columnTypes: " + columnTypes);
+                }
+                final JsonElement element = keysJson.get(primaryKeyField);
+                final Value value = getStructValue(code, element);
+                keyValues.put(primaryKeyField, value);
                 final Object object = toObject(value);
                 keyBuilder = keyBuilder.appendObject(object);
             }
             final Key key = keyBuilder.build();
 
-            if(ModType.DELETE.equals(modType)) {
-                final Mutation mutation = Mutation.delete(table, key);
-                results.add(KV.of(KV.of(table, key.toString()), mutation));
-            } else {
-                Mutation.WriteBuilder writeBuilder = Mutation.newInsertBuilder(table);
-                for(final Map.Entry<String, Value> keyValue : keyValues.entrySet()) {
-                    writeBuilder = writeBuilder.set(keyValue.getKey()).to(keyValue.getValue());
+            switch (modType) {
+                case DELETE -> {
+                    final Mutation mutation = Mutation.delete(table, key);
+                    final UnifiedMutation unifiedMutation = UnifiedMutation.of(mutation, table, commitTimestampMicros, recordSequence);
+                    results.add(KV.of(KV.of(table, key.toString()), unifiedMutation));
                 }
-                for(final Map.Entry<String, JsonElement> newValue : newValuesJson.entrySet()) {
-                    final String code = columnTypes.get(newValue.getKey());
-                    final Value value = getStructValue(code, newValue.getValue());
-                    writeBuilder = writeBuilder.set(newValue.getKey()).to(value);
+                case INSERT, UPDATE -> {
+                    Mutation.WriteBuilder writeBuilder = switch (modType) {
+                        case INSERT -> Mutation.newInsertBuilder(table);
+                        case UPDATE -> Mutation.newUpdateBuilder(table);
+                        default -> throw new IllegalArgumentException("Not supported modType: " + modType);
+                    };
+
+                    for(final Map.Entry<String, Value> keyValue : keyValues.entrySet()) {
+                        writeBuilder = writeBuilder.set(keyValue.getKey()).to(keyValue.getValue());
+                    }
+                    for(final Map.Entry<String, JsonElement> newValue : newValuesJson.entrySet()) {
+                        final String code = columnTypes.get(newValue.getKey());
+                        final Value value = getStructValue(code, newValue.getValue());
+                        writeBuilder = writeBuilder.set(newValue.getKey()).to(value);
+                    }
+                    final Mutation mutation = writeBuilder.build();
+                    final UnifiedMutation unifiedMutation = UnifiedMutation.of(mutation, table, commitTimestampMicros, recordSequence);
+                    results.add(KV.of(KV.of(table, key.toString()), unifiedMutation));
                 }
-                final Mutation mutation = writeBuilder.build();
-                results.add(KV.of(KV.of(table, key.toString()), mutation));
+                default -> throw new IllegalArgumentException("Not supported modType: " + modType);
             }
+
+        }
+
+        return results;
+    }
+
+    private static List<KV<KV<String, String>, RowMutation>> convertChangeRecordToRowMutations(final GenericRecord record) {
+
+        final ModType modType = ModType.valueOf(record.get("modType").toString());
+
+        final Map<String, String> columnTypes = new HashMap<>();
+        for(final GenericRecord rowTypeRecord : (List<GenericRecord>) record.get("rowType")) {
+            final String name = rowTypeRecord.get("name").toString();
+            final String code = convertChangeRecordTypeCode(rowTypeRecord.get("Type").toString());
+            columnTypes.put(name, code);
+        }
+
+        final List<KV<KV<String, String>, RowMutation>> results = new ArrayList<>();
+
+        final Gson gson = new Gson();
+        for(final GenericRecord modRecord : (List<GenericRecord>) record.get("mods")) {
+            final Map<String, JsonElement> keysJson = Optional.ofNullable(modRecord.get("keysJson"))
+                    .map(Object::toString)
+                    .map(s -> gson.fromJson(s, JsonObject.class))
+                    .map(JsonObject::asMap)
+                    .orElseGet(HashMap::new);
+            final Map<String, JsonElement> newValuesJson = Optional.ofNullable(modRecord.get("newValuesJson"))
+                    .map(Object::toString)
+                    .map(s -> gson.fromJson(s, JsonObject.class))
+                    .map(JsonObject::asMap)
+                    .orElseGet(HashMap::new);
+
+            final List<String> keyValues = new ArrayList<>();
+            final TableRow tableRow = new TableRow();
+            for(final Map.Entry<String, JsonElement> key : keysJson.entrySet()) {
+                final String code = columnTypes.get(key.getKey());
+                if(code == null) {
+                    throw new IllegalArgumentException("code is null for key: " + key.getKey() + " in columnTypes: " + columnTypes);
+                }
+                keyValues.add(key.getValue().toString());
+                final Value value = getStructValue(code, key.getValue());
+                final Object tableRowValue = StructToTableRowConverter.convertTableRowValue(value);
+                tableRow.put(key.getKey(), tableRowValue);
+            }
+
+            final Long commitTimestampMicros = (Long) record.get("commitTimestamp");
+            final String table = record.get("tableName").toString();
+            tableRow.put("___TABLE___", table);
+
+            switch (modType) {
+                case DELETE -> {
+                    final RowMutation mutation = RowMutation
+                            .of(tableRow, RowMutationInformation.of(RowMutationInformation.MutationType.DELETE, commitTimestampMicros));
+                    results.add(KV.of(KV.of(table, String.join("#", keyValues)), mutation));
+                }
+                case INSERT, UPDATE -> {
+                    for(final Map.Entry<String, JsonElement> newValue : newValuesJson.entrySet()) {
+                        final String code = columnTypes.get(newValue.getKey());
+                        final Value value = getStructValue(code, newValue.getValue());
+                        final Object tableRowValue = StructToTableRowConverter.convertTableRowValue(value);
+                        tableRow.put(newValue.getKey(), tableRowValue);
+                    }
+                    final RowMutation mutation = RowMutation
+                            .of(tableRow, RowMutationInformation.of(RowMutationInformation.MutationType.UPSERT, commitTimestampMicros));
+                    results.add(KV.of(KV.of(table, String.join("#", keyValues)), mutation));
+                }
+                default -> throw new IllegalArgumentException("Not supported modType: " + modType);
+            }
+
         }
 
         return results;
@@ -1801,14 +1815,84 @@ public class StructSchemaUtil {
     }
      */
 
-    public static List<Mutation> accumulateChangeRecords(final List<Mutation> mutations) {
+    public static List<UnifiedMutation> accumulateChangeRecords(
+            final List<UnifiedMutation> mutations,
+            final Map<String, String> renameTables,
+            final boolean applyUpsertForInsert,
+            final boolean applyUpsertForUpdate) {
+
         if(mutations.size() == 0) {
             return new ArrayList<>();
         } else if(mutations.size() == 1) {
-            return mutations;
+            if(renameTables.isEmpty() && !applyUpsertForInsert && !applyUpsertForUpdate) {
+                return mutations;
+            } else if(renameTables.isEmpty()) {
+                final MutationOp mutationOp = mutations.get(0).getOp();
+                if((MutationOp.INSERT.equals(mutationOp) && !applyUpsertForInsert)
+                        || (MutationOp.UPDATE.equals(mutationOp) && !applyUpsertForUpdate)) {
+                    return mutations;
+                }
+            }
         }
 
-        final boolean delete = Mutation.Op.DELETE.equals(mutations.get(mutations.size() - 1).getOperation());
+        final boolean delete = MutationOp.DELETE.equals(mutations.get(mutations.size() - 1).getOp());
+        final boolean existing = !MutationOp.INSERT.equals(mutations.get(0).getOp());
+        if(delete) {
+            final List<UnifiedMutation> outputs = new ArrayList<>();
+            if(existing) {
+                outputs.add(mutations.get(mutations.size() - 1));
+            }
+            return outputs;
+        }
+
+        final Map<String, Value> values = new HashMap<>();
+        for(final UnifiedMutation mutation : mutations) {
+            switch (mutation.getOp()) {
+                case DELETE -> values.clear();
+                case UPDATE -> values.putAll(((Mutation) mutation.getValue()).asMap());
+                case INSERT -> {
+                    values.clear();
+                    values.putAll(((Mutation)mutation.getValue()).asMap());
+                }
+                case UPSERT, REPLACE -> throw new IllegalStateException("Not supported operation: " + mutation.getOp());
+            }
+        }
+
+        final String tableName = mutations.get(0).getTable();
+        final String table = renameTables.getOrDefault(tableName, tableName);
+
+        Mutation.WriteBuilder writeBuilder;
+        if(existing) {
+            writeBuilder = applyUpsertForUpdate ? Mutation.newInsertOrUpdateBuilder(table) : Mutation.newUpdateBuilder(table);
+        } else {
+            writeBuilder = applyUpsertForInsert ? Mutation.newInsertOrUpdateBuilder(table) : Mutation.newInsertBuilder(table);
+        }
+        for(final Map.Entry<String, Value> entry : values.entrySet()) {
+            writeBuilder = writeBuilder.set(entry.getKey()).to(entry.getValue());
+        }
+        final Mutation mutation = writeBuilder.build();
+        final Long lastCommitTimestampMicros = mutations.get(mutations.size() - 1).getCommitTimestampMicros();
+        final UnifiedMutation unifiedMutation = UnifiedMutation.of(mutation, table, lastCommitTimestampMicros, 0);
+        return List.of(unifiedMutation);
+    }
+
+
+    /*
+    public static List<RowMutation> accumulateChangeRecordsR(
+            final List<Mutation> mutations,
+            final Map<String, String> renameTables,
+            final boolean applyUpsertForInsert,
+            final boolean applyUpsertForUpdate) {
+
+        if(mutations.size() == 0) {
+            return new ArrayList<>();
+        } else if(mutations.size() == 1) {
+            if(renameTables.isEmpty()) {
+                return mutations;
+            }
+        }
+
+        final boolean delete = RowMutationInformation.MutationType.DELETE.equals(mutations.get(mutations.size() - 1).getMutationInformation().getMutationType());
         final boolean existing = !Mutation.Op.INSERT.equals(mutations.get(0).getOperation());
         if(delete) {
             final List<Mutation> outputs = new ArrayList<>();
@@ -1821,12 +1905,8 @@ public class StructSchemaUtil {
         final Map<String, Value> values = new HashMap<>();
         for(final Mutation mutation : mutations) {
             switch (mutation.getOperation()) {
-                case DELETE -> {
-                    values.clear();
-                }
-                case UPDATE -> {
-                    values.putAll(mutation.asMap());
-                }
+                case DELETE -> values.clear();
+                case UPDATE -> values.putAll(mutation.asMap());
                 case INSERT -> {
                     values.clear();
                     values.putAll(mutation.asMap());
@@ -1835,13 +1915,14 @@ public class StructSchemaUtil {
             }
         }
 
-        final String table = mutations.get(0).getTable();
+        final String tableName = mutations.get(0).getTable();
+        final String table = renameTables.getOrDefault(tableName, tableName);
 
         Mutation.WriteBuilder writeBuilder;
         if(existing) {
-            writeBuilder = Mutation.newUpdateBuilder(table);
+            writeBuilder = applyUpsertForUpdate ? Mutation.newInsertOrUpdateBuilder(table) : Mutation.newUpdateBuilder(table);
         } else {
-            writeBuilder = Mutation.newInsertBuilder(table);
+            writeBuilder = applyUpsertForInsert ? Mutation.newInsertOrUpdateBuilder(table) : Mutation.newInsertBuilder(table);
         }
         for(final Map.Entry<String, Value> entry : values.entrySet()) {
             writeBuilder = writeBuilder.set(entry.getKey()).to(entry.getValue());
@@ -1849,6 +1930,8 @@ public class StructSchemaUtil {
         return List.of(writeBuilder.build());
     }
 
+
+     */
     public static Long getChangeDataCommitTimestampMicros(final UnionValue unionValue) {
         return switch (unionValue.getType()) {
             case AVRO -> (Long)((GenericRecord) unionValue.getValue()).get("commitTimestamp");
@@ -2148,43 +2231,22 @@ public class StructSchemaUtil {
                     }
                 } else {
                     final Type fieldType = type.getStructFields().get(type.getFieldIndex(keyField.getKey())).getType();
-                    switch (fieldType.getCode()) {
-                        case BOOL:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBoolean());
-                            break;
-                        case JSON:
-                        case STRING:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                            break;
-                        case INT64:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsLong());
-                            break;
-                        case FLOAT64:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsDouble());
-                            break;
-                        case NUMERIC:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsBigDecimal());
-                            break;
-                        case PG_NUMERIC:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                            break;
-                        case PG_JSONB:
-                            keyBuilder = keyBuilder.append(keyField.getValue().getAsString());
-                            break;
-                        case DATE:
-                            keyBuilder = keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
-                            break;
-                        case TIMESTAMP:
-                            keyBuilder = keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
-                            break;
-                        case BYTES:
-                            keyBuilder = keyBuilder.append(ByteArray.copyFrom(Base64.getDecoder().decode(keyField.getValue().getAsString())));
-                            break;
-                        case STRUCT:
-                        case ARRAY:
-                        default:
-                            throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
-                    }
+                    keyBuilder = switch (fieldType.getCode()) {
+                        case BOOL -> keyBuilder.append(keyField.getValue().getAsBoolean());
+                        case JSON, STRING -> keyBuilder.append(keyField.getValue().getAsString());
+                        case INT64 -> keyBuilder.append(keyField.getValue().getAsLong());
+                        case FLOAT64 -> keyBuilder.append(keyField.getValue().getAsDouble());
+                        case NUMERIC -> keyBuilder.append(keyField.getValue().getAsBigDecimal());
+                        case PG_NUMERIC -> keyBuilder.append(keyField.getValue().getAsString());
+                        case PG_JSONB -> keyBuilder.append(keyField.getValue().getAsString());
+                        case DATE -> keyBuilder.append(Date.parseDate(keyField.getValue().getAsString()));
+                        case TIMESTAMP ->
+                                keyBuilder.append(Timestamp.parseTimestamp(keyField.getValue().getAsString()));
+                        case BYTES ->
+                                keyBuilder.append(ByteArray.copyFrom(Base64.getDecoder().decode(keyField.getValue().getAsString())));
+                        default ->
+                                throw new IllegalStateException("Not supported spanner key field type: " + fieldType.getCode());
+                    };
                 }
             }
             deletes.add(Mutation.delete(table, keyBuilder.build()));
@@ -2203,22 +2265,21 @@ public class StructSchemaUtil {
         for(final Mod mod : record.getMods()) {
             final Mutation.WriteBuilder builder;
             switch (record.getModType()) {
-                case INSERT:
-                    if(applyUpsertForInsert) {
+                case INSERT -> {
+                    if (applyUpsertForInsert) {
                         builder = Mutation.newInsertOrUpdateBuilder(table);
                     } else {
                         builder = Mutation.newInsertBuilder(table);
                     }
-                    break;
-                case UPDATE:
-                    if(applyUpsertForUpdate) {
+                }
+                case UPDATE -> {
+                    if (applyUpsertForUpdate) {
                         builder = Mutation.newInsertOrUpdateBuilder(table);
                     } else {
                         builder = Mutation.newUpdateBuilder(table);
                     }
-                    break;
-                default:
-                    throw new IllegalStateException("Not supported modType: " + record.getModType());
+                }
+                default -> throw new IllegalStateException("Not supported modType: " + record.getModType());
             }
 
             final JsonObject keys = new Gson().fromJson(mod.getKeysJson(), JsonObject.class);
@@ -2258,6 +2319,9 @@ public class StructSchemaUtil {
     private static Value getStructValue(String columnTypeCode, final JsonElement element) {
         final boolean isNull = element == null || element.isJsonNull();
         final JsonElement typeCodeElement = new Gson().fromJson(columnTypeCode, JsonElement.class);
+        if(typeCodeElement == null || typeCodeElement.isJsonNull()) {
+            throw new IllegalStateException("typeCodeElement is null for value: " + columnTypeCode + " with value: " + element);
+        }
         if(typeCodeElement.isJsonObject()) {
             columnTypeCode = typeCodeElement.getAsJsonObject().get("code").getAsString();
         } else if(typeCodeElement.isJsonPrimitive()) {
@@ -2265,32 +2329,22 @@ public class StructSchemaUtil {
         } else {
             throw new IllegalStateException();
         }
-        switch (columnTypeCode) {
-            case "BOOL":
-                return Value.bool(isNull ? null : element.getAsBoolean());
-            case "JSON":
-                return Value.json(isNull ? null : element.getAsString());
-            case "STRING":
-                return Value.string(isNull ? null : element.getAsString());
-            case "INT64":
-                return Value.int64(isNull ? null : element.getAsLong());
-            case "FLOAT64":
-                return Value.float64(isNull ? null : element.getAsDouble());
-            case "NUMERIC":
-                return Value.numeric(isNull ? null : element.getAsBigDecimal());
-            case "PG_NUMERIC":
-                return Value.pgNumeric(isNull ? null : element.getAsString());
-            case "PG_JSONB":
-                return Value.pgJsonb(isNull ? null : element.getAsString());
-            case "DATE":
-                return Value.date(Date.parseDate(isNull ? null : element.getAsString()));
-            case "TIMESTAMP":
-                return Value.timestamp(isNull ? null : Timestamp.parseTimestamp(element.getAsString()));
-            case "BYTES":
-                return Value.bytes(isNull ? null : ByteArray.copyFrom(Base64.getDecoder().decode(element.getAsString())));
-            case "STRUCT":
-                throw new IllegalStateException("");
-            default: {
+        return switch (columnTypeCode) {
+            case "BOOL" -> Value.bool(isNull ? null : element.getAsBoolean());
+            case "JSON" -> Value.json(isNull ? null : element.getAsString());
+            case "STRING" -> Value.string(isNull ? null : element.getAsString());
+            case "INT64" -> Value.int64(isNull ? null : element.getAsLong());
+            case "FLOAT64" -> Value.float64(isNull ? null : element.getAsDouble());
+            case "NUMERIC" -> Value.numeric(isNull ? null : element.getAsBigDecimal());
+            case "PG_NUMERIC" -> Value.pgNumeric(isNull ? null : element.getAsString());
+            case "PG_JSONB" -> Value.pgJsonb(isNull ? null : element.getAsString());
+            case "DATE" -> Value.date(isNull ? null : Date.parseDate(element.getAsString()));
+            case "TIMESTAMP" -> Value.timestamp(isNull ? null : Timestamp.parseTimestamp(element.getAsString()));
+            case "BYTES" -> Value.bytes(isNull ? null : ByteArray.copyFrom(Base64.getDecoder().decode(element.getAsString())));
+            case "STRUCT" -> throw new IllegalStateException("Not supported STRUCT type");
+            case "TYPE_CODE_UNSPECIFIED" ->
+                    Value.stringArray(isNull ? null : element.getAsJsonArray().asList().stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+            default -> {
                 if(columnTypeCode.startsWith("ARRAY")) {
                     final List<JsonElement> elements = new ArrayList<>();
                     if(!isNull) {
@@ -2301,35 +2355,21 @@ public class StructSchemaUtil {
                     final Matcher m = PATTERN_ARRAY_ELEMENT.matcher(columnTypeCode);
                     if(m.find()) {
                         final String elementColumnTypeCode = m.group();
-                        switch (elementColumnTypeCode) {
-                            case "BOOL":
-                                return Value.boolArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsBoolean).collect(Collectors.toList()));
-                            case "JSON":
-                                return Value.jsonArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
-                            case "STRING":
-                                return Value.stringArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
-                            case "INT64":
-                                return Value.int64Array(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsLong).collect(Collectors.toList()));
-                            case "FLOAT64":
-                                return Value.float64Array(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsDouble).collect(Collectors.toList()));
-                            case "NUMERIC":
-                                return Value.numericArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsBigDecimal).collect(Collectors.toList()));
-                            case "PG_NUMERIC":
-                                return Value.pgNumericArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
-                            case "PG_JSONB":
-                                return Value.pgJsonbArray(isNull ? new ArrayList<>() : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
-                            case "DATE":
-                                return Value.dateArray(isNull ? new ArrayList<>() : elements.stream().map(e -> Date.parseDate(e.getAsString())).collect(Collectors.toList()));
-                            case "TIMESTAMP":
-                                return Value.timestampArray(isNull ? new ArrayList<>() : elements.stream().map(e -> Timestamp.parseTimestamp(e.getAsString())).collect(Collectors.toList()));
-                            case "BYTES":
-                                return Value.bytesArray(isNull ? new ArrayList<>() : elements.stream().map(e -> ByteArray.copyFrom(Base64.getDecoder().decode(e.getAsString()))).collect(Collectors.toList()));
-                            case "STRUCT":
-                            case "ARRAY":
-                            default: {
-                                throw new IllegalStateException("Not supported spanner array element type: " + elementColumnTypeCode);
-                            }
-                        }
+                        yield switch (elementColumnTypeCode) {
+                            case "BOOL" -> Value.boolArray(isNull ? null : elements.stream().map(JsonElement::getAsBoolean).collect(Collectors.toList()));
+                            case "JSON" -> Value.jsonArray(isNull ? null : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "STRING" -> Value.stringArray(isNull ? null : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "INT64" -> Value.int64Array(isNull ? null : elements.stream().map(JsonElement::getAsLong).collect(Collectors.toList()));
+                            case "FLOAT64" -> Value.float64Array(isNull ? null : elements.stream().map(JsonElement::getAsDouble).collect(Collectors.toList()));
+                            case "NUMERIC" -> Value.numericArray(isNull ? null : elements.stream().map(JsonElement::getAsBigDecimal).collect(Collectors.toList()));
+                            case "PG_NUMERIC" -> Value.pgNumericArray(isNull ? null : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "PG_JSONB" -> Value.pgJsonbArray(isNull ? null : elements.stream().map(JsonElement::getAsString).collect(Collectors.toList()));
+                            case "DATE" -> Value.dateArray(isNull ? null : elements.stream().map(e -> Date.parseDate(e.getAsString())).collect(Collectors.toList()));
+                            case "TIMESTAMP" -> Value.timestampArray(isNull ? null : elements.stream().map(e -> Timestamp.parseTimestamp(e.getAsString())).collect(Collectors.toList()));
+                            case "BYTES" -> Value.bytesArray(isNull ? null : elements.stream().map(e -> ByteArray.copyFrom(Base64.getDecoder().decode(e.getAsString()))).collect(Collectors.toList()));
+                            case "STRUCT", "ARRAY" -> throw new IllegalStateException("Not supported spanner array element type: " + elementColumnTypeCode);
+                            default -> throw new IllegalStateException("Not supported spanner type: " + elementColumnTypeCode);
+                        };
                     } else {
                         throw new IllegalStateException("Not found array element type: " + columnTypeCode);
                     }
@@ -2337,7 +2377,7 @@ public class StructSchemaUtil {
                     throw new IllegalStateException("Not supported spanner type: " + columnTypeCode);
                 }
             }
-        }
+        };
     }
 
     private static Value getStructValue(final Type fieldType, final JsonElement element) {
@@ -2909,7 +2949,7 @@ public class StructSchemaUtil {
         if(m.find()) {
             return m.group(1);
         }
-        return null;
+        return code;
     }
 
     private static List<Type.StructField> flattenFields(final Type type, final List<String> paths, final String prefix, final boolean addPrefix) {

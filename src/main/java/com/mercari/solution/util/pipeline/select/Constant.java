@@ -3,9 +3,8 @@ package com.mercari.solution.util.pipeline.select;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.mercari.solution.util.DateTimeUtil;
-import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,7 +27,7 @@ public class Constant implements SelectFunction {
         this.type = type;
         this.valueString = valueString;
         this.inputFields = new ArrayList<>();
-        this.outputFieldType = createOutputFieldType(name, type);
+        this.outputFieldType = Types.createOutputFieldType(type);
         this.ignore = ignore;
     }
 
@@ -72,41 +71,11 @@ public class Constant implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         if(value == null || value.isJsonNull()) {
             return null;
         }
-        return switch (type) {
-            case "bool", "boolean" -> value.getAsBoolean();
-            case "int", "int32", "integer" -> value.getAsInt();
-            case "long", "int64" -> value.getAsLong();
-            case "float", "float32" -> value.getAsFloat();
-            case "double", "float64" -> value.getAsDouble();
-            case "string" -> value.getAsString();
-            case "date" -> Long.valueOf(DateTimeUtil.toLocalDate(value.getAsString()).toEpochDay()).intValue();
-            case "time" -> DateTimeUtil.toLocalTime(value.getAsString()).toNanoOfDay() / 1000L;
-            case "timestamp" -> DateTimeUtil.toJodaInstant(value.getAsString()).getMillis() * 1000L;
-            default ->
-                    throw new IllegalArgumentException("SelectField constant: " + name + ".type[" + type + "] is not supported");
-        };
-    }
-
-    private static Schema.FieldType createOutputFieldType(final String name, final String type) {
-        final Schema.FieldType fieldType = switch (type) {
-            case "bool", "boolean" -> Schema.FieldType.BOOLEAN;
-            case "string" -> Schema.FieldType.STRING;
-            case "int", "int32", "integer" -> Schema.FieldType.INT32;
-            case "long", "int64" -> Schema.FieldType.INT64;
-            case "float", "float32" -> Schema.FieldType.FLOAT;
-            case "double", "float64" -> Schema.FieldType.DOUBLE;
-            case "date" -> CalciteUtils.DATE;
-            case "time" -> CalciteUtils.TIME;
-            case "timestamp" -> Schema.FieldType.DATETIME;
-            default ->
-                    throw new IllegalArgumentException("SelectField constant: " + name + ".type[" + type + "] is not supported");
-        };
-
-        return fieldType.withNullable(true);
+        return Types.getValue(type, value);
     }
 
 }

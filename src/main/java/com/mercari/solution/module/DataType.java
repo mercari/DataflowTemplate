@@ -10,6 +10,7 @@ public enum DataType implements Serializable {
     STRUCT(3),
     DOCUMENT(4),
     ENTITY(5),
+    UNIFIEDMUTATION(10),
     MUTATION(11),
     MUTATIONGROUP(12),
     UNKNOWN(99);

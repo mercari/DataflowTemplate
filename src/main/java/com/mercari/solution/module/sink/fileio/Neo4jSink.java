@@ -37,6 +37,7 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
     private final Integer bufferSize;
     private final String conf;
     private final Neo4jUtil.Format format;
+    private final Boolean useGDS;
     private final List<String> inputNames;
 
     private final Counter counter;
@@ -55,6 +56,7 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
                       final List<String> teardownCyphers,
                       final Integer bufferSize,
                       final Neo4jUtil.Format format,
+                      final Boolean useGDS,
                       final List<String> inputNames) {
 
         this.name = name;
@@ -67,6 +69,7 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
         this.teardownCyphers = teardownCyphers;
         this.bufferSize = bufferSize;
         this.format = format;
+        this.useGDS = useGDS;
         this.inputNames = inputNames;
 
         this.counter = Metrics.counter(name, "processedCount");
@@ -83,9 +86,10 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
             final List<String> teardownCyphers,
             final Integer bufferSize,
             final Neo4jUtil.Format format,
+            final Boolean useGDS,
             final List<String> inputNames) {
 
-        return new Neo4jSink(name, input, database, conf, nodes, relationships, setupCyphers, teardownCyphers, bufferSize, format, inputNames);
+        return new Neo4jSink(name, input, database, conf, nodes, relationships, setupCyphers, teardownCyphers, bufferSize, format, useGDS, inputNames);
     }
 
     @Override
@@ -121,6 +125,9 @@ public class Neo4jSink implements FileIO.Sink<UnionValue> {
         if(graphDB == null) {
             final DatabaseManagementService service = new DatabaseManagementServiceBuilder(neo4jPath).build();
             this.graphDB = service.database(database);
+            if(this.useGDS) {
+                Neo4jUtil.setupGds(this.graphDB);
+            }
             Neo4jUtil.registerShutdownHook(service);
         }
 

@@ -64,7 +64,7 @@ public class FilterTransform implements TransformModule {
                 errorMessages.add("Filter transform module parameters must contain filters, select or fields parameter.");
             }
 
-            if(errorMessages.size() > 0) {
+            if(!errorMessages.isEmpty()) {
                 throw new IllegalArgumentException(String.join("\n", errorMessages));
             }
         }
@@ -76,6 +76,16 @@ public class FilterTransform implements TransformModule {
             if(this.renameFields == null) {
                 this.renameFields = new HashMap<>();
             }
+        }
+
+        public static FilterTransformParameters of(final TransformConfig config) {
+            final FilterTransformParameters parameters = new Gson().fromJson(config.getParameters(), FilterTransformParameters.class);
+            if(parameters == null) {
+                throw new IllegalArgumentException("Filter transform module " + config.getName() + " parameters must not be empty!");
+            }
+            parameters.validate();
+            parameters.setDefaults();
+            return parameters;
         }
     }
 
@@ -89,16 +99,10 @@ public class FilterTransform implements TransformModule {
 
     static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, final TransformConfig config) {
 
-        final FilterTransformParameters parameters = new Gson().fromJson(config.getParameters(), FilterTransformParameters.class);
-        if(parameters == null) {
-            throw new IllegalArgumentException("Filter transform module parameters must not be empty!");
-        }
-
-        parameters.validate();
-        parameters.setDefaults();
+        final FilterTransformParameters parameters = FilterTransformParameters.of(config);
 
         final boolean useSelect = parameters.getSelect() != null && parameters.getSelect().isJsonArray();
-        final boolean useFields = parameters.getFields().size() > 0;
+        final boolean useFields = !parameters.getFields().isEmpty();
 
         final Map<String, FCollection<?>> results = new HashMap<>();
         for(final FCollection<?> input : inputs) {
@@ -108,7 +112,7 @@ public class FilterTransform implements TransformModule {
             final List<SelectFunction> selectFunctions = SelectFunction.of(parameters.getSelect(), input.getSchema().getFields(), outputType);
 
             switch (input.getDataType()) {
-                case ROW: {
+                case ROW -> {
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
                     Schema schema;
                     if(useSelect) {
@@ -118,7 +122,7 @@ public class FilterTransform implements TransformModule {
                     } else {
                         schema = inputCollection.getSchema();
                     }
-                    if(parameters.getRenameFields().size() > 0) {
+                    if(!parameters.getRenameFields().isEmpty()) {
                         final List<Schema.Field> rf = schema.getFields().stream()
                                 .filter(f -> parameters.getRenameFields().containsKey(f.getName()))
                                 .map(f -> f.toBuilder().setName(parameters.getRenameFields().get(f.getName())).build())
@@ -139,9 +143,8 @@ public class FilterTransform implements TransformModule {
                             .apply(name, transform)
                             .setCoder(RowCoder.of(schema));
                     results.put(name, FCollection.of(name, output, DataType.ROW, schema));
-                    break;
                 }
-                case AVRO: {
+                case AVRO -> {
                     final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                     org.apache.avro.Schema schema;
                     if(useSelect) {
@@ -151,7 +154,7 @@ public class FilterTransform implements TransformModule {
                     } else {
                         schema = inputCollection.getAvroSchema();
                     }
-                    if (parameters.getRenameFields().size() > 0) {
+                    if (!parameters.getRenameFields().isEmpty()) {
                         schema = AvroSchemaUtil.renameFields(schema, parameters.getRenameFields());
                     }
                     final Transform<String, org.apache.avro.Schema, GenericRecord> transform = new Transform<>(
@@ -167,9 +170,8 @@ public class FilterTransform implements TransformModule {
                             .apply(name, transform)
                             .setCoder(AvroCoder.of(schema));
                     results.put(name, FCollection.of(name, output, DataType.AVRO, schema));
-                    break;
                 }
-                case STRUCT: {
+                case STRUCT -> {
                     final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
                     Type type;
                     if(useSelect) {
@@ -179,7 +181,7 @@ public class FilterTransform implements TransformModule {
                     } else {
                         type = inputCollection.getSpannerType();
                     }
-                    if (parameters.getRenameFields().size() > 0) {
+                    if (!parameters.getRenameFields().isEmpty()) {
                         type = StructSchemaUtil.renameFields(type, parameters.getRenameFields());
                     }
                     final Transform<Type, Type, Struct> transform = new Transform<>(
@@ -194,9 +196,8 @@ public class FilterTransform implements TransformModule {
                     final PCollection<Struct> output = inputCollection.getCollection()
                             .apply(name, transform);
                     results.put(name, FCollection.of(name, output, DataType.STRUCT, type));
-                    break;
                 }
-                case DOCUMENT: {
+                case DOCUMENT -> {
                     final FCollection<Document> inputCollection = (FCollection<Document>) input;
                     Schema schema;
                     if(useSelect) {
@@ -206,7 +207,7 @@ public class FilterTransform implements TransformModule {
                     } else {
                         schema = inputCollection.getSchema();
                     }
-                    if (parameters.getRenameFields().size() > 0) {
+                    if (!parameters.getRenameFields().isEmpty()) {
                         final List<Schema.Field> rf = schema.getFields().stream()
                                 .filter(f -> parameters.getRenameFields().containsKey(f.getName()))
                                 .map(f -> f.toBuilder().setName(parameters.getRenameFields().get(f.getName())).build())
@@ -226,9 +227,8 @@ public class FilterTransform implements TransformModule {
                     final PCollection<Document> output = inputCollection.getCollection()
                             .apply(name, transform);
                     results.put(name, FCollection.of(name, output, DataType.DOCUMENT, schema));
-                    break;
                 }
-                case ENTITY: {
+                case ENTITY -> {
                     final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
                     Schema schema;
                     if(useSelect) {
@@ -238,7 +238,7 @@ public class FilterTransform implements TransformModule {
                     } else {
                         schema = inputCollection.getSchema();
                     }
-                    if (parameters.getRenameFields().size() > 0) {
+                    if (!parameters.getRenameFields().isEmpty()) {
                         final List<Schema.Field> rf = schema.getFields().stream()
                                 .filter(f -> parameters.getRenameFields().containsKey(f.getName()))
                                 .map(f -> f.toBuilder().setName(parameters.getRenameFields().get(f.getName())).build())
@@ -258,10 +258,8 @@ public class FilterTransform implements TransformModule {
                     final PCollection<Entity> output = inputCollection.getCollection()
                             .apply(name, transform);
                     results.put(name, FCollection.of(name, output, DataType.ENTITY, schema));
-                    break;
                 }
-                default:
-                    throw new IllegalArgumentException("Filter transform module does not support input data type: " + input.getDataType());
+                default -> throw new IllegalArgumentException("Filter transform module does not support input data type: " + input.getDataType());
             }
         }
 
@@ -310,12 +308,12 @@ public class FilterTransform implements TransformModule {
                                 new FilterDoFn<>(parameters.getFilters().toString(), valueGetter)));
             }
 
-            if((parameters.getSelect() == null || parameters.getSelect().size() == 0)
-                    && (parameters.getFields().size() == 0 && parameters.getRenameFields().size() == 0)) {
+            if((parameters.getSelect() == null || parameters.getSelect().isEmpty())
+                    && (parameters.getFields().isEmpty() && parameters.getRenameFields().isEmpty())) {
                 return filtered;
             }
 
-            if(parameters.getFields().size() > 0 || parameters.getRenameFields().size()> 0) {
+            if(!parameters.getFields().isEmpty() || !parameters.getRenameFields().isEmpty()) {
                 final Map<String, String> reversedRenameFields = parameters.getRenameFields().entrySet()
                         .stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
                 return filtered.apply("Fields", ParDo
@@ -392,7 +390,7 @@ public class FilterTransform implements TransformModule {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 final T element = c.element();
-                final Map<String, Object> values = SelectFunction.apply(selectFunctions, element, inputType, outputType);
+                final Map<String, Object> values = SelectFunction.apply(selectFunctions, element, inputType, outputType, c.timestamp());
                 final T output = valueCreator.create(schema, values);
                 c.output(output);
             }

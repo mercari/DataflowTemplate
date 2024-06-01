@@ -842,7 +842,7 @@ public class AggregationTransformTest {
                     Assert.assertEquals("CONSTANT_STRING", row.getString("constantStringField"));
                     Assert.assertEquals(580D, row.getDouble("expressionField").doubleValue(), DELTA);
                     Assert.assertEquals(Instant.parse("2023-08-05T00:00:00.000Z").getMillis(), row.getDateTime("constantTimestampField").toInstant().getMillis());
-                    Assert.assertEquals("418934e57a5fd45999ce70926e7969380584648b4b1da0be61bbe6c118675685", row.getString("hashField"));
+                    Assert.assertEquals("3f39d5c348e5b79d06e842c114e6cc571583bbf44e4b0ebfda1a01ec05745d43", row.getString("hashField"));
 
                     count += 1;
                 }

@@ -1,6 +1,7 @@
 package com.mercari.solution.module.sink;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
@@ -38,6 +39,7 @@ public class LocalNeo4jSink implements SinkModule {
         private List<String> teardownCyphers;
         private Integer bufferSize;
         private Neo4jUtil.Format format;
+        private Boolean useGDS;
 
         private List<String> groupFields;
         private String tempDirectory;
@@ -82,12 +84,27 @@ public class LocalNeo4jSink implements SinkModule {
             return format;
         }
 
+        public Boolean getUseGDS() {
+            return useGDS;
+        }
+
         public List<String> getGroupFields() {
             return groupFields;
         }
 
         public String getTempDirectory() {
             return tempDirectory;
+        }
+
+
+        public static LocalNeo4jSinkParameters of(final JsonElement jsonElement) {
+            final LocalNeo4jSinkParameters parameters = new Gson().fromJson(jsonElement, LocalNeo4jSinkParameters.class);
+            if(parameters == null) {
+                throw new IllegalArgumentException("localNeo4j sink parameters must not be empty!");
+            }
+            parameters.validate();
+            parameters.setDefaults();
+            return parameters;
         }
 
         public void validate() {
@@ -159,6 +176,9 @@ public class LocalNeo4jSink implements SinkModule {
             if(this.format == null) {
                 this.format = Neo4jUtil.Format.dump;
             }
+            if(this.useGDS == null) {
+                this.useGDS = false;
+            }
         }
 
     }
@@ -174,12 +194,7 @@ public class LocalNeo4jSink implements SinkModule {
             throw new IllegalArgumentException("localNeo4j sink module requires inputs");
         }
 
-        final LocalNeo4jSinkParameters parameters = new Gson().fromJson(config.getParameters(), LocalNeo4jSinkParameters.class);
-        if(parameters == null) {
-            throw new IllegalArgumentException("localNeo4j sink parameters must not be empty!");
-        }
-        parameters.validate();
-        parameters.setDefaults();
+        final LocalNeo4jSinkParameters parameters = LocalNeo4jSinkParameters.of(config.getParameters());
 
         final List<TupleTag<?>> tags = new ArrayList<>();
         final List<String> inputNames = new ArrayList<>();
@@ -254,7 +269,7 @@ public class LocalNeo4jSink implements SinkModule {
                                     parameters.getInput(), parameters.getDatabase(), parameters.getConf(),
                                     parameters.getNodes(), parameters.getRelationships(),
                                     parameters.getSetupCyphers(), parameters.getTeardownCyphers(),
-                                    parameters.getBufferSize(), parameters.getFormat(),
+                                    parameters.getBufferSize(), parameters.getFormat(), parameters.getUseGDS(),
                                     inputNames)));
 
             return writeResult.getPerDestinationOutputFilenames();

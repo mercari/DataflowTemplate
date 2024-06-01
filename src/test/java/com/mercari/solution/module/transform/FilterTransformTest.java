@@ -10,8 +10,11 @@ import com.mercari.solution.TestDatum;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
+import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Create;
@@ -598,7 +601,7 @@ public class FilterTransformTest {
         final TransformConfig config = new TransformConfig();
         config.setName("filter");
         config.setModule("filter");
-        config.setInputs(Arrays.asList("rowInput"));
+        config.setInputs(List.of("rowInput"));
 
         final JsonArray selectFields = new JsonArray();
         {
@@ -659,12 +662,68 @@ public class FilterTransformTest {
             selectField.addProperty("func", "current_timestamp");
             selectFields.add(selectField);
         }
+        {
+            final JsonObject struct = new JsonObject();
+            struct.addProperty("name", "structField");
+            struct.addProperty("func", "struct");
+            struct.addProperty("mode", "repeated");
+            final JsonArray fields = new JsonArray();
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "stringFieldA");
+                field.addProperty("field", "stringField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "enumField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "intFieldA");
+                field.addProperty("field", "intField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "nestedStructField");
+                field.addProperty("func", "struct");
+                final JsonArray nestedFields = new JsonArray();
+                {
+                    final JsonObject nestedField = new JsonObject();
+                    nestedField.addProperty("name", "nestedNestedStructField");
+                    nestedField.addProperty("func", "struct");
+                    final JsonArray nestedNestedFields = new JsonArray();
+                    {
+                        final JsonObject nestedNestedField = new JsonObject();
+                        nestedNestedField.addProperty("name", "timestampField");
+                        nestedNestedFields.add(nestedNestedField);
+                    }
+                    {
+                        final JsonObject nestedNestedField = new JsonObject();
+                        nestedNestedField.addProperty("name", "enumField2");
+                        nestedNestedField.addProperty("field", "enumField");
+                        nestedNestedFields.add(nestedNestedField);
+                    }
+                    nestedField.add("fields", nestedNestedFields);
+                    nestedFields.add(nestedField);
+                }
+                field.add("fields", nestedFields);
+                fields.add(field);
+            }
+            struct.add("fields", fields);
+            selectFields.add(struct);
+        }
 
         final JsonObject parameters = new JsonObject();
         parameters.add("select", selectFields);
         config.setParameters(parameters);
 
-        final Row dummyRow = TestDatum.generateRow();
+        final Row dummyRow_ = TestDatum.generateRow();
+        final Schema schema = RowSchemaUtil.toBuilder(dummyRow_.getSchema())
+                .addField("enumField", Schema.FieldType.logicalType(EnumerationType.create(List.of("a","b","c")))).build();
+        final Row dummyRow = RowSchemaUtil.toBuilder(schema, dummyRow_).withFieldValue("enumField", new EnumerationType.Value(1)).build();
 
         final PCollection<Row> inputStructs = pipeline
                 .apply("CreateDummy", Create.of(dummyRow, dummyRow, dummyRow));
@@ -677,13 +736,13 @@ public class FilterTransformTest {
         PAssert.that(outputRows).satisfies(rows -> {
             int count = 0;
             for(final Row row : rows) {
-                Assert.assertEquals(9, row.getFieldCount());
+                Assert.assertEquals(10, row.getFieldCount());
                 Assert.assertEquals(TestDatum.getStringFieldValue(), row.getString("stringField"));
                 Assert.assertEquals(TestDatum.getIntFieldValue(), row.getInt32("renamedIntField"));
                 Assert.assertEquals(Instant.parse("2023-08-15T00:00:00.000Z"), row.getDateTime("constantTimestampField"));
                 Assert.assertEquals(120L, row.getInt64("constantLongField").longValue());
                 Assert.assertEquals((Double)(TestDatum.getLongFieldValue() * TestDatum.getDoubleFieldValue() / TestDatum.getIntFieldValue()), row.getDouble("expressionField"));
-                Assert.assertEquals("5fa62a43c07f6d83", row.getString("hashField"));
+                Assert.assertEquals("dbcc96aec884f7d5", row.getString("hashField"));
                 Assert.assertEquals(TestDatum.getStringFieldValue(), row.getString("nestedStringField"));
                 Assert.assertEquals(TestDatum.getStringArrayFieldValues(), row.getArray("nestedArrayStringField"));
                 Assert.assertNotNull(row.getDateTime("currentTimestampField"));
@@ -692,7 +751,6 @@ public class FilterTransformTest {
             Assert.assertEquals(3, count);
             return null;
         });
-
         pipeline.run();
     }
 
@@ -786,7 +844,7 @@ public class FilterTransformTest {
                 Assert.assertEquals(Instant.parse("2023-08-15T00:00:00.000Z").getMillis() * 1000L, record.get("constantTimestampField"));
                 Assert.assertEquals(120L, record.get("constantLongField"));
                 Assert.assertEquals((Double)(TestDatum.getLongFieldValue() * TestDatum.getDoubleFieldValue() / TestDatum.getIntFieldValue()), record.get("expressionField"));
-                Assert.assertEquals("5fa62a43c07f6d83", record.get("hashField").toString());
+                Assert.assertEquals("dbcc96aec884f7d5", record.get("hashField").toString());
                 Assert.assertEquals(TestDatum.getStringFieldValue(), record.get("nestedStringField").toString());
                 final List<String> nestedArrayStringField = new ArrayList<>();
                 for(Object value : (Iterable)record.get("nestedArrayStringField")) {

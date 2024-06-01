@@ -10,20 +10,23 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
-import com.mercari.solution.module.sink.fileio.TextFileSink;
+import com.mercari.solution.module.sink.fileio.*;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.FixedFileNaming;
+import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.pipeline.union.Union;
+import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.EntitySchemaUtil;
 import com.mercari.solution.util.schema.StructSchemaUtil;
+import freemarker.template.Template;
+import org.apache.avro.Schema;
+import org.apache.avro.file.CodecFactory;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.coders.DefaultCoder;
-import org.apache.beam.sdk.coders.NullableCoder;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.extensions.avro.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
@@ -31,14 +34,20 @@ import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.WriteFilesResult;
 import org.apache.beam.sdk.io.parquet.ParquetIO;
 import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
+import org.apache.beam.sdk.transforms.windowing.IntervalWindow;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.*;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.math3.stat.StatUtils;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -50,30 +59,35 @@ public class StorageSink implements SinkModule {
     private static class StorageSinkParameters implements Serializable {
 
         private String output;
-        private String format;
+        private WriteFormat format;
+        private String prefix;
         private String suffix;
-        private String dynamicSplitField;
-        private Boolean withoutSharding;
         private String tempDirectory;
         private Integer numShards;
-        private String prefix;
-        private String compression;
+        private Compression compression;
+        private CodecName codec;
+        private Boolean noSpilling;
+        private String avroSchema;
+        private List<String> outputTemplateArgs;
         private String outputNotify;
-
-        private String datetimeFormat;
-        private String datetimeFormatZone;
-        private Boolean useOnlyEndDatetime;
 
         // csv
         private Boolean header;
         private Boolean bom;
         private Boolean outputEmpty;
 
+        // Deprecated
+        private String dynamicSplitField;
+        private Boolean withoutSharding;
+        private String datetimeFormat;
+        private String datetimeFormatZone;
+        private Boolean useOnlyEndDatetime;
+
         public String getOutput() {
             return output;
         }
 
-        public String getFormat() {
+        public WriteFormat getFormat() {
             return format;
         }
 
@@ -81,12 +95,8 @@ public class StorageSink implements SinkModule {
             return suffix;
         }
 
-        public String getDynamicSplitField() {
-            return dynamicSplitField;
-        }
-
-        public Boolean getWithoutSharding() {
-            return withoutSharding;
+        public String getPrefix() {
+            return prefix;
         }
 
         public String getTempDirectory() {
@@ -97,16 +107,51 @@ public class StorageSink implements SinkModule {
             return numShards;
         }
 
-        public String getPrefix() {
-            return prefix;
+        public Compression getCompression() {
+            return compression;
         }
 
-        public String getCompression() {
-            return compression;
+        public CodecName getCodec() {
+            return codec;
+        }
+
+        public Boolean getNoSpilling() {
+            return noSpilling;
+        }
+
+        public String getAvroSchema() {
+            return avroSchema;
+        }
+
+        public List<String> getOutputTemplateArgs() {
+            return outputTemplateArgs;
         }
 
         public String getOutputNotify() {
             return outputNotify;
+        }
+
+        // for CSV format
+        public Boolean getHeader() {
+            return header;
+        }
+
+        public Boolean getBom() {
+            return bom;
+        }
+
+        public Boolean getOutputEmpty() {
+            return outputEmpty;
+        }
+
+
+        // Deprecated
+        public String getDynamicSplitField() {
+            return dynamicSplitField;
+        }
+
+        public Boolean getWithoutSharding() {
+            return withoutSharding;
         }
 
         public String getDatetimeFormat() {
@@ -121,30 +166,54 @@ public class StorageSink implements SinkModule {
             return useOnlyEndDatetime;
         }
 
-        public Boolean getHeader() {
-            return header;
+
+        public static StorageSinkParameters of(final JsonElement jsonElement, final String name) {
+            final StorageSinkParameters parameters = new Gson().fromJson(jsonElement, StorageSinkParameters.class);
+            if(parameters == null) {
+                throw new IllegalArgumentException("storage sink[" + name + "].parameters must not be empty!");
+            }
+            parameters.validate(name);
+            parameters.setDefaults();
+            return parameters;
         }
 
-        public Boolean getBom() {
-            return bom;
-        }
+        private void validate(String name) {
+            final List<String> errorMessages = new ArrayList<>();
+            if(this.output == null) {
+                errorMessages.add("storage sink[" + name + "].parameters.output must not be null");
+            }
+            if(this.format == null) {
+                errorMessages.add("storage sink[" + name + "].parameters.format must not be null");
+            }
 
-        public Boolean getOutputEmpty() {
-            return outputEmpty;
-        }
-
-        private void validate() {
-
+            if(errorMessages.size() > 0) {
+                throw new IllegalArgumentException(String.join(", ", errorMessages));
+            }
         }
 
         private void setDefaults() {
-            if(this.format == null) {
-                this.format = "avro";
-            }
             if(this.suffix == null) {
-                //this.parameters.setSuffix("." + this.parameters.getFormat());
                 this.suffix = "";
             }
+            if(this.codec == null) {
+                this.codec = CodecName.SNAPPY;
+            }
+            if(this.noSpilling == null) {
+                this.noSpilling = false;
+            }
+            if(this.outputEmpty == null) {
+                this.outputEmpty = false;
+            }
+
+            // For CSV format
+            if(this.header == null) {
+                this.header = false;
+            }
+            if(this.bom == null) {
+                this.bom = false;
+            }
+
+            // Deprecated
             if(this.withoutSharding == null) {
                 this.withoutSharding = false;
             }
@@ -157,50 +226,320 @@ public class StorageSink implements SinkModule {
             if(this.useOnlyEndDatetime == null) {
                 this.useOnlyEndDatetime = false;
             }
-            if(this.header == null) {
-                this.header = false;
-            }
-            if(this.bom == null) {
-                this.bom = false;
-            }
-            if(this.outputEmpty == null) {
-                this.outputEmpty = false;
-            }
         }
+    }
+
+    private enum WriteFormat {
+        csv,
+        json,
+        avro,
+        parquet
+    }
+
+    public enum CodecName {
+        // common
+        SNAPPY,
+        UNCOMPRESSED,
+        // avro only
+        BZIP2,
+        DEFLATE,
+        XZ,
+        // parquet only
+        LZO,
+        LZ4,
+        LZ4_RAW,
+        BROTLI,
+        GZIP,
+        ZSTD
     }
 
     public String getName() { return "storage"; }
 
     @Override
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
-        if(inputs == null || inputs.size() != 1) {
-            throw new IllegalArgumentException("storage sink module requires input parameter");
+        if(inputs == null || inputs.isEmpty()) {
+            throw new IllegalArgumentException("storage sink module[" + config.getName() + "] requires input or inputs parameter");
         }
-        final FCollection<?> input = inputs.get(0);
-        return Collections.singletonMap(config.getName(), StorageSink.write(input, config, waits));
-    }
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
-    }
+        final StorageSinkParameters parameters = StorageSinkParameters.of(config.getParameters(), config.getName());
 
-    public static FCollection<?> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
-        final StorageSinkParameters parameters = new Gson().fromJson(config.getParameters(), StorageSinkParameters.class);
-        if(parameters == null) {
-            throw new IllegalArgumentException("storage sink module parameters must not be empty!");
+        final Schema outputAvroSchema;
+        if(parameters.getAvroSchema() != null) {
+            final String avroSchemaJson = StorageUtil.readString(parameters.getAvroSchema());
+            outputAvroSchema = AvroSchemaUtil.convertSchema(avroSchemaJson);
+            if(outputAvroSchema == null) {
+                throw new IllegalArgumentException("Failed to get avroSchema: " + parameters.getAvroSchema());
+            }
+        } else {
+            outputAvroSchema = inputs.get(0).getAvroSchema();
         }
-        parameters.validate();
-        parameters.setDefaults();
 
-        final StorageWrite write = new StorageWrite(collection, parameters, waits);
-        final PCollection output = collection.getCollection().apply(config.getName(), write);
-        final FCollection<?> fcollection = FCollection.update(collection, output);
         try {
-            config.outputAvroSchema(collection.getAvroSchema());
+            config.outputAvroSchema(outputAvroSchema);
         } catch (Exception e) {
             LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
         }
+
+        final FCollection<?> output;
+        if(inputs.size() > 1 || isTemplatePath(parameters.getOutput())) {
+            output = writeMulti(config.getName(), parameters, inputs, outputAvroSchema, waits);
+        } else {
+            final FCollection<?> input = inputs.get(0);
+            output = write(config.getName(), parameters, input, waits);
+        }
+        return Collections.singletonMap(config.getName(), output);
+    }
+
+    public static FCollection<?> write(
+            final String name,
+            final StorageSinkParameters parameters,
+            final FCollection<?> collection,
+            final List<FCollection<?>> waits) {
+
+        final StorageWrite write = new StorageWrite(collection, parameters, waits);
+        final PCollection output = collection.getCollection().apply(name, write);
+        final FCollection<?> fcollection = FCollection.update(collection, output);
         return fcollection;
+    }
+
+    public static FCollection<?> writeMulti(
+            final String name,
+            final StorageSinkParameters parameters,
+            final List<FCollection<?>> inputs,
+            final Schema outputAvroSchema,
+            final List<FCollection<?>> waits) {
+
+        final List<TupleTag<?>> inputTags = new ArrayList<>();
+        final List<String> inputNames = new ArrayList<>();
+        final List<DataType> inputTypes = new ArrayList<>();
+
+        PCollectionTuple tuple = PCollectionTuple.empty(inputs.get(0).getCollection().getPipeline());
+        for (final FCollection<?> input : inputs) {
+            final TupleTag inputTag = new TupleTag<>() {};
+            inputTags.add(inputTag);
+            inputNames.add(input.getName());
+            inputTypes.add(input.getDataType());
+            tuple = tuple.and(inputTag, input.getCollection());
+        }
+
+        final Write write = new Write(
+                name,
+                parameters,
+                inputTags,
+                inputNames,
+                inputTypes,
+                inputs.get(0).getAvroSchema(),
+                outputAvroSchema,
+                waits);
+
+        final PCollection<Row> output = tuple.apply(name, write);
+        return FCollection.of(name, output, DataType.ROW, OutputDoFn.schema);
+    }
+
+    public static class Write extends PTransform<PCollectionTuple, PCollection<Row>> {
+
+        private final String name;
+        private final StorageSinkParameters parameters;
+
+        private final List<TupleTag<?>> inputTags;
+        private final List<String> inputNames;
+        private final List<DataType> inputTypes;
+        private final String inputAvroSchemaJson;
+        private final String outputAvroSchemaJson;
+
+        private final List<FCollection<?>> waitCollections;
+
+        private Write(
+                final String name,
+                final StorageSinkParameters parameters,
+                final List<TupleTag<?>> inputTags,
+                final List<String> inputNames,
+                final List<DataType> inputTypes,
+                final Schema inputAvroSchema,
+                final Schema outputAvroSchema,
+                final List<FCollection<?>> waits) {
+
+            this.name = name;
+            this.parameters = parameters;
+
+            this.inputTags = inputTags;
+            this.inputNames = inputNames;
+            this.inputTypes = inputTypes;
+            this.inputAvroSchemaJson = inputAvroSchema.toString();
+            this.outputAvroSchemaJson = outputAvroSchema.toString();
+            this.waitCollections = waits;
+        }
+
+        public PCollection<Row> expand(final PCollectionTuple inputs) {
+
+            final PCollection<UnionValue> unionValues = inputs
+                    .apply("Union", Union.flatten(inputTags, inputTypes, inputNames));
+
+            final PCollection<UnionValue> waited;
+            if(waitCollections == null) {
+                waited = unionValues;
+            } else {
+                final List<PCollection<?>> waits = waitCollections.stream()
+                        .map(FCollection::getCollection)
+                        .collect(Collectors.toList());
+                waited = unionValues
+                        .apply("Wait", Wait.on(waits))
+                        .setCoder(unionValues.getCoder());
+            }
+
+            final String object = getObject(parameters.getOutput());
+            final Schema inputAvroSchema = AvroSchemaUtil.convertSchema(inputAvroSchemaJson);
+
+            final List<String> outputTemplateArgs = Optional
+                    .ofNullable(parameters.getOutputTemplateArgs())
+                    .orElseGet(() -> TemplateUtil.extractTemplateArgs(object, inputAvroSchema));
+
+            final PCollection<KV<String, UnionValue>> unionValuesWithKey = waited
+                    .apply("WithObjectName", ParDo.of(new ObjectNameDoFn(
+                            this.name, object, outputTemplateArgs)))
+                    .setCoder(KvCoder.of(StringUtf8Coder.of(), waited.getCoder()));
+
+            final FileIO.Sink<KV<String, UnionValue>> sink = switch (parameters.getFormat()) {
+                case csv -> {
+                    final List<String> fields = inputAvroSchema.getFields().stream()
+                            .map(org.apache.avro.Schema.Field::name)
+                            .toList();
+                    yield UnionValueCsvSink.of(fields, parameters.getHeader(), null, parameters.getBom());
+                }
+                case json -> UnionValueJsonSink.of(null, false, parameters.getBom());
+                case avro, parquet -> {
+                    final boolean fitSchema = parameters.getAvroSchema() != null;
+                    final Schema outputAvroSchema = AvroSchemaUtil.convertSchema(outputAvroSchemaJson);
+                    yield switch (this.parameters.getFormat()) {
+                        case avro -> UnionValueAvroSink.of(outputAvroSchema, parameters.getCodec(), fitSchema);
+                        case parquet -> UnionValueParquetSink.of(outputAvroSchema, parameters.getCodec(), fitSchema);
+                        default -> throw new IllegalArgumentException();
+                    };
+                }
+            };
+
+            final String label = switch (parameters.getFormat()) {
+                case csv -> "WriteCSV";
+                case json -> "WriteJSON";
+                case avro -> "WriteAvro";
+                case parquet -> "WriteParquet";
+            };
+
+            final WriteFilesResult writeFilesResult;
+            if(isTemplatePath(object)) {
+                final FileIO.Write<String, KV<String, UnionValue>> write = createDynamicWrite(parameters);
+                writeFilesResult = unionValuesWithKey.apply(label + "Dynamic", write.via(sink));
+            } else {
+                final FileIO.Write<Void, KV<String, UnionValue>> write = createWrite(parameters);
+                writeFilesResult = unionValuesWithKey.apply(label, write.via(sink));
+            }
+
+            final PCollection<KV> rows = writeFilesResult
+                    .getPerDestinationOutputFilenames();
+            return rows
+                    .apply("Output", ParDo.of(new OutputDoFn(this.name)))
+                    .setCoder(RowCoder.of(OutputDoFn.schema));
+        }
+
+        private static FileIO.Write<Void, KV<String, UnionValue>> createWrite(final StorageSinkParameters parameters) {
+            final String bucket = getBucket(parameters.getOutput());
+            final String object = getObject(parameters.getOutput());
+            final String suffix = parameters.getSuffix();
+            final Integer numShards = parameters.getNumShards();
+
+            FileIO.Write<Void, KV<String, UnionValue>> write = FileIO
+                    .<KV<String, UnionValue>>write()
+                    .to(bucket)
+                    .withNaming(getFileNaming(object, suffix, numShards));
+
+            if(parameters.getNumShards() == null || parameters.getNumShards() < 1) {
+                write = write.withAutoSharding();
+            } else {
+                write = write.withNumShards(parameters.getNumShards());
+            }
+
+            if(parameters.getTempDirectory() != null) {
+                write = write.withTempDirectory(parameters.getTempDirectory());
+            }
+            if(parameters.getCompression() != null) {
+                write = write.withCompression(parameters.getCompression());
+            }
+            if(parameters.getNoSpilling()) {
+                write = write.withNoSpilling();
+            }
+            return write;
+        }
+
+        private static FileIO.Write<String, KV<String, UnionValue>> createDynamicWrite(final StorageSinkParameters parameters) {
+            final String bucket = getBucket(parameters.getOutput());
+            final String suffix = parameters.getSuffix();
+            final Integer numShards = parameters.getNumShards();
+
+            FileIO.Write<String, KV<String, UnionValue>> write = FileIO
+                    .<String, KV<String, UnionValue>>writeDynamic()
+                    .to(bucket)
+                    .by(KV::getKey)
+                    .withDestinationCoder(StringUtf8Coder.of())
+                    .withNaming(key -> getFileNaming(key, suffix, numShards));
+
+            if(parameters.getNumShards() == null || parameters.getNumShards() < 1) {
+                write = write.withAutoSharding();
+            } else {
+                write = write.withNumShards(parameters.getNumShards());
+            }
+
+            if(parameters.getTempDirectory() != null) {
+                write = write.withTempDirectory(parameters.getTempDirectory());
+            }
+            if(parameters.getCompression() != null) {
+                write = write.withCompression(parameters.getCompression());
+            }
+            return write;
+        }
+
+        private static class ObjectNameDoFn extends DoFn<UnionValue, KV<String, UnionValue>> {
+
+            private final String name;
+            private final String path;
+            private final List<String> templateArgs;
+            private final boolean useTemplate;
+
+            private transient Template pathTemplate;
+
+            public ObjectNameDoFn(
+                    final String name,
+                    final String path,
+                    final List<String> templateArgs) {
+
+                this.name = name;
+                this.path = path;
+                this.templateArgs = templateArgs;
+                this.useTemplate = isTemplatePath(this.path);
+            }
+
+            @Setup
+            public void setup() {
+                if(useTemplate) {
+                    this.pathTemplate = TemplateUtil.createSafeTemplate("pathTemplate" + name, path);
+                }
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final UnionValue unionValue = c.element();
+                if(useTemplate) {
+                    final Map<String, Object> values = UnionValue.getAsMap(unionValue, templateArgs);
+                    TemplateUtil.setFunctions(values);
+                    values.put("__timestamp", Instant.ofEpochMilli(c.timestamp().getMillis()));
+                    final String key = TemplateUtil.executeStrictTemplate(pathTemplate, values);
+                    c.output(KV.of(key, unionValue));
+                } else {
+                    c.output(KV.of(this.path, unionValue));
+                }
+            }
+
+        }
+
     }
 
     public static class StorageWrite extends PTransform<PCollection<?>, PCollection<KV>> {
@@ -231,130 +570,147 @@ public class StorageSink implements SinkModule {
                         .setCoder((Coder) inputP.getCoder());
             }
 
-            final String format = this.parameters.getFormat();
             final String destinationField = this.parameters.getDynamicSplitField();
-            WriteFilesResult writeResult;
-            switch (format.trim().toLowerCase()) {
-                case "csv": {
+            final WriteFilesResult writeResult = switch (this.parameters.getFormat()) {
+                case csv ->
                     switch (collection.getDataType()) {
-                        case AVRO: {
+                        case AVRO -> {
                             final FileIO.Write<String, GenericRecord> write = createWrite(
                                     parameters, e -> e.get(destinationField).toString());
-                            writeResult = ((PCollection<GenericRecord>) input).apply("WriteCSV", write.via(TextFileSink.of(
+                            yield ((PCollection<GenericRecord>) input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getAvroSchema().getFields().stream()
                                             .map(org.apache.avro.Schema.Field::name)
                                             .collect(Collectors.toList()),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     RecordToCsvConverter::convert)));
-                            break;
                         }
-                        case ROW: {
+                        case ROW -> {
                             final FileIO.Write<String, Row> write = createWrite(
                                     parameters, e -> e.getValue(destinationField).toString());
-                            writeResult = ((PCollection<Row>)input).apply("WriteCSV", write.via(TextFileSink.of(
+                            yield ((PCollection<Row>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     RowToCsvConverter::convert)));
-                            break;
                         }
-                        case STRUCT: {
+                        case STRUCT -> {
                             final FileIO.Write<String, Struct> write = createWrite(
                                     parameters, e -> StructSchemaUtil.getAsString(e, destinationField));
-                            writeResult = ((PCollection<Struct>)input).apply("WriteCSV", write.via(TextFileSink.of(
+                            yield ((PCollection<Struct>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
                                             .collect(Collectors.toList()),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     StructToCsvConverter::convert)));
-                            break;
                         }
-                        case ENTITY: {
+                        case ENTITY -> {
                             final FileIO.Write<String, Entity> write = createWrite(
                                     parameters, e -> EntitySchemaUtil.getFieldValueAsString(e, destinationField));
-                            writeResult = ((PCollection<Entity>)input).apply("WriteCSV", write.via(TextFileSink.of(
+                            yield ((PCollection<Entity>)input).apply("WriteCSV", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     EntityToCsvConverter::convert)));
-                            break;
                         }
-                        default: {
-                            throw new IllegalArgumentException("Not supported csv input type: " + collection.getDataType());
-                        }
-                    }
-                    break;
-                }
-                case "json": {
+                        default -> throw new IllegalArgumentException("Not supported csv input type: " + collection.getDataType());
+
+                    };
+                case json ->
                     switch (collection.getDataType()) {
-                        case AVRO: {
+                        case AVRO -> {
                             final FileIO.Write<String, GenericRecord> write = createWrite(
                                     parameters, e -> e.get(destinationField).toString());
-                            writeResult = ((PCollection<GenericRecord>)input).apply("WriteJson", write.via(TextFileSink.of(
+                            yield ((PCollection<GenericRecord>) input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     RecordToJsonConverter::convert)));
-                            break;
                         }
-                        case ROW: {
+                        case ROW -> {
                             final FileIO.Write<String, Row> write = createWrite(
                                     parameters, e -> e.getValue(destinationField).toString());
-                            writeResult = ((PCollection<Row>)input).apply("WriteJson", write.via(TextFileSink.of(
+                            yield ((PCollection<Row>) input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
                                             .collect(Collectors.toList()),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     RowToJsonConverter::convert)));
-                            break;
                         }
-                        case STRUCT: {
+                        case STRUCT -> {
                             final FileIO.Write<String, Struct> write = createWrite(
                                     parameters, e -> StructSchemaUtil.getAsString(e, destinationField));
-                            writeResult = ((PCollection<Struct>)input).apply("WriteJson", write.via(TextFileSink.of(
+                            yield ((PCollection<Struct>) input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSpannerType().getStructFields().stream()
                                             .map(Type.StructField::getName)
                                             .collect(Collectors.toList()),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     StructToJsonConverter::convert)));
-                            break;
                         }
-                        case ENTITY: {
+                        case ENTITY -> {
                             final FileIO.Write<String, Entity> write = createWrite(
                                     parameters, e -> EntitySchemaUtil.getFieldValueAsString(e, destinationField));
-                            writeResult = ((PCollection<Entity>)input).apply("WriteJson", write.via(TextFileSink.of(
+                            yield ((PCollection<Entity>) input).apply("WriteJson", write.via(TextFileSink.of(
                                     collection.getSchema().getFieldNames(),
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     EntityToJsonConverter::convert)));
-                            break;
                         }
-                        default: {
-                            throw new IllegalArgumentException("Not supported json input type: " + collection.getDataType());
-                        }
-                    }
-                    break;
-                }
-                case "avro":
-                case "parquet": {
+                        default -> throw new IllegalArgumentException("Not supported json input type: " + collection.getDataType());
+                    };
+                case avro, parquet -> {
                     final DataTypeTransform.TypeTransform<GenericRecord> transform = DataTypeTransform.transform(collection, DataType.AVRO);
-                    final PCollection<GenericRecord> records = input.apply(transform);
+                    PCollection<GenericRecord> records = input.apply(transform);
                     final FileIO.Write<String, GenericRecord> write = createWrite(
                             parameters, e -> e.get(destinationField).toString());
-                    final org.apache.avro.Schema avroSchema = transform.getOutputCollection().getAvroSchema();
-
-                    if ("avro".equalsIgnoreCase(format.trim())) {
-                        writeResult = records.apply("WriteAvro", write.via(AvroIO.sink(avroSchema)));
-                    } else if("parquet".equalsIgnoreCase(format.trim())) {
-                        writeResult = records.apply("WriteParquet", write.via(ParquetIO.sink(avroSchema)));
+                    final org.apache.avro.Schema avroSchema;
+                    if(parameters.getAvroSchema() == null) {
+                        avroSchema = transform.getOutputCollection().getAvroSchema();
                     } else {
-                        throw new IllegalArgumentException("Not supported format: " + format);
+                        final String avroSchemaJson = StorageUtil.readString(parameters.getAvroSchema());
+                        avroSchema = AvroSchemaUtil.convertSchema(avroSchemaJson);
+                        records = records
+                                .apply("FitSchema", ParDo.of(new FitSchemaDoFn(avroSchemaJson)))
+                                .setCoder(AvroCoder.of(avroSchema));
                     }
-                    break;
+
+                    yield switch (this.parameters.getFormat()) {
+                        case avro -> {
+                            AvroIO.Sink<GenericRecord> sink = AvroIO.sink(avroSchema);
+                            if(parameters.getCodec() != null) {
+                                sink = switch (parameters.getCodec()) {
+                                    case BZIP2 -> sink.withCodec(CodecFactory.bzip2Codec());
+                                    case SNAPPY -> sink.withCodec(CodecFactory.snappyCodec());
+                                    case DEFLATE -> sink.withCodec(CodecFactory.deflateCodec(CodecFactory.DEFAULT_DEFLATE_LEVEL));
+                                    case XZ -> sink.withCodec(CodecFactory.xzCodec(CodecFactory.DEFAULT_XZ_LEVEL));
+                                    case UNCOMPRESSED -> sink;
+                                    default -> throw new IllegalArgumentException("Not supported avro compression: " + parameters.getCompression());
+                                };
+                            }
+                            yield records.apply("WriteAvro", write.via(sink));
+                        }
+                        case parquet -> {
+                            ParquetIO.Sink sink = ParquetIO.sink(avroSchema);
+                            if(parameters.getCodec() != null) {
+                                sink = switch (parameters.getCodec()) {
+                                    case LZO -> sink.withCompressionCodec(CompressionCodecName.LZO);
+                                    case LZ4 -> sink.withCompressionCodec(CompressionCodecName.LZ4);
+                                    case LZ4_RAW -> sink.withCompressionCodec(CompressionCodecName.LZ4_RAW);
+                                    case ZSTD -> sink.withCompressionCodec(CompressionCodecName.ZSTD);
+                                    case SNAPPY -> sink.withCompressionCodec(CompressionCodecName.SNAPPY);
+                                    case GZIP -> sink.withCompressionCodec(CompressionCodecName.GZIP);
+                                    case BROTLI -> sink.withCompressionCodec(CompressionCodecName.BROTLI);
+                                    case UNCOMPRESSED -> sink.withCompressionCodec(CompressionCodecName.UNCOMPRESSED);
+                                    default -> throw new IllegalArgumentException("Not supported parquet compression: " + parameters.getCompression());
+                                };
+                            }
+                            yield records.apply("WriteParquet", write.via(sink));
+                        }
+                        default -> throw new IllegalArgumentException();
+                    };
                 }
                 /*
                 case "tfrecord":
@@ -363,13 +719,12 @@ public class StorageSink implements SinkModule {
                     break;
 
                 */
-                default:
-                    throw new IllegalArgumentException("Not supported format: " + format);
-            }
+                default -> throw new IllegalArgumentException("Not supported format: " + this.parameters.getFormat());
+            };
 
             if(parameters.getOutputEmpty() || parameters.getOutputNotify() != null) {
                 final String emptyContent;
-                if("csv".equals(parameters.getFormat().trim().toLowerCase())) {
+                if(WriteFormat.csv.equals(parameters.getFormat())) {
                     emptyContent = String.join(",", getFieldNames(collection));
                 } else {
                     emptyContent = "";
@@ -389,22 +744,17 @@ public class StorageSink implements SinkModule {
         }
 
         private static List<String> getFieldNames(final FCollection<?> collection) {
-            switch (collection.getDataType()) {
-                case ROW:
-                    return collection.getSchema().getFieldNames();
-                case AVRO:
-                    return collection.getAvroSchema().getFields().stream()
-                            .map(org.apache.avro.Schema.Field::name)
-                            .collect(Collectors.toList());
-                case STRUCT:
-                    return collection.getSpannerType().getStructFields().stream()
-                            .map(Type.StructField::getName)
-                            .collect(Collectors.toList());
-                case ENTITY:
-                    return collection.getSchema().getFieldNames();
-                default:
-                    throw new IllegalArgumentException("Not supported data type: " + collection.getDataType().name());
-            }
+            return switch (collection.getDataType()) {
+                case ROW -> collection.getSchema().getFieldNames();
+                case AVRO -> collection.getAvroSchema().getFields().stream()
+                        .map(Schema.Field::name)
+                        .collect(Collectors.toList());
+                case STRUCT -> collection.getSpannerType().getStructFields().stream()
+                        .map(Type.StructField::getName)
+                        .collect(Collectors.toList());
+                case ENTITY -> collection.getSchema().getFieldNames();
+                default -> throw new IllegalArgumentException("Not supported data type: " + collection.getDataType().name());
+            };
         }
 
         private <InputT> FileIO.Write<String, InputT> createWrite(
@@ -415,13 +765,12 @@ public class StorageSink implements SinkModule {
 
             FileIO.Write<String, InputT> write;
             final String suffix = parameters.getSuffix();
-            final String prefix = parameters.getPrefix() == null ? "" : parameters.getPrefix();
             if(parameters.getDynamicSplitField() != null) {
                 write = FileIO.<String, InputT>writeDynamic()
-                        .to(output)
                         .by(d -> Optional.ofNullable(destinationFunction.apply(d)).orElse(""))
                         .withDestinationCoder(StringUtf8Coder.of());
             } else {
+                final String prefix = parameters.getPrefix() == null ? "" : parameters.getPrefix();
                 final String outdir = parameters.getWithoutSharding() ? StorageUtil.removeDirSuffix(output) : output;
                 write = FileIO.<String, InputT>writeDynamic()
                         .to(outdir)
@@ -430,7 +779,6 @@ public class StorageSink implements SinkModule {
             }
 
             if(parameters.getWithoutSharding()) {
-                write = write.withNumShards(1);
                 final String datetimeFormat = parameters.getDatetimeFormat();
                 final String datetimeFormatZone = parameters.getDatetimeFormatZone();
                 final Boolean useOnlyEndDatetime = parameters.getUseOnlyEndDatetime();
@@ -445,52 +793,47 @@ public class StorageSink implements SinkModule {
                                     StorageUtil.addFilePrefix(output, ""), suffix,
                                     datetimeFormat, datetimeFormatZone, useOnlyEndDatetime));
                 }
+                write = write.withNumShards(1);
             } else {
                 write = write.withNaming(key -> FileIO.Write.defaultNaming(
                         StorageUtil.addFilePrefix(output, key),
                         suffix));
+                if(parameters.getNumShards() != null) {
+                    write = write.withNumShards(parameters.getNumShards());
+                }
             }
 
             if(parameters.getTempDirectory() != null) {
                 write = write.withTempDirectory(parameters.getTempDirectory());
             }
-            if(parameters.getNumShards() != null) {
-                write = write.withNumShards(parameters.getNumShards());
-            }
             if(parameters.getCompression() != null) {
-                final Compression c;
-                switch (parameters.getCompression().trim().toUpperCase()) {
-                    case "ZIP":
-                        c = Compression.ZIP;
-                        break;
-                    case "GZIP":
-                        c = Compression.GZIP;
-                        break;
-                    case "BZIP2":
-                        c = Compression.BZIP2;
-                        break;
-                    case "ZSTD":
-                        c = Compression.ZSTD;
-                        break;
-                    case "LZO":
-                        c = Compression.LZO;
-                        break;
-                    case "LZOP":
-                        c = Compression.LZOP;
-                        break;
-                    case "AUTO":
-                        c = Compression.AUTO;
-                        break;
-                    case "UNCOMPRESSED":
-                        c = Compression.UNCOMPRESSED;
-                        break;
-                    default:
-                        c = Compression.DEFLATE;
-                        break;
-                }
-                write = write.withCompression(c);
+                write = write.withCompression(parameters.getCompression());
             }
             return write;
+        }
+
+        private static class FitSchemaDoFn extends DoFn<GenericRecord, GenericRecord> {
+
+            private final String outputSchemaJson;
+
+            private transient Schema outputSchema;
+
+            FitSchemaDoFn(final String outputSchemaJson) {
+                this.outputSchemaJson = outputSchemaJson;
+            }
+
+            @Setup
+            public void setup() {
+                this.outputSchema = AvroSchemaUtil.convertSchema(this.outputSchemaJson);
+            }
+
+            @ProcessElement
+            public void processElement(final ProcessContext c) {
+                final GenericRecord input = c.element();
+                final GenericRecord output = AvroSchemaUtil.toBuilder(outputSchema, input).build();
+                c.output(output);
+            }
+
         }
 
         private static class PostprocessDoFn extends DoFn<String, Void> {
@@ -1005,5 +1348,136 @@ public class StorageSink implements SinkModule {
         }
 
     }
+
+    private static class OutputDoFn extends DoFn<KV, Row> {
+
+        private static final org.apache.beam.sdk.schemas.Schema schema = org.apache.beam.sdk.schemas.Schema.builder()
+                .addField(org.apache.beam.sdk.schemas.Schema.Field.of("sink", org.apache.beam.sdk.schemas.Schema.FieldType.STRING.withNullable(false)))
+                .addField(org.apache.beam.sdk.schemas.Schema.Field.of("path", org.apache.beam.sdk.schemas.Schema.FieldType.STRING.withNullable(false)))
+                .addField(org.apache.beam.sdk.schemas.Schema.Field.of("timestamp", org.apache.beam.sdk.schemas.Schema.FieldType.DATETIME.withNullable(false)))
+                .build();
+
+        private final String name;
+
+        OutputDoFn(String name) {
+            this.name = name;
+        }
+
+
+        @ProcessElement
+        public void processElement(final ProcessContext c) {
+            final Row row = Row.withSchema(schema)
+                    .withFieldValue("sink", this.name)
+                    .withFieldValue("path", c.element().getValue().toString())
+                    .withFieldValue("timestamp", c.timestamp())
+                    .build();
+            c.output(row);
+        }
+
+    }
+
+    public static String getBucket(String output) {
+        final String[] paths = output.replaceFirst("gs://", "").split("/", -1);
+        return "gs://" + paths[0] + "/";
+    }
+
+    public static String getObject(String output) {
+        final String[] paths = output.replaceFirst("gs://", "").split("/", 2);
+        return paths[1];
+    }
+
+    private static boolean isTemplatePath(final String path) {
+        if(path == null) {
+            return false;
+        }
+        return path.contains("${");
+    }
+
+    private static FileIO.Write.FileNaming getFileNaming(
+            final String key,
+            final String suffix,
+            final Integer numShards) {
+
+        if(isTemplatePath(suffix)) {
+            return new TemplateFileNaming(key, suffix);
+        } else if(numShards != null && numShards == 1) {
+            return new SingleFileNaming(key, suffix);
+        }
+
+        return FileIO.Write.defaultNaming(key, suffix);
+    }
+
+
+    private static class TemplateFileNaming implements FileIO.Write.FileNaming {
+
+        private final String path;
+        private final String suffix;
+        private transient Template suffixTemplate;
+
+        private TemplateFileNaming(final String path, final String suffix) {
+            this.path = path;
+            this.suffix = suffix;
+        }
+
+        public String getFilename(final BoundedWindow window,
+                                  final PaneInfo pane,
+                                  final int numShards,
+                                  final int shardIndex,
+                                  final Compression compression) {
+
+            if(suffixTemplate == null) {
+                this.suffixTemplate = TemplateUtil.createStrictTemplate("TemplateFileNaming", suffix);
+            }
+
+            final Map<String,Object> values = new HashMap<>();
+            if (window != GlobalWindow.INSTANCE) {
+                final IntervalWindow iw = (IntervalWindow)window;
+                final Instant start = Instant.ofEpochMilli(iw.start().getMillis());
+                final Instant end   = Instant.ofEpochMilli(iw.end().getMillis());
+                values.put("windowStart", start);
+                values.put("windowEnd",   end);
+            }
+
+            values.put("paneIndex", pane.getIndex());
+            values.put("paneIsFirst", pane.isFirst());
+            values.put("paneIsLast", pane.isLast());
+            values.put("paneTiming", pane.getTiming().name());
+            values.put("paneIsOnlyFiring", pane.isFirst() && pane.isLast());
+            values.put("numShards", numShards);
+            values.put("shardIndex", shardIndex);
+            values.put("suggestedSuffix", compression.getSuggestedSuffix());
+
+            TemplateUtil.setFunctions(values);
+
+            final String filename = TemplateUtil.executeStrictTemplate(suffixTemplate, values);
+            final String fullPath = this.path + filename;
+            LOG.info("templateFilename: " + fullPath);
+            return fullPath;
+        }
+
+    }
+
+    private static class SingleFileNaming implements FileIO.Write.FileNaming {
+
+        private final String path;
+        private final String suffix;
+
+        private SingleFileNaming(final String path, final String suffix) {
+            this.path = path;
+            this.suffix = suffix;
+        }
+
+        public String getFilename(final BoundedWindow window,
+                                  final PaneInfo pane,
+                                  final int numShards,
+                                  final int shardIndex,
+                                  final Compression compression) {
+
+            final String fullPath = this.path + this.suffix;
+            return fullPath;
+        }
+
+    }
+
 
 }

@@ -358,7 +358,7 @@ public class PartitionTransform implements TransformModule {
                         final T result;
                         if(selectFunctions.size() > 0) {
                             final RuntimeSchemaT schema = runtimeOutputSchemas.get(condition.getKey());
-                            final Map<String, Object> values = SelectFunction.apply(selectFunctions, element, inputType, inputType);
+                            final Map<String, Object> values = SelectFunction.apply(selectFunctions, element, inputType, inputType, c.timestamp());
                             result = valueCreator.create(schema, values);
                         } else {
                             result = element;

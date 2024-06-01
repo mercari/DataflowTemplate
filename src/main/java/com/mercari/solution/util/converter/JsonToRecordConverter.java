@@ -34,6 +34,9 @@ public class JsonToRecordConverter {
     }
 
     public static GenericRecord convert(final Schema schema, final JsonElement jsonElement) {
+        if(jsonElement == null) {
+            return null;
+        }
         if(jsonElement.isJsonObject()) {
             return convert(schema, jsonElement.getAsJsonObject());
         } else if(jsonElement.isJsonArray()) {
@@ -74,14 +77,14 @@ public class JsonToRecordConverter {
 
     public static boolean validateSchema(final Schema schema, final JsonObject jsonObject) {
         for(final Map.Entry<String,JsonElement> entry : jsonObject.entrySet()) {
-            if(!schema.getFields().stream().anyMatch(f -> f.name().equals(entry.getKey()))) {
-                LOG.error("Validation error: json field: " + entry.getKey() + " is not present in schema.");
+            if(schema.getFields().stream().noneMatch(f -> f.name().equals(entry.getKey()))) {
+                LOG.error("Validation error: json field: {} is not present in schema.", entry.getKey());
                 return false;
             }
             final Schema.Field field = schema.getField(entry.getKey());
             final JsonElement element = entry.getValue();
             if(!AvroSchemaUtil.isNullable(field.schema()) && element.isJsonNull()) {
-                LOG.error("Validation error: json field: " + entry.getKey() + " is null but schema is not nullable");
+                LOG.error("Validation error: json field: {} is null but schema is not nullable", entry.getKey());
                 return false;
             }
             if(element.isJsonNull()) {
@@ -89,29 +92,26 @@ public class JsonToRecordConverter {
             }
             final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
             switch (fieldSchema.getType()) {
-                case RECORD: {
+                case RECORD -> {
                     if(!element.isJsonObject()) {
-                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonObject. element: " + element);
+                        LOG.error("Validation error: json field: {} is not JsonObject. element: {}", entry.getKey(), element);
                         return false;
                     }
                     if(!validateSchema(fieldSchema, element.getAsJsonObject())) {
                         return false;
                     }
-                    break;
                 }
-                case ARRAY: {
+                case ARRAY -> {
                     if(!element.isJsonArray()) {
-                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonArray. element: " + element);
+                        LOG.error("Validation error: json field: {} is not JsonArray. element: {}", entry.getKey(), element);
                         return false;
                     }
-                    break;
                 }
-                default: {
+                default -> {
                     if(!element.isJsonPrimitive()) {
-                        LOG.error("Validation error: json field: " + entry.getKey() + " is not JsonPrimitive. element: " + element);
+                        LOG.error("Validation error: json field: {} is not JsonPrimitive. element: {}", entry.getKey(), element);
                         return false;
                     }
-                    break;
                 }
             }
         }
@@ -234,20 +234,20 @@ public class JsonToRecordConverter {
                     return jsonElement.isJsonPrimitive() ? jsonElement.getAsBoolean() : null;
                 case RECORD: {
                     if (!jsonElement.isJsonObject()) {
-                        throw new IllegalStateException(String.format("FieldType: %s's type is record, but jsonElement is",
-                                schema.getType(), jsonElement.toString()));
+                        throw new IllegalStateException(String.format("FieldType: %s's type is record, but jsonElement is %s",
+                                schema.getType(), jsonElement));
                     }
                     return convert(schema, jsonElement.getAsJsonObject());
                 }
                 case ARRAY: {
                     if (!jsonElement.isJsonArray()) {
-                        throw new IllegalStateException(String.format("FieldType: %s's type is array, but jsonElement is",
-                                schema.getType(), jsonElement.toString()));
+                        throw new IllegalStateException(String.format("FieldType: %s's type is array, but jsonElement is %s",
+                                schema.getType(), jsonElement));
                     }
                     final List<Object> childValues = new ArrayList<>();
                     for (final JsonElement childJsonElement : jsonElement.getAsJsonArray()) {
                         if (childJsonElement.isJsonArray()) {
-                            throw new IllegalArgumentException("JsonElement is not JsonArray: " + childJsonElement.toString());
+                            throw new IllegalArgumentException("JsonElement is not JsonArray: " + childJsonElement);
                         }
                         final Object arrayValue = convertValue(schema.getElementType(), childJsonElement);
                         if (arrayValue != null) {

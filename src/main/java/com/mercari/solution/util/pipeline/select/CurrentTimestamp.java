@@ -53,7 +53,7 @@ public class CurrentTimestamp implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         return Instant.now().getMillis() * 1000L;
     }
 

@@ -193,6 +193,8 @@ public class ExpressionUtil {
             return ((BigDecimal)value).doubleValue();
         } else if(value instanceof Instant) {
             return Long.valueOf(((Instant)value).getMillis() * 1000L).doubleValue();
+        } else if(value instanceof java.time.Instant) {
+            return DateTimeUtil.toEpochMicroSecond((java.time.Instant)value).doubleValue();
         } else if(value instanceof LocalDate) {
             return Long.valueOf(((LocalDate)value).toEpochDay()).doubleValue();
         } else if(value instanceof LocalTime) {

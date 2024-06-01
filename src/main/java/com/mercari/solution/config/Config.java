@@ -43,6 +43,8 @@ public class Config implements Serializable {
     private List<TransformConfig> transforms;
     private List<SinkConfig> sinks;
 
+    private Boolean empty;
+
     public String getName() {
         return name;
     }
@@ -97,6 +99,14 @@ public class Config implements Serializable {
 
     public void setSinks(List<SinkConfig> sinks) {
         this.sinks = sinks;
+    }
+
+    public Boolean getEmpty() {
+        return empty;
+    }
+
+    public void setEmpty(Boolean empty) {
+        this.empty = empty;
     }
 
     public void validate() {
@@ -226,7 +236,7 @@ public class Config implements Serializable {
         final Optional<TransformConfig> tc = this.transforms.stream()
                 .filter(c -> beamSQLTransformName.equals(c.getModule()))
                 .findFirst();
-        if(!tc.isPresent()) {
+        if(tc.isEmpty()) {
             return false;
         }
         if(tc.get().getParameters() == null) {
@@ -306,6 +316,7 @@ public class Config implements Serializable {
             final List<SinkConfig> sinks = Optional.ofNullable(config.getSinks()).orElseGet(ArrayList::new)
                     .stream()
                     .filter(Objects::nonNull)
+                    .peek(c -> c.setArgs(templateArgs))
                     .collect(Collectors.toList());
 
             if(config.getImports() != null && config.getImports().size() > 0) {

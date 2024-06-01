@@ -13,6 +13,7 @@ import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.pipeline.mutation.UnifiedMutation;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.gcp.SpannerUtil;
@@ -98,6 +99,14 @@ public class SpannerSink implements SinkModule {
             return mutationOp;
         }
 
+        public List<String> getKeyFields() {
+            return keyFields;
+        }
+
+        public List<String> getCommitTimestampFields() {
+            return commitTimestampFields;
+        }
+
         public Boolean getFailFast() {
             return failFast;
         }
@@ -120,14 +129,6 @@ public class SpannerSink implements SinkModule {
 
         public Boolean getEmptyTable() {
             return emptyTable;
-        }
-
-        public List<String> getKeyFields() {
-            return keyFields;
-        }
-
-        public List<String> getCommitTimestampFields() {
-            return commitTimestampFields;
         }
 
         public String getInterleavedIn() {
@@ -209,12 +210,8 @@ public class SpannerSink implements SinkModule {
             }
             if(this.getTable() == null) {
                 switch (dataType) {
-                    case MUTATION:
-                    case MUTATIONGROUP:
-                        break;
-                    default:
-                        errorMessages.add("Parameter must contain table");
-                        break;
+                    case MUTATION, MUTATIONGROUP, UNIFIEDMUTATION -> {}
+                    default -> errorMessages.add("Parameter must contain table");
                 }
             }
             if(this.getCreateTable() && this.getKeyFields() == null && !isTuple) {
@@ -227,7 +224,7 @@ public class SpannerSink implements SinkModule {
                 }
             }
 
-            if(errorMessages.size() > 0) {
+            if(!errorMessages.isEmpty()) {
                 throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
@@ -314,30 +311,29 @@ public class SpannerSink implements SinkModule {
         if(inputs == null || inputs.size() != 1) {
             throw new IllegalArgumentException("spanner sink module requires input parameter");
         }
-        final FCollection<?> input = inputs.get(0);
-        return write(input, config, waits);
-    }
 
-    public static Map<String, FCollection<?>> write(final FCollection<?> collection, final SinkConfig config) {
-        return write(collection, config, null);
-    }
-
-    public static Map<String, FCollection<?>> write(final FCollection<?> collection, final SinkConfig config, final List<FCollection<?>> waits) {
         final SpannerSinkParameters parameters = new Gson().fromJson(config.getParameters(), SpannerSinkParameters.class);
         if(parameters == null) {
             throw new IllegalArgumentException("spanner sink parameter must not be empty!");
         }
-        parameters.setDefaults(collection.getCollection());
-        parameters.validate(collection.getCollection(), collection.getDataType(), collection.getIsTuple());
 
-        if(DataType.MUTATIONGROUP.equals(collection.getDataType())) {
-            return writeMutationGroup((FCollection<MutationGroup>) collection, config, parameters);
-        } else if(collection.getIsTuple()) {
-            final FCollection<?> r = writeMulti(collection, config, parameters, waits);
+        final FCollection<?> sample = inputs.get(0);
+        parameters.setDefaults(sample.getCollection());
+        parameters.validate(sample.getCollection(), sample.getDataType(), sample.getIsTuple());
+
+        if(sample.getIsTuple()) {
+            final FCollection<?> r = writeTuple(sample, config, parameters, waits);
             return Collections.singletonMap(config.getName(), r);
         } else {
-            final FCollection<?> r = writeSingle(collection, config, parameters, waits);
-            return Collections.singletonMap(config.getName(), r);
+            return switch (sample.getDataType()) {
+                case MUTATION -> writeMutations((FCollection<Mutation>) sample, config, parameters, waits);
+                case MUTATIONGROUP -> writeMutationGroup((FCollection<MutationGroup>) sample, config, parameters);
+                case UNIFIEDMUTATION -> writeUnifiedMutations((FCollection<UnifiedMutation>) sample, config, parameters, waits);
+                default -> {
+                    final FCollection<?> r = writeSingle(sample, config, parameters, waits);
+                    yield Collections.singletonMap(config.getName(), r);
+                }
+            };
         }
     }
 
@@ -425,7 +421,7 @@ public class SpannerSink implements SinkModule {
         return FCollection.update(collection, output);
     }
 
-    private static FCollection<?> writeMulti(final FCollection<?> collection,
+    private static FCollection<?> writeTuple(final FCollection<?> collection,
                                             final SinkConfig config,
                                             final SpannerSinkParameters parameters,
                                             final List<FCollection<?>> waits) {
@@ -462,6 +458,52 @@ public class SpannerSink implements SinkModule {
             }
         }
         return results;
+    }
+
+    private static Map<String, FCollection<?>> writeUnifiedMutations(
+            final FCollection<UnifiedMutation> collection,
+            final SinkConfig config,
+            final SpannerSinkParameters parameters,
+            final List<FCollection<?>> waits) {
+
+        final SpannerWriteUnifiedMutations write = new SpannerWriteUnifiedMutations(parameters, waits);
+        final PCollectionTuple tuple = collection.getCollection().apply(config.getName(), write);
+
+        final Schema failureSchema = FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures());
+        final PCollection<Void> output = tuple.get(write.getOutputTag());
+        final Map<String, FCollection<?>> outputs = new HashMap<>();
+        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.UNIFIEDMUTATION, failureSchema));
+
+        if(!parameters.getFailFast()) {
+            final String failuresName = config.getName() + ".failures";
+            final PCollection<Row> failures = tuple.get(write.getFailuresTag());
+            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, failureSchema));
+        }
+
+        return outputs;
+    }
+
+    private static Map<String, FCollection<?>> writeMutations(
+            final FCollection<Mutation> collection,
+            final SinkConfig config,
+            final SpannerSinkParameters parameters,
+            final List<FCollection<?>> waits) {
+
+        final SpannerWriteMutations write = new SpannerWriteMutations(parameters, waits);
+        final PCollectionTuple tuple = collection.getCollection().apply(config.getName(), write);
+
+        final Schema failureSchema = FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures());
+        final PCollection<Void> output = tuple.get(write.getOutputTag());
+        final Map<String, FCollection<?>> outputs = new HashMap<>();
+        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, failureSchema));
+
+        if(!parameters.getFailFast()) {
+            final String failuresName = config.getName() + ".failures";
+            final PCollection<Row> failures = tuple.get(write.getFailuresTag());
+            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, failureSchema));
+        }
+
+        return outputs;
     }
 
     public static class SpannerWriteSingle<InputSchemaT,RuntimeSchemaT,T> extends PTransform<PCollection<T>, PCollection<Void>> {
@@ -502,7 +544,7 @@ public class SpannerSink implements SinkModule {
 
             // create excludeFields
             final Set<String> excludeFields;
-            if(fields.size() > 0) {
+            if(!fields.isEmpty()) {
                 if(parameters.getExclude()) {
                     excludeFields = fields;
                 } else {
@@ -519,10 +561,10 @@ public class SpannerSink implements SinkModule {
             final List<List<String>> ddls;
             if (this.parameters.getCreateTable()) {
                 final List<String> ddl = buildDdls(projectId, instanceId, databaseId, parameters.getTable(), schema, parameters.getKeyFields(), excludeFields);
-                if(ddl == null || ddl.size() == 0) {
+                if(ddl == null || ddl.isEmpty()) {
                     ddls = new ArrayList<>();
                 } else {
-                    ddls = Arrays.asList(ddl);
+                    ddls = List.of(ddl);
                 }
             } else {
                 ddls = new ArrayList<>();
@@ -539,14 +581,14 @@ public class SpannerSink implements SinkModule {
                     .setCoder(SerializableCoder.of(Mutation.class));
 
             final PCollection<Mutation> mutationTableReady;
-            if(ddls.size() == 0 && parameters.getEmptyTable()) {
+            if(ddls.isEmpty() && parameters.getEmptyTable()) {
                 final PCollection<String> wait = mutations
                         .apply("Wait", Sample.any(1))
                         .apply("EmptyTable", ParDo.of(new TableEmptyDoFn<>(projectId, instanceId, databaseId, parameters.getTable(), parameters.getEmulator())));
                 mutationTableReady = mutations
                         .apply("WaitToEmptyTable", Wait.on(wait))
                         .setCoder(SerializableCoder.of(Mutation.class));
-            } else if(ddls.size() == 0) {
+            } else if(ddls.isEmpty()) {
                 mutationTableReady = mutations;
             } else {
                 final PCollection<String> wait = input.getPipeline()
@@ -573,10 +615,10 @@ public class SpannerSink implements SinkModule {
             }
 
             final SpannerWriteResult writeResult;
-            if((waits != null && waits.size() > 0) || parameters.getNodeCount() > 0) {
+            if((waits != null && !waits.isEmpty()) || parameters.getNodeCount() > 0) {
 
                 final List<PCollection<?>> wait = new ArrayList<>();
-                if(waits != null && waits.size() > 0) {
+                if(waits != null && !waits.isEmpty()) {
                     wait.addAll(waits.stream().map(FCollection::getCollection).collect(Collectors.toList()));
                 }
 
@@ -626,11 +668,11 @@ public class SpannerSink implements SinkModule {
             final List<String> createTableDdl = buildCreateTableDdl(tableSchema, table, keyFields);
             try(Spanner spanner = SpannerUtil.connectSpanner(projectId, 1, 1, 1, false, parameters.getEmulator())) {
                 if(!SpannerUtil.existsTable(spanner, DatabaseId.of(projectId, instanceId, databaseId), table)) {
-                    LOG.info("Set create operation for spanner table: " + table);
+                    LOG.info("Set create operation for spanner table: {}", table);
                     if(keyFields == null) {
                         throw new IllegalArgumentException("Missing PrimaryKeyFields for creation table: " + table);
                     }
-                    final List<String> primaryKeyFields = keyFields;//Arrays.asList(keyFields.split(","));
+                    final List<String> primaryKeyFields = keyFields;
                     if(primaryKeyFields.stream().anyMatch(f -> !tableSchema.getFieldNames().contains(f))) {
                         throw new IllegalArgumentException(
                                 "Missing primaryKeyFields " + keyFields
@@ -638,7 +680,7 @@ public class SpannerSink implements SinkModule {
                     }
                     ddl.addAll(createTableDdl);
                 } else if(this.parameters.getRecreate()) {
-                    LOG.info("Set recreate operation for spanner table: " + table);
+                    LOG.info("Set recreate operation for spanner table: {}", table);
                     ddl.add(SpannerUtil.buildDropTableSQL(table));
                     ddl.addAll(createTableDdl);
                 } else {
@@ -647,7 +689,7 @@ public class SpannerSink implements SinkModule {
             } catch (Exception e) {
                 throw e;
             }
-            if(ddl.size() == 0) {
+            if(ddl.isEmpty()) {
                 return null;
             }
             return ddl;
@@ -733,7 +775,7 @@ public class SpannerSink implements SinkModule {
             final List<TupleTag<?>> parents = new ArrayList<>();
             parents.add(null);
             int level = 1;
-            while(parents.size() > 0) {
+            while(!parents.isEmpty()) {
                 PCollectionList<Mutation> mutationsList = PCollectionList.empty(input.getPipeline());
                 final List<TupleTag<?>> childrenTags = new ArrayList<>();
                 for(final TupleTag<?> parent : parents) {
@@ -754,7 +796,7 @@ public class SpannerSink implements SinkModule {
                     }
                 }
 
-                if(childrenTags.size() == 0) {
+                if(childrenTags.isEmpty()) {
                     break;
                 }
 
@@ -763,7 +805,7 @@ public class SpannerSink implements SinkModule {
                         .apply("Flatten." + level, Flatten.pCollections());
                 final SpannerWriteResult writeResult;
                 final PCollection<Void> v;
-                if(waitList.size() > 0) {
+                if(!waitList.isEmpty()) {
                     writeResult = mutations
                             .apply("Wait." + level, Wait.on(waitList))
                             .apply("Write." + level, write);
@@ -825,7 +867,7 @@ public class SpannerSink implements SinkModule {
             final List<TupleTag<?>> parents = new ArrayList<>();
             parents.add(null);
             int level = 1;
-            while(parents.size() > 0) {
+            while(!parents.isEmpty()) {
                 final List<String> ddls = new ArrayList<>();
                 final List<TupleTag<?>> childrenTags = new ArrayList<>();
                 for(final TupleTag<?> parent : parents) {
@@ -837,12 +879,12 @@ public class SpannerSink implements SinkModule {
                     }
                 }
 
-                if(ddls.size() == 0) {
+                if(ddls.isEmpty()) {
                     break;
                 }
 
                 final PCollection<String> ddlResult;
-                if(waitList.size() > 0) {
+                if(!waitList.isEmpty()) {
                     ddlResult = pipeline
                             .apply("SupplyDDL." + level, Create.of(KV.of("", ddls)).withCoder(KvCoder.of(StringUtf8Coder.of(), ListCoder.of(StringUtf8Coder.of()))))
                             .apply("WaitDDL." + level, Wait.on(waitList))
@@ -1103,22 +1145,18 @@ public class SpannerSink implements SinkModule {
 
             private Mutation addWriteCommitTimestampFields(final Mutation input) {
                 final Mutation.WriteBuilder builder = switch (input.getOperation()) {
-                    case UPDATE:
-                        yield Mutation.newUpdateBuilder(input.getTable());
-                    case INSERT:
-                        yield Mutation.newInsertBuilder(input.getTable());
-                    case INSERT_OR_UPDATE:
-                        yield Mutation.newInsertOrUpdateBuilder(input.getTable());
-                    case REPLACE:
-                        yield Mutation.newReplaceBuilder(input.getTable());
-                    case DELETE:
-                        throw new IllegalStateException("Not supported writeCommitTimestampFields for DELETE OP");
+                    case UPDATE -> Mutation.newUpdateBuilder(input.getTable());
+                    case INSERT -> Mutation.newInsertBuilder(input.getTable());
+                    case INSERT_OR_UPDATE -> Mutation.newInsertOrUpdateBuilder(input.getTable());
+                    case REPLACE -> Mutation.newReplaceBuilder(input.getTable());
+                    case DELETE -> throw new IllegalStateException("Not supported writeCommitTimestampFields for DELETE OP");
                 };
                 for(final Map.Entry<String, Value> entry : input.asMap().entrySet()) {
                     builder.set(entry.getKey()).to(entry.getValue());
                 }
                 for(final String commitTimestampField : commitTimestampFields) {
-                    builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);                }
+                    builder.set(commitTimestampField).to(Value.COMMIT_TIMESTAMP);
+                }
                 return builder.build();
             }
 
@@ -1143,6 +1181,308 @@ public class SpannerSink implements SinkModule {
 
         }
 
+    }
+
+    public static class SpannerWriteMutations extends PTransform<PCollection<Mutation>, PCollectionTuple> {
+
+        private final SpannerSinkParameters parameters;
+        private final List<FCollection<?>> waitsFCollections;
+
+        private final Map<String, Type> types;
+        private final Map<String, Set<String>> parentTables;
+        private final Map<String, TupleTag<Mutation>> tags;
+        private final TupleTag<Void> outputTag;
+        private final TupleTag<Row> failureTag;
+
+        public TupleTag<Void> getOutputTag() {
+            return this.outputTag;
+        }
+
+        public TupleTag<Row> getFailuresTag() {
+            return this.failureTag;
+        }
+
+        SpannerWriteMutations(
+                final SpannerSinkParameters parameters,
+                final List<FCollection<?>> waits) {
+
+            this.parameters = parameters;
+            this.waitsFCollections = waits;
+
+            this.types = SpannerUtil.getTypesFromDatabase(
+                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
+            this.parentTables = SpannerUtil.getParentTables(
+                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
+
+            LOG.info("parent tables: " + this.parentTables);
+
+            final Set<String> tables = parentTables.values()
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toSet());
+
+            this.tags = new HashMap<>();
+            for(String table : tables) {
+                this.tags.put(table, new TupleTag<>(){});
+            }
+
+            this.outputTag = new TupleTag<>() {};
+            this.failureTag = new TupleTag<>() {};
+        }
+        @Override
+        public PCollectionTuple expand(PCollection<Mutation> input) {
+
+            final List<TupleTag<?>> tagList = new ArrayList<>(tags.values());
+
+            final TupleTag<Mutation> ftag = new TupleTag<>() {};
+            final PCollectionTuple tuple = input.apply("WithTableTag", ParDo
+                    .of(new WithTableTagDoFn())
+                    .withOutputTags(ftag, TupleTagList.of(tagList)));
+            List<PCollection<?>> waits;
+            if(waitsFCollections == null || waitsFCollections.size() == 0) {
+                waits = List.of(input.getPipeline().apply("Create", Create.empty(VoidCoder.of())));
+            } else {
+                waits = waitsFCollections.stream().map(FCollection::getCollection).collect(Collectors.toList());
+            }
+
+            PCollectionList<Void> outputsList = PCollectionList.empty(input.getPipeline());
+            PCollectionList<MutationGroup> failuresList = PCollectionList.empty(input.getPipeline());
+
+            int level = 0;
+            final Set<String> parents = new HashSet<>();
+            parents.add("");
+            while(parents.size() > 0) {
+                PCollectionList<Mutation> mutationsList = PCollectionList.empty(input.getPipeline());
+                Set<String> nextParents = new HashSet<>();
+                for(final String parent : parents) {
+                    final Set<String> children = parentTables.getOrDefault(parent, new HashSet<>());
+                    for(final String child : children) {
+                        final TupleTag<Mutation> tag = tags.get(child);
+                        final PCollection<Mutation> mutations = tuple.get(tag);
+                        mutationsList = mutationsList.and(mutations);
+                    }
+                    nextParents.addAll(children);
+                }
+
+                final SpannerIO.Write write = createWrite(parameters);
+
+                final SpannerWriteResult result = mutationsList
+                        .apply("Flatten" + level, Flatten.pCollections())
+                        .setCoder(SerializableCoder.of(Mutation.class))
+                        .apply("Wait" + level, Wait.on(waits))
+                        .setCoder(SerializableCoder.of(Mutation.class))
+                        .apply("Write" + level, write);
+
+                waits = List.of(result.getOutput());
+                outputsList = outputsList.and(result.getOutput());
+                if(!parameters.getFailFast()) {
+                    failuresList = failuresList.and(result.getFailedMutations());
+                }
+
+                parents.clear();
+                parents.addAll(nextParents);
+                level += 1;
+            }
+
+            final PCollection<Void> outputs = outputsList.apply("FlattenOutputs", Flatten.pCollections());
+
+            if(parameters.getFailFast()) {
+                return PCollectionTuple
+                        .of(outputTag, outputs);
+            } else {
+                final PCollection<Row> failures = failuresList
+                        .apply("FlattenFailures", Flatten.pCollections())
+                        .apply("ConvertFailures", ParDo.of(new FailedMutationConvertDoFn(
+                                parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getFlattenFailures())))
+                        .setCoder(RowCoder.of(FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
+                return PCollectionTuple
+                        .of(outputTag, outputs)
+                        .and(failureTag, failures);
+            }
+        }
+
+        private class WithTableTagDoFn extends DoFn<Mutation, Mutation> {
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final Mutation mutation = c.element();
+                if(mutation == null) {
+                    return;
+                }
+
+                final String table = mutation.getTable();
+                final TupleTag<Mutation> tag = tags.get(table);
+                if(tag == null) {
+                    LOG.warn("Destination table tag is missing for table: {}, mutation: {}", table, mutation);
+                    return;
+                }
+
+                final Type type = types.get(table);
+                if(type == null) {
+                    LOG.warn("Destination table type is missing for table: {}, mutation: {}", table, mutation);
+                    return;
+                }
+
+                if(StructSchemaUtil.validate(type, mutation)) {
+                    c.output(tag, mutation);
+                } else {
+                    final Mutation adjusted = StructSchemaUtil.adjust(type, mutation);
+                    c.output(tag, adjusted);
+                }
+            }
+
+        }
+    }
+
+    public static class SpannerWriteUnifiedMutations extends PTransform<PCollection<UnifiedMutation>, PCollectionTuple> {
+
+        private final SpannerSinkParameters parameters;
+        private final List<FCollection<?>> waitsFCollections;
+
+        private final Map<String, Type> types;
+        private final Map<String, Set<String>> parentTables;
+        private final Map<String, TupleTag<Mutation>> tags;
+        private final TupleTag<Void> outputTag;
+        private final TupleTag<Row> failureTag;
+
+        public TupleTag<Void> getOutputTag() {
+            return this.outputTag;
+        }
+
+        public TupleTag<Row> getFailuresTag() {
+            return this.failureTag;
+        }
+
+        SpannerWriteUnifiedMutations(
+                final SpannerSinkParameters parameters,
+                final List<FCollection<?>> waits) {
+
+            this.parameters = parameters;
+            this.waitsFCollections = waits;
+
+            this.types = SpannerUtil.getTypesFromDatabase(
+                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
+            this.parentTables = SpannerUtil.getParentTables(
+                    parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
+
+            LOG.info("parent tables: {}", this.parentTables);
+
+            final Set<String> tables = parentTables.values()
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toSet());
+
+            this.tags = new HashMap<>();
+            for(String table : tables) {
+                this.tags.put(table, new TupleTag<>(){});
+            }
+
+            this.outputTag = new TupleTag<>() {};
+            this.failureTag = new TupleTag<>() {};
+        }
+        @Override
+        public PCollectionTuple expand(PCollection<UnifiedMutation> input) {
+
+            final List<TupleTag<?>> tagList = new ArrayList<>(tags.values());
+
+            final TupleTag<Mutation> ftag = new TupleTag<>() {};
+            final PCollectionTuple tuple = input.apply("WithTableTag", ParDo
+                    .of(new WithTableTagDoFn())
+                    .withOutputTags(ftag, TupleTagList.of(tagList)));
+            List<PCollection<?>> waits;
+            if(waitsFCollections == null || waitsFCollections.isEmpty()) {
+                waits = List.of(input.getPipeline().apply("Create", Create.empty(VoidCoder.of())));
+            } else {
+                waits = waitsFCollections.stream().map(FCollection::getCollection).collect(Collectors.toList());
+            }
+
+            PCollectionList<Void> outputsList = PCollectionList.empty(input.getPipeline());
+            PCollectionList<MutationGroup> failuresList = PCollectionList.empty(input.getPipeline());
+
+            int level = 0;
+            final Set<String> parents = new HashSet<>();
+            parents.add("");
+            while(!parents.isEmpty()) {
+                PCollectionList<Mutation> mutationsList = PCollectionList.empty(input.getPipeline());
+                Set<String> nextParents = new HashSet<>();
+                for(final String parent : parents) {
+                    final Set<String> children = parentTables.getOrDefault(parent, new HashSet<>());
+                    for(final String child : children) {
+                        final TupleTag<Mutation> tag = tags.get(child);
+                        final PCollection<Mutation> mutations = tuple.get(tag);
+                        mutationsList = mutationsList.and(mutations);
+                    }
+                    nextParents.addAll(children);
+                }
+
+                final SpannerIO.Write write = createWrite(parameters);
+
+                final SpannerWriteResult result = mutationsList
+                        .apply("Flatten" + level, Flatten.pCollections())
+                        .setCoder(SerializableCoder.of(Mutation.class))
+                        .apply("Wait" + level, Wait.on(waits))
+                        .setCoder(SerializableCoder.of(Mutation.class))
+                        .apply("Write" + level, write);
+
+                waits = List.of(result.getOutput());
+                outputsList = outputsList.and(result.getOutput());
+                if(!parameters.getFailFast()) {
+                    failuresList = failuresList.and(result.getFailedMutations());
+                }
+
+                parents.clear();
+                parents.addAll(nextParents);
+                level += 1;
+            }
+
+            final PCollection<Void> outputs = outputsList.apply("FlattenOutputs", Flatten.pCollections());
+
+            if(parameters.getFailFast()) {
+                return PCollectionTuple
+                        .of(outputTag, outputs);
+            } else {
+                final PCollection<Row> failures = failuresList
+                        .apply("FlattenFailures", Flatten.pCollections())
+                        .apply("ConvertFailures", ParDo.of(new FailedMutationConvertDoFn(
+                                parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getFlattenFailures())))
+                        .setCoder(RowCoder.of(FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
+                return PCollectionTuple
+                        .of(outputTag, outputs)
+                        .and(failureTag, failures);
+            }
+        }
+
+        private class WithTableTagDoFn extends DoFn<UnifiedMutation, Mutation> {
+
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                final UnifiedMutation mutation = c.element();
+                if(mutation == null) {
+                    return;
+                }
+
+                final String table = mutation.getTable();
+                final TupleTag<Mutation> tag = tags.get(table.trim());
+                if(tag == null) {
+                    LOG.warn("Destination table tag is missing for table: " + table + ", mutation: " + mutation + " in tags: " + tags.keySet());
+                    return;
+                }
+
+                final Type type = types.get(table);
+                if(type == null) {
+                    LOG.warn("Destination table type is missing for table: " + table + ", mutation: " + mutation + " in types: " + types.keySet());
+                    return;
+                }
+
+                if(StructSchemaUtil.validate(type, mutation.getSpannerMutation())) {
+                    c.output(tag, mutation.getSpannerMutation());
+                } else {
+                    final Mutation adjusted = StructSchemaUtil.adjust(type, mutation.getSpannerMutation());
+                    c.output(tag, adjusted);
+                }
+            }
+
+        }
     }
 
     private static SpannerIO.Write createWrite(final SpannerSinkParameters parameters) {
@@ -1526,7 +1866,7 @@ public class SpannerSink implements SinkModule {
 
         @FinishBundle
         public void finishBundle(FinishBundleContext c) {
-            if(this.buffer.size() > 0) {
+            if(!this.buffer.isEmpty()) {
                 this.client.write(this.buffer);
                 this.count += this.buffer.size();
                 LOG.info("write: " + count);
@@ -1582,7 +1922,7 @@ public class SpannerSink implements SinkModule {
                 return;
             }
             mutations.add(mutationGroup.primary());
-            if(mutationGroup.attached() != null && mutationGroup.attached().size() > 0) {
+            if(mutationGroup.attached() != null && !mutationGroup.attached().isEmpty()) {
                 mutations.addAll(mutationGroup.attached());
             }
             this.client.writeAtLeastOnce(mutations);

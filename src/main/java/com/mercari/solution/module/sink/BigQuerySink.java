@@ -10,6 +10,8 @@ import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
+import com.mercari.solution.util.gcp.BigQueryUtil;
+import com.mercari.solution.util.pipeline.mutation.UnifiedMutation;
 import com.mercari.solution.util.pipeline.union.Union;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.*;
@@ -43,6 +45,8 @@ public class BigQuerySink implements SinkModule {
 
     private static class BigQuerySinkParameters implements Serializable {
 
+        private String projectId;
+        private String datasetId;
         private String table;
         private BigQueryIO.Write.WriteDisposition writeDisposition;
         private BigQueryIO.Write.CreateDisposition createDisposition;
@@ -77,12 +81,16 @@ public class BigQuerySink implements SinkModule {
         private String clustering;
 
 
-        public String getTable() {
-            return table;
+        public String getProjectId() {
+            return projectId;
         }
 
-        public void setTable(String table) {
-            this.table = table;
+        public String getDatasetId() {
+            return datasetId;
+        }
+
+        public String getTable() {
+            return table;
         }
 
         public BigQueryIO.Write.WriteDisposition getWriteDisposition() {
@@ -182,12 +190,29 @@ public class BigQuerySink implements SinkModule {
         }
 
         private void validate() {
-            if(this.getTable() == null) {
+            if(this.table == null && this.datasetId == null) {
                 throw new IllegalArgumentException("BigQuery output module requires table parameter!");
             }
         }
 
         private void setDefaults(final PInput input) {
+            if(this.datasetId == null) {
+                final String str;
+                if(this.table.contains(":")) {
+                    str = this.table.replaceFirst(":", ".");
+                } else {
+                    str = this.table;
+                }
+                final String[] strs = str.split("\\.");
+                if(strs.length == 3) {
+                    this.projectId = strs[0];
+                    this.datasetId = strs[1];
+                    //this.table = strs[2];
+                } else if(strs.length == 2) {
+                    this.projectId = strs[0];
+                    this.datasetId = strs[1];
+                }
+            }
             if(this.writeDisposition == null) {
                 this.writeDisposition = BigQueryIO.Write.WriteDisposition.WRITE_EMPTY;
             }
@@ -218,9 +243,6 @@ public class BigQuerySink implements SinkModule {
             }
             if(this.withExtendedErrorInfo == null) {
                 this.withExtendedErrorInfo = false;
-            }
-            if(this.failedInsertRetryPolicy == null) {
-                this.failedInsertRetryPolicy = FailedInsertRetryPolicy.always;
             }
 
             if(this.optimizedWrites == null) {
@@ -416,6 +438,18 @@ public class BigQuerySink implements SinkModule {
                 final PCollection<MutationGroup> input = (PCollection<MutationGroup>) collection.getCollection();
                 final PCollection<Mutation> mutations = input.apply("FlattenGroup", ParDo.of(new FlattenGroupMutationDoFn()));
                 final PCollection<GenericRecord> output = mutations.apply(config.getName(), write);
+                return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
+            }
+            case UNIFIEDMUTATION -> {
+                final Map<String, TableSchema> tableSchemas = BigQueryUtil.getTableSchemasFromDataset(parameters.getTable());
+                final BigQueryMutationWrite write = new BigQueryMutationWrite(
+                        config.getName(),
+                        collection,
+                        parameters,
+                        tableSchemas,
+                        waitCollections);
+                final PCollection<UnifiedMutation> input = (PCollection<UnifiedMutation>) collection.getCollection();
+                final PCollection<GenericRecord> output = input.apply(config.getName(), write);
                 return FCollection.of(config.getName(), output, DataType.AVRO, ((AvroCoder) output.getCoder()).getSchema());
             }
             default -> throw new IllegalArgumentException("Not supported type: " + inputType + " for BigQuerySink.");
@@ -811,6 +845,75 @@ public class BigQuerySink implements SinkModule {
 
     }
 
+    public static class BigQueryMutationWrite extends PTransform<PCollection<UnifiedMutation>, PCollection<GenericRecord>> {
+
+        private final String name;
+        private final BigQuerySinkParameters parameters;
+        private final Map<String, String> tableSchemas;
+        private final List<FCollection<?>> waitCollections;
+
+        private FCollection<?> collection;
+
+        private BigQueryMutationWrite(
+                final String name,
+                final FCollection<?> collection,
+                final BigQuerySinkParameters parameters,
+                final Map<String, TableSchema> tableSchemas,
+                final List<FCollection<?>> waitCollections) {
+
+            this.name = name;
+            this.collection = collection;
+            this.parameters = parameters;
+            this.tableSchemas = tableSchemas.entrySet().stream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            e -> TableRowToRecordConverter.convertSchema(e.getValue()).toString()));
+            this.waitCollections = waitCollections;
+
+            LOG.info("init: " + this.tableSchemas);
+        }
+
+        public PCollection<GenericRecord> expand(final PCollection<UnifiedMutation> input) {
+            this.parameters.validate();
+            this.parameters.setDefaults(input);
+
+            final PCollection<UnifiedMutation> waited;
+            if(waitCollections == null) {
+                waited = input;
+            } else {
+                final List<PCollection<?>> waits = waitCollections.stream()
+                        .map(FCollection::getCollection)
+                        .collect(Collectors.toList());
+                waited = input
+                        .apply("Wait", Wait.on(waits))
+                        .setCoder(input.getCoder());
+            }
+
+            final String projectId = parameters.getTable().split("\\.")[0];
+            final Map<String,List<String>> primaryKeyFields = BigQueryUtil
+                    .getPrimaryKeyFieldsFromDataset(parameters.getTable(), projectId);
+
+            final BigQueryIO.Write<UnifiedMutation> write = BigQueryIO
+                    .<UnifiedMutation>write()
+                    .to(new MutationDynamicDestinationFunc(parameters.getTable(), tableSchemas))
+                    .withFormatFunction((UnifiedMutation mutation) -> {
+                        return mutation.toTableRow(primaryKeyFields.get(mutation.getTable()));
+                    })
+                    .withRowMutationInformationFn(UnifiedMutation::toRowMutationInformation)
+                    .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND)
+                    .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_NEVER)
+                    .withMethod(BigQueryIO.Write.Method.STORAGE_API_AT_LEAST_ONCE)
+                    .withExtendedErrorInfo();
+
+            final WriteResult writeResult = waited.apply("WriteTableRow", write);
+
+            return writeResult.getFailedStorageApiInserts()
+                    .apply("ConvertFailureSARecord", ParDo.of(new FailedStorageApiRecordDoFn(name, collection.getAvroSchema().toString())))
+                    .setCoder(AvroCoder.of(collection.getAvroSchema()));
+        }
+
+    }
+
     private static WriteFormat writeDataType(
             final BigQueryIO.Write.Method method,
             final DataType inputDataType,
@@ -926,12 +1029,12 @@ public class BigQuerySink implements SinkModule {
                 write = write.withExtendedErrorInfo();
             }
             if(!BigQueryIO.Write.Method.FILE_LOADS.equals(parameters.getMethod())) {
-                if(parameters.getFailedInsertRetryPolicy().equals(FailedInsertRetryPolicy.always)) {
-                    write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.alwaysRetry());
-                } else if(parameters.getFailedInsertRetryPolicy().equals(FailedInsertRetryPolicy.never)) {
-                    write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.neverRetry());
-                } else {
-                    write = write.withFailedInsertRetryPolicy(InsertRetryPolicy.retryTransientErrors());
+                if(parameters.getFailedInsertRetryPolicy() != null) {
+                    write = switch (parameters.getFailedInsertRetryPolicy()) {
+                        case always -> write.withFailedInsertRetryPolicy(InsertRetryPolicy.alwaysRetry());
+                        case never -> write.withFailedInsertRetryPolicy(InsertRetryPolicy.neverRetry());
+                        case retryTransientErrors -> write.withFailedInsertRetryPolicy(InsertRetryPolicy.retryTransientErrors());
+                    };
                 }
             }
 
@@ -1078,8 +1181,8 @@ public class BigQuerySink implements SinkModule {
             final BigQueryStorageApiInsertError error = c.element();
             final TableRow tableRow = error.getRow();
             LOG.error("FailedProcessElement: " + tableRow.toString() + " with error message: " + error.getErrorMessage());
-            final GenericRecord record = TableRowToRecordConverter.convert(recordSchema, tableRow);
-            c.output(record);
+            //final GenericRecord record = TableRowToRecordConverter.convert(recordSchema, tableRow);
+            //c.output(record);
         }
 
     }
@@ -1119,6 +1222,63 @@ public class BigQuerySink implements SinkModule {
         @Override
         public TableSchema getSchema(String destination) {
             return tableSchema;
+        }
+
+    }
+
+    private static class ConvertRowMutationDoFn extends DoFn<UnifiedMutation, RowMutation> {
+
+        private final Map<String, List<String>> primaryKeyFields;
+
+        public ConvertRowMutationDoFn(final Map<String, List<String>> primaryKeyFields) {
+            this.primaryKeyFields = primaryKeyFields;
+        }
+
+        @ProcessElement
+        public void processElement(final ProcessContext c) {
+            final List<String> pk = primaryKeyFields.get(c.element().getTable());
+
+
+        }
+
+    }
+
+    private static class MutationDynamicDestinationFunc extends DynamicDestinations<UnifiedMutation, String> {
+
+        private final String dataset;
+        private final Map<String, String> tableSchemas;
+        public MutationDynamicDestinationFunc(final String dataset, final Map<String, String> tableSchemas) {
+            this.dataset = dataset;
+            this.tableSchemas = tableSchemas;
+        }
+
+        @Override
+        public String getDestination(ValueInSingleWindow<UnifiedMutation> element) {
+            return String.format("%s.%s", dataset, element.getValue().getTable());
+        }
+        @Override
+        public TableDestination getTable(String destination) {
+            return new TableDestination(destination, null);
+        }
+        @Override
+        public TableSchema getSchema(String destination) {
+            final String tableName = extractTableName(destination);
+            if(tableName == null) {
+                throw new IllegalArgumentException("illegal destination: " + destination);
+            }
+            if(!tableSchemas.containsKey(tableName)) {
+                throw new IllegalArgumentException("tableSchemas does not contains tableName: " + tableName + " in tableSchemas: " + tableSchemas);
+            }
+            final Schema schema = AvroSchemaUtil.convertSchema(tableSchemas.get(tableName));
+            return RecordToTableRowConverter.convertSchema(schema);
+        }
+
+        private String extractTableName(final String destination) {
+            final String[] strs = destination.split("\\.");
+            if(strs.length < 3) {
+                throw new IllegalArgumentException("Illegal destination: " + destination);
+            }
+            return strs[2];
         }
 
     }

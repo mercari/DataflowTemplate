@@ -6,6 +6,7 @@ import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.extensions.sql.impl.utils.CalciteUtils;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.junit.Assert;
@@ -26,6 +27,11 @@ public class SelectFunctionTest {
         {
             final JsonObject pass = new JsonObject();
             pass.addProperty("name", "longField");
+            select.add(pass);
+        }
+        {
+            final JsonObject pass = new JsonObject();
+            pass.addProperty("name", "enumField");
             select.add(pass);
         }
         {
@@ -52,13 +58,28 @@ public class SelectFunctionTest {
             hash.addProperty("name", "hashField");
             hash.addProperty("func", "hash");
             hash.addProperty("field", "stringField");
-            hash.addProperty("secret", "mysecret");
+            select.add(hash);
+        }
+        {
+            final JsonObject hash = new JsonObject();
+            hash.addProperty("name", "hashArrayField");
+            hash.addProperty("func", "hash");
+            final JsonArray fields = new JsonArray();
+            fields.add("stringField");
+            fields.add("longField");
+            hash.add("fields", fields);
             select.add(hash);
         }
         {
             final JsonObject currentTimestamp = new JsonObject();
             currentTimestamp.addProperty("name", "currentTimestampField");
             currentTimestamp.addProperty("func", "current_timestamp");
+            select.add(currentTimestamp);
+        }
+        {
+            final JsonObject currentTimestamp = new JsonObject();
+            currentTimestamp.addProperty("name", "eventTimestampField");
+            currentTimestamp.addProperty("func", "event_timestamp");
             select.add(currentTimestamp);
         }
         {
@@ -73,6 +94,79 @@ public class SelectFunctionTest {
             concat.add("fields", fields);
             select.add(concat);
         }
+        {
+            final JsonObject struct = new JsonObject();
+            struct.addProperty("name", "structField");
+            struct.addProperty("func", "struct");
+            struct.addProperty("mode", "repeated");
+            final JsonArray fields = new JsonArray();
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "stringFieldA");
+                field.addProperty("field", "stringField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "enumField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "intFieldA");
+                field.addProperty("field", "intField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "nestedStructField");
+                field.addProperty("func", "struct");
+                final JsonArray nestedFields = new JsonArray();
+                {
+                    final JsonObject nestedField = new JsonObject();
+                    nestedField.addProperty("name", "nestedNestedStructField");
+                    nestedField.addProperty("func", "struct");
+                    final JsonArray nestedNestedFields = new JsonArray();
+                    {
+                        final JsonObject nestedNestedField = new JsonObject();
+                        nestedNestedField.addProperty("name", "timestampField");
+                        nestedNestedFields.add(nestedNestedField);
+                    }
+                    {
+                        final JsonObject nestedNestedField = new JsonObject();
+                        nestedNestedField.addProperty("name", "enumField2");
+                        nestedNestedField.addProperty("field", "enumField");
+                        nestedNestedFields.add(nestedNestedField);
+                    }
+                    nestedField.add("fields", nestedNestedFields);
+                    nestedFields.add(nestedField);
+                }
+                field.add("fields", nestedFields);
+                fields.add(field);
+            }
+            struct.add("fields", fields);
+            select.add(struct);
+        }
+        {
+            final JsonObject map = new JsonObject();
+            map.addProperty("name", "mapField");
+            map.addProperty("func", "map");
+            final JsonArray fields = new JsonArray();
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "stringFieldA");
+                field.addProperty("field", "stringField");
+                fields.add(field);
+            }
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "stringFieldB");
+                field.addProperty("field", "stringField");
+                fields.add(field);
+            }
+            map.add("fields", fields);
+            select.add(map);
+        }
 
         final List<Schema.Field> inputFields = new ArrayList<>();
         inputFields.add(Schema.Field.of("stringField", Schema.FieldType.STRING));
@@ -84,6 +178,7 @@ public class SelectFunctionTest {
         inputFields.add(Schema.Field.of("bytesField", Schema.FieldType.BYTES));
         inputFields.add(Schema.Field.of("dateField", CalciteUtils.DATE));
         inputFields.add(Schema.Field.of("timestampField", Schema.FieldType.DATETIME));
+        inputFields.add(Schema.Field.of("enumField", Schema.FieldType.logicalType(EnumerationType.create(List.of("a", "b", "c")))));
 
         // test schema
         final List<SelectFunction> selectFunctions = SelectFunction.of(select, inputFields, DataType.ROW);
@@ -93,15 +188,23 @@ public class SelectFunctionTest {
         Assert.assertTrue(outputSchema.hasField("constantStringField"));
         Assert.assertTrue(outputSchema.hasField("expressionField"));
         Assert.assertTrue(outputSchema.hasField("hashField"));
+        Assert.assertTrue(outputSchema.hasField("hashArrayField"));
         Assert.assertTrue(outputSchema.hasField("currentTimestampField"));
+        Assert.assertTrue(outputSchema.hasField("eventTimestampField"));
         Assert.assertTrue(outputSchema.hasField("concatField"));
-        Assert.assertEquals(Schema.FieldType.INT64.getTypeName(), outputSchema.getField("longField").getType().getTypeName());
-        Assert.assertEquals(Schema.FieldType.INT32.getTypeName(), outputSchema.getField("renameIntField").getType().getTypeName());
-        Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("constantStringField").getType().getTypeName());
-        Assert.assertEquals(Schema.FieldType.DOUBLE.getTypeName(), outputSchema.getField("expressionField").getType().getTypeName());
-        Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("hashField").getType().getTypeName());
-        Assert.assertEquals(Schema.FieldType.DATETIME.getTypeName(), outputSchema.getField("currentTimestampField").getType().getTypeName());
-        Assert.assertEquals(Schema.FieldType.STRING.getTypeName(), outputSchema.getField("concatField").getType().getTypeName());
+        Assert.assertTrue(outputSchema.hasField("structField"));
+        Assert.assertTrue(outputSchema.hasField("mapField"));
+        Assert.assertEquals(Schema.TypeName.INT64, outputSchema.getField("longField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.INT32, outputSchema.getField("renameIntField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("constantStringField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.DOUBLE, outputSchema.getField("expressionField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("hashField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("hashArrayField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.DATETIME, outputSchema.getField("currentTimestampField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.DATETIME, outputSchema.getField("eventTimestampField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("concatField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.ARRAY, outputSchema.getField("structField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.MAP, outputSchema.getField("mapField").getType().getTypeName());
 
         // test apply
         final Schema inputSchema = Schema.builder().addFields(inputFields).build();
@@ -115,19 +218,23 @@ public class SelectFunctionTest {
                 .withFieldValue("bytesField", "bytesValue".getBytes(StandardCharsets.UTF_8))
                 .withFieldValue("dateField", LocalDate.parse("2023-08-18"))
                 .withFieldValue("timestampField", Instant.parse("2023-08-18T00:00:00Z"))
+                .withFieldValue("enumField", new EnumerationType.Value(1))
                 .build();
 
         selectFunctions.forEach(SelectFunction::setup);
 
-        final Map<String, Object> values = SelectFunction.apply(selectFunctions, row, DataType.ROW, DataType.ROW);
+        final Instant timestamp = Instant.parse("2024-01-01T00:00:00Z");
+        final Map<String, Object> values = SelectFunction.apply(selectFunctions, row, DataType.ROW, DataType.ROW, timestamp);
         final Row output = RowSchemaUtil.create(outputSchema, values);
 
         Assert.assertEquals((Long) 10L, output.getInt64("longField"));
         Assert.assertEquals((Integer) 32, output.getInt32("renameIntField"));
         Assert.assertEquals("constantStringValue", output.getString("constantStringField"));
         Assert.assertEquals((Double)32.32, output.getDouble("expressionField"));
-        Assert.assertEquals("3f6f120a3879bfbcb45bfb78a0ce80a0d53de6c8b4e5b0b9b94f282a6b0a2b63", output.getString("hashField"));
+        Assert.assertEquals("dbcc96aec884f7d5057672df21e7446c1415ca7669fdabac78e49f4d852d5a0a", output.getString("hashField"));
+        Assert.assertEquals("e6c8c04775d64362367b36c61dc00615eabd1c00887fec05ceae4e5ab9cd215b", output.getString("hashArrayField"));
         Assert.assertNotNull(output.getDateTime("currentTimestampField"));
+        Assert.assertEquals(timestamp, output.getDateTime("eventTimestampField").toInstant());
         Assert.assertEquals("stringValue 32 10", output.getString("concatField"));
 
     }

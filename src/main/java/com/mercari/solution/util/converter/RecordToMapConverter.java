@@ -35,52 +35,39 @@ public class RecordToMapConverter {
             return null;
         }
         final Schema unnestedSchema = AvroSchemaUtil.unnestUnion(schema);
-        switch (unnestedSchema.getType()) {
-            case INT: {
-                final Integer intValue = (Integer) value;
+        return switch (unnestedSchema.getType()) {
+            case INT -> {
+                final int intValue = (Integer) value;
                 if (LogicalTypes.date().equals(unnestedSchema.getLogicalType())) {
-                    return LocalDate.ofEpochDay(intValue);
+                    yield LocalDate.ofEpochDay(intValue);
                 } else if (LogicalTypes.timeMillis().equals(unnestedSchema.getLogicalType())) {
-                    return LocalTime.ofNanoOfDay(new Long(intValue) * 1000 * 1000);
+                    yield LocalTime.ofNanoOfDay(intValue * 1000 * 1000);
                 } else {
-                    return intValue;
+                    yield intValue;
                 }
             }
-            case LONG: {
-                final Long longValue = (Long) value;
+            case LONG -> {
+                final long longValue = (Long) value;
                 if (LogicalTypes.timestampMillis().equals(unnestedSchema.getLogicalType())) {
-                    return java.time.Instant.ofEpochMilli(longValue);
+                    yield java.time.Instant.ofEpochMilli(longValue);
                 } else if (LogicalTypes.timestampMicros().equals(unnestedSchema.getLogicalType())) {
-                    return java.time.Instant.ofEpochMilli(longValue / 1000);
+                    yield java.time.Instant.ofEpochMilli(longValue / 1000);
                 } else if (LogicalTypes.timeMicros().equals(unnestedSchema.getLogicalType())) {
-                    return LocalTime.ofNanoOfDay(longValue * 1000);
+                    yield LocalTime.ofNanoOfDay(longValue * 1000);
                 } else {
-                    return longValue;
+                    yield longValue;
                 }
             }
-            case BOOLEAN:
-            case FLOAT:
-            case DOUBLE:
-                return value;
-            case ENUM:
-            case STRING:
-                return value.toString();
-            case FIXED:
-            case BYTES:
-                return Base64.getEncoder().encodeToString(((ByteBuffer) value).array());
-            case RECORD:
-                return convert((GenericRecord) value);
-            case ARRAY:
-                return ((List<Object>) value).stream()
+            case BOOLEAN, FLOAT, DOUBLE -> value;
+            case ENUM, STRING -> value.toString();
+            case FIXED, BYTES -> Base64.getEncoder().encodeToString(((ByteBuffer) value).array());
+            case RECORD -> convert((GenericRecord) value);
+            case ARRAY -> ((List<Object>) value).stream()
                         .map(o -> getValue(unnestedSchema.getElementType(), o))
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-            case MAP:
-            case UNION:
-            case NULL:
-            default:
-                return null;
-        }
+            default -> null;
+        };
     }
 
 }

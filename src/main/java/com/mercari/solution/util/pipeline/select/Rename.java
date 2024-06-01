@@ -4,12 +4,17 @@ import com.google.gson.JsonObject;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.schema.*;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class Rename implements SelectFunction {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Rename.class);
 
     private final String name;
     private final String field;
@@ -65,9 +70,9 @@ public class Rename implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         final Object value = input.get(field);
-        return switch (outputType) {
+        final Object output = switch (outputType) {
             case ROW -> RowSchemaUtil.getAsPrimitive(outputFieldType, value);
             case AVRO -> AvroSchemaUtil.getAsPrimitive(outputFieldType, value);
             case STRUCT -> StructSchemaUtil.getAsPrimitive(outputFieldType, value);
@@ -75,6 +80,7 @@ public class Rename implements SelectFunction {
             case ENTITY -> EntitySchemaUtil.getAsPrimitive(outputFieldType, value);
             default -> throw new IllegalArgumentException("SelectField rename: " + name + " does not support output type: " + outputType);
         };
+        return output;
     }
 
 }

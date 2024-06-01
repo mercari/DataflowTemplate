@@ -3,6 +3,7 @@ package com.mercari.solution.util.pipeline.select;
 import com.google.gson.JsonObject;
 import com.mercari.solution.util.domain.math.ExpressionUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import java.util.*;
 
@@ -66,7 +67,7 @@ public class Expression implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         final Map<String, Double> values = new HashMap<>();
         for(final String variableName : expressionVariables) {
             final Object variable = input.get(variableName);

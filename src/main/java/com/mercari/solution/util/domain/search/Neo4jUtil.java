@@ -1,35 +1,46 @@
 package com.mercari.solution.util.domain.search;
 
+import com.google.common.reflect.ClassPath;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.mercari.solution.util.gcp.StorageUtil;
 import com.mercari.solution.util.pipeline.union.UnionValue;
+import org.apache.commons.compress.archivers.ArchiveEntry;
+import org.apache.commons.compress.archivers.ArchiveInputStream;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.joda.time.Instant;
+import org.neo4j.common.DependencyResolver;
 import org.neo4j.dbms.api.DatabaseManagementService;
-import org.neo4j.dbms.archive.CompressionFormat;
-import org.neo4j.dbms.archive.DumpFormatSelector;
-import org.neo4j.dbms.archive.Dumper;
+import org.neo4j.dbms.archive.*;
+import org.neo4j.function.ThrowingSupplier;
 import org.neo4j.graphdb.*;
 import org.neo4j.internal.helpers.ArrayUtil;
+import org.neo4j.internal.kernel.api.exceptions.ProcedureException;
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
+import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.io.layout.DatabaseLayout;
 import org.neo4j.io.layout.Neo4jLayout;
+import org.neo4j.kernel.api.procedure.GlobalProcedures;
+import org.neo4j.kernel.impl.transaction.log.files.TransactionLogFiles;
+import org.neo4j.kernel.internal.GraphDatabaseAPI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.Serializable;
+import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 
 public class Neo4jUtil implements Serializable {
@@ -325,12 +336,76 @@ public class Neo4jUtil implements Serializable {
     }
 
     public static void dump(final Path dbPath, final Path transactionLogPath, final OutputStream os, final CompressionFormat format, final Predicate<Path> exclude) throws IOException {
-        final Dumper dumper = new Dumper();
+        final Dumper dumper = new Dumper(new DefaultFileSystemAbstraction());
         dumper.dump(dbPath, transactionLogPath, os, format, exclude);
+    }
+
+    public static void load(final String neo4jHome, final String databaseName, final String archivePath) throws IOException {
+        final DatabaseLayout layout = Neo4jLayout.of(Path.of(neo4jHome)).databaseLayout(databaseName);
+        final Path databaseDestination = layout.databaseDirectory();
+        final Path transactionLogsDirectory = layout.getTransactionLogsDirectory();
+        LOG.info("load databasePath: " + layout.databaseDirectory().toAbsolutePath()
+                + ", transactionLogsPath: " + layout.getTransactionLogsDirectory().toAbsolutePath()
+                + ", from archivePath: " + archivePath);
+
+        load(databaseDestination, transactionLogsDirectory, archivePath);
+    }
+
+    public static void load(final Path dbPath, final Path transactionLogPath, final String archivePath) throws IOException {
+        final FileSystemAbstraction fileSystem = new DefaultFileSystemAbstraction();
+        final DecompressionSelector selector = DumpFormatSelector::decompress;
+        final ThrowingSupplier<InputStream, IOException> streamSupplier = () -> StorageUtil.readStream(StorageUtil.storage(), archivePath);
+        try (ArchiveInputStream stream = openArchiveIn(selector, streamSupplier, archivePath)) {
+            ArchiveEntry entry;
+            while ((entry = stream.getNextEntry()) != null) {
+                Path destination = determineEntryDestination(entry, dbPath, transactionLogPath);
+                loadEntry(destination, stream, entry, fileSystem);
+            }
+        }
     }
 
     public static void registerShutdownHook(final DatabaseManagementService managementService) {
         Runtime.getRuntime().addShutdownHook(new Thread(managementService::shutdown));
+    }
+
+    public static void setupGds(final GraphDatabaseService graphDb) {
+        final GlobalProcedures registry = ((GraphDatabaseAPI) graphDb)
+                .getDependencyResolver()
+                .resolveDependency(GlobalProcedures.class, DependencyResolver.SelectionStrategy.SINGLE);
+        try {
+            final ClassLoader loader = Thread.currentThread().getContextClassLoader();
+
+            final Set<Class<?>> procedureClasses = new HashSet<>();
+            procedureClasses.addAll(getClasses(loader, "org.neo4j.gds.graphalgo", "Proc"));
+            procedureClasses.addAll(getClasses(loader, "org.neo4j.gds.embeddings", "Proc"));
+            procedureClasses.addAll(getClasses(loader, "org.neo4j.gds.paths", "Proc"));
+            procedureClasses.addAll(getClasses(loader, "org.neo4j.gds.catalog", "Proc"));
+
+            for (final Class<?> procedureClass : procedureClasses) {
+                LOG.info("registerProcedure class: " + procedureClass.getName());
+                registry.registerProcedure(procedureClass);
+            }
+
+            final Set<Class<?>> functionClasses = new HashSet<>();
+            functionClasses.addAll(getClasses(loader, "org.neo4j.gds.functions", "Func"));
+            for (final Class<?> functionClass : functionClasses) {
+                LOG.info("registerFunction class: " + functionClass.getName());
+                registry.registerFunction(functionClass);
+            }
+
+        } catch (ProcedureException | IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static Set<Class<?>> getClasses(final ClassLoader loader, final String packageName, final String suffix) throws IOException {
+        return ClassPath
+                .from(loader)
+                .getTopLevelClassesRecursive(packageName)
+                .stream()
+                .filter(f -> f.getSimpleName().endsWith(suffix))
+                .map(ClassPath.ClassInfo::load)
+                .collect(Collectors.toSet());
     }
 
     private static Node getNode(final Transaction tx, final List<String> labelNames, final List<String> keyFields, final UnionValue unionValue) {
@@ -395,6 +470,74 @@ public class Neo4jUtil implements Serializable {
 
     private static boolean oneOf(Path path, String... names) {
         return ArrayUtil.contains(names, path.getFileName().toString());
+    }
+
+
+    private static Path determineEntryDestination(
+            ArchiveEntry entry, Path databaseDestination, Path transactionLogsDirectory) {
+        Path entryName = Path.of(entry.getName()).getFileName();
+        try {
+            return TransactionLogFiles.DEFAULT_FILENAME_FILTER.accept(entryName)
+                    ? transactionLogsDirectory
+                    : databaseDestination;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static void loadEntry(Path destination, ArchiveInputStream stream, ArchiveEntry entry, final FileSystemAbstraction filesystem) throws IOException {
+        Path file = destination.resolve(entry.getName().replace('\\', '/'));
+        var normalizedFile = file.normalize();
+        if (!normalizedFile.startsWith(destination)) {
+            throw new InvalidDumpEntryException(entry.getName());
+        }
+
+        if (entry.isDirectory()) {
+            filesystem.mkdirs(normalizedFile);
+        } else {
+            filesystem.mkdirs(normalizedFile.getParent());
+            try (OutputStream output = filesystem.openAsOutputStream(normalizedFile, false)) {
+                copy(stream, output);
+            }
+        }
+    }
+
+    private static ArchiveInputStream openArchiveIn(
+            DecompressionSelector selector, ThrowingSupplier<InputStream, IOException> streamSupplier, String name)
+            throws IOException {
+        try {
+            InputStream decompressor = selector.decompress(streamSupplier);
+
+            if (StandardCompressionFormat.ZSTD.isFormat(decompressor)) {
+                // Important: Only the ZSTD compressed archives have any archive metadata.
+                readArchiveMetadata(decompressor);
+            }
+
+            return new TarArchiveInputStream(decompressor);
+        } catch (NoSuchFileException ioe) {
+            throw ioe;
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to open archive: "+ name, e);
+        }
+    }
+
+    private static void readArchiveMetadata(InputStream stream) throws IOException {
+        final DataInputStream metadata = new DataInputStream(stream); // Unbuffered. Will not play naughty tricks with the file position.
+        int version = metadata.readInt();
+        if (version == 1) {
+            long maxFiles = metadata.readLong();
+            long maxBytes = metadata.readLong();
+        } else {
+            throw new IOException("Cannot read archive meta-data. I don't recognise this archive version: " + version + ".");
+        }
+    }
+
+    public static void copy(InputStream in, OutputStream out) throws IOException {
+        byte[] buffer = new byte[8192];
+        int n;
+        while(-1 != (n = in.read(buffer))) {
+            out.write(buffer, 0, n);
+        }
     }
 
 }

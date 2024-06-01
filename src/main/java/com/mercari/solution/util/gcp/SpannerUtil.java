@@ -5,6 +5,7 @@ import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.cloud.spanner.*;
 import com.google.spanner.admin.database.v1.UpdateDatabaseDdlMetadata;
+import com.mercari.solution.util.Filter;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
 import com.mercari.solution.util.converter.StructToRowConverter;
@@ -56,6 +57,31 @@ public class SpannerUtil {
             "  AND NOT STARTS_WITH(TABLE_NAME, 'CDC_Partitions_Metadata_') " +
             "GROUP BY " +
             "  TABLE_NAME";
+
+    private static final String EXTRACT_ALL_TABLE_PK_QUERY = """
+            SELECT
+              CU.TABLE_NAME,
+              ARRAY_AGG(STRUCT(CU.COLUMN_NAME, CU.ORDINAL_POSITION, C.SPANNER_TYPE, C.IS_NULLABLE)) AS PRIMARY_KEYS
+            FROM
+              INFORMATION_SCHEMA.KEY_COLUMN_USAGE CU
+            LEFT JOIN
+              INFORMATION_SCHEMA.COLUMNS C
+            ON
+              CU.TABLE_NAME = C.TABLE_NAME
+              AND CU.COLUMN_NAME = C.COLUMN_NAME
+            WHERE
+              STARTS_WITH(CONSTRAINT_NAME, "PK_")
+            GROUP BY
+              TABLE_NAME;
+            """;
+
+    private static final String EXTRACT_ALL_TABLES_QUERY = "" +
+            "SELECT " +
+            "  * " +
+            "FROM " +
+            "  INFORMATION_SCHEMA.TABLES " +
+            "WHERE " +
+            "  TABLE_TYPE != 'VIEW' ";
 
 
     public static Spanner connectSpanner(final String projectId,
@@ -309,6 +335,38 @@ public class SpannerUtil {
         }
     }
 
+    public static Map<String, List<Type.StructField>> getPrimaryFieldsFromDatabase(
+            final String projectId,
+            final String instanceId,
+            final String databaseId,
+            final boolean emulator) {
+
+        final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
+        try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
+            final DatabaseClient client = spanner.getDatabaseClient(database);
+            try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
+                final ResultSet resultSet = transaction.executeQuery(Statement.of(EXTRACT_ALL_TABLE_PK_QUERY))) {
+
+                final Map<String, List<Type.StructField>> outputs = new HashMap<>();
+                while(resultSet.next()) {
+                    final Struct struct = resultSet.getCurrentRowAsStruct();
+                    final String name = struct.getString("TABLE_NAME");
+                    final List<Struct> fields = struct.getStructList("PRIMARY_KEYS").stream()
+                            .sorted(Comparator.comparing(s -> s.getLong("ORDINAL_POSITION")))
+                            .toList();
+
+                    final List<Type.StructField> primaryKeys = new ArrayList<>();
+                    for(final Struct field : fields) {
+                        final Type.StructField fieldType = convertTypeFromInformationSchema(field);
+                        primaryKeys.add(fieldType);
+                    }
+                    outputs.put(name, primaryKeys);
+                }
+                return outputs;
+            }
+        }
+    };
+
     public static Map<String, List<String>> getDDLsFromDatabase(final String projectId,
                                                                 final String instanceId,
                                                                 final String databaseId,
@@ -327,6 +385,41 @@ public class SpannerUtil {
                 System.out.println(ddl);
             }
             return new HashMap<>();
+        }
+    }
+
+    public static Map<String, Set<String>> getParentTables(
+            final String projectId,
+            final String instanceId,
+            final String databaseId,
+            final boolean emulator) {
+
+        final DatabaseId database = DatabaseId.of(projectId, instanceId, databaseId);
+        try(final Spanner spanner = connectSpanner(projectId, 1, 1, 1, false, emulator)) {
+            final DatabaseClient client = spanner.getDatabaseClient(database);
+            try(final ReadOnlyTransaction transaction = client.singleUseReadOnlyTransaction();
+                final ResultSet resultSet = transaction.executeQuery(Statement.of(EXTRACT_ALL_TABLES_QUERY))) {
+
+                final Map<String, Set<String>> parentTables = new HashMap<>();
+                while(resultSet.next()) {
+                    final Struct struct = resultSet.getCurrentRowAsStruct();
+                    final String name = struct.getString("TABLE_NAME");
+                    if(struct.isNull("PARENT_TABLE_NAME")) {
+                        if(!parentTables.containsKey("")) {
+                            parentTables.put("", new HashSet<>());
+                        }
+                        parentTables.get("").add(name);
+                    } else {
+                        final String parentTable = struct.getString("PARENT_TABLE_NAME");
+                        if(!parentTables.containsKey(parentTable)) {
+                            parentTables.put(parentTable, new HashSet<>());
+                        }
+                        parentTables.get(parentTable).add(name);
+                    }
+                }
+
+                return parentTables;
+            }
         }
     }
 
@@ -422,6 +515,12 @@ public class SpannerUtil {
                     convertSchemaField(struct.getString("SPANNER_TYPE"))));
         }
         return Type.struct(fields);
+    }
+
+    private static Type.StructField convertTypeFromInformationSchema(final Struct struct) {
+        return Type.StructField.of(
+                struct.getString("COLUMN_NAME"),
+                convertSchemaField(struct.getString("SPANNER_TYPE")));
     }
 
     public static void executeDdl(final Spanner spanner, final String instanceId, final String databaseId, final String ddl) {

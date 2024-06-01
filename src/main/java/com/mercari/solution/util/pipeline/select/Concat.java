@@ -3,6 +3,7 @@ package com.mercari.solution.util.pipeline.select;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.beam.sdk.schemas.Schema;
+import org.joda.time.Instant;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,7 +82,7 @@ public class Concat implements SelectFunction {
     }
 
     @Override
-    public Object apply(Map<String, Object> input) {
+    public Object apply(Map<String, Object> input, Instant timestamp) {
         final List<String> strs = new ArrayList<>();
         for(Schema.Field inputField : inputFields) {
             final Object value = input.get(inputField.getName());

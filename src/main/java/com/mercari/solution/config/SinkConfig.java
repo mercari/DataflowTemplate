@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class SinkConfig implements Serializable {
 
@@ -21,6 +22,10 @@ public class SinkConfig implements Serializable {
     private Boolean skip;
 
     private String description;
+
+    // template args
+    private Map<String, Object> args;
+
 
     public String getName() {
         return name;
@@ -100,6 +105,14 @@ public class SinkConfig implements Serializable {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public Map<String, Object> getArgs() {
+        return args;
+    }
+
+    public void setArgs(Map<String, Object> args) {
+        this.args = args;
     }
 
     public void outputAvroSchema(final Schema schema) {

@@ -36,6 +36,8 @@ The output schema will include the fields specified in `groupFields`, the fields
 | window           | optional | Window                                | Specify [window](https://beam.apache.org/documentation/programming-guide/#windowing) by time to aggregate data. The default is `global` window.                                              |
 | trigger          | optional | Trigger                               | Specify window [trigger](https://beam.apache.org/documentation/programming-guide/#setting-a-trigger) setting. The default is `afterWatermark` trigger                                        |
 | accumulationMode | optional | Enum                                  | Specify trigger [accumulation mode](https://beam.apache.org/documentation/programming-guide/#window-accumulation-modes). One of `discarding` or `accumulating`. the default is `discarding`. |
+| limit            | optional | Limit                                 | Specify the limiting conditions for outputting aggregate results. This restriction is applied on a by key basis.                                                                             |
+| fanout           | optional | Integer                               | Specify number of intermediate node to combine parts of the data to reduce load on the final global combine step                                                                             |
 | outputEmpty      | optional | Boolean                               | Specify whether to output even if no data existed during the specified group and window. The default is `false`                                                                              |
 | outputPaneInfo   | optional | Boolean                               | Specify true if you want to output pane information when trigger is set in the streaming processing. The default is `false`                                                                  |
 
@@ -106,6 +108,12 @@ This setting specifies the [trigger for the window](https://beam.apache.org/docu
 | pastFirstElementDelayUnit | selective required | Enum            | (For `afterProcessingTime` trigger) Specify the unit of pastFirstElementDelay. One of `second`, `minute`, `hour`, or `day`. The default is `second`.                                                                                     |
 | elementCountAtLeast       | selective required | Integer         | (For `afterPane` trigger) Specify the number of data to be the firing condition                                                                                                                                                          |
 
+
+## Limit parameters
+
+| parameter     | optional           | type      | description                                                                                                                  |
+|---------------|--------------------|-----------|------------------------------------------------------------------------------------------------------------------------------|
+| count         | selective required | Integer   | Specifies the number of outputs to limit for each key. The specified number of outputs will be output from oldest to newest. |
 
 
 ## Related example config files
