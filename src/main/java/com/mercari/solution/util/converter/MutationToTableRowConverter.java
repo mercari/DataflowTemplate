@@ -1,20 +1,44 @@
 package com.mercari.solution.util.converter;
 
 import com.google.api.services.bigquery.model.TableRow;
-import com.google.cloud.spanner.Mutation;
-import com.google.cloud.spanner.Struct;
-import com.google.cloud.spanner.Type;
-import com.google.cloud.spanner.Value;
+import com.google.cloud.Date;
+import com.google.cloud.Timestamp;
+import com.google.cloud.spanner.*;
 import com.mercari.solution.util.schema.StructSchemaUtil;
 import org.joda.time.Instant;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class MutationToTableRowConverter {
 
     public static TableRow convert(final Mutation mutation) {
+        if(Mutation.Op.DELETE.equals(mutation.getOperation())) {
+            throw new IllegalArgumentException("Not supported");
+        }
         return convert(mutation.asMap());
+    }
+
+    public static TableRow convert(final Mutation mutation, final List<String> primaryKeyFields) {
+        if(Mutation.Op.DELETE.equals(mutation.getOperation())) {
+            final List<Object> values = new ArrayList<>();
+            for(final Key key : mutation.getKeySet().getKeys()) {
+                for(final Object object : key.getParts()) {
+                    values.add(object);
+                }
+            }
+            final TableRow tableRow = new TableRow();
+            for(int index=0; index<primaryKeyFields.size(); index++) {
+                final String primaryKeyField = primaryKeyFields.get(index);
+                final Object value = values.get(index);
+                tableRow.set(primaryKeyField, convertTableRowValue(value));
+            }
+            return tableRow;
+        } else {
+            return convert(mutation.asMap());
+        }
     }
 
     public static TableRow convertMutationRecord(final Mutation mutation) {
@@ -47,6 +71,7 @@ public class MutationToTableRowConverter {
             case DATE -> value.getDate().toString();
             case TIMESTAMP -> value.getTimestamp().toString();
             case JSON -> value.getJson();
+            case PG_JSONB -> value.getPgJsonb();
             case BYTES -> value.getBytes();
             case NUMERIC -> value.getNumeric().toString();
             case STRUCT -> {
@@ -60,6 +85,24 @@ public class MutationToTableRowConverter {
             }
             default -> throw new IllegalArgumentException();
         };
+    }
+
+    private static Object convertTableRowValue(final Object value) {
+        if(value == null) {
+            return null;
+        }
+        if(value instanceof String
+                || value instanceof Long
+                || value instanceof Double
+                || value instanceof Boolean) {
+            return value;
+        } else if(value instanceof Date date) {
+            return date.toString();
+        } else if(value instanceof Timestamp timestamp) {
+            return timestamp.toString();
+        } else {
+            throw new IllegalArgumentException();
+        }
     }
 
 }
