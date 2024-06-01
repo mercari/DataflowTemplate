@@ -13,7 +13,6 @@ import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.OptionUtil;
 import com.mercari.solution.util.converter.*;
-import com.mercari.solution.util.domain.finance.trading.event.FailureMessage;
 import com.mercari.solution.util.pipeline.mutation.UnifiedMutation;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.schema.RowSchemaUtil;
@@ -472,7 +471,7 @@ public class SpannerSink implements SinkModule {
 
         final PCollection<Void> output = tuple.get(write.getOutputTag());
         final Map<String, FCollection<?>> outputs = new HashMap<>();
-        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.UNIFIEDMUTATION, FailureMessage.schema));
+        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.UNIFIEDMUTATION, UnifiedMutation.schema));
 
         if(!parameters.getFailFast()) {
             final String failuresName = config.getName() + ".failures";
@@ -494,12 +493,12 @@ public class SpannerSink implements SinkModule {
 
         final PCollection<Void> output = tuple.get(write.getOutputTag());
         final Map<String, FCollection<?>> outputs = new HashMap<>();
-        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, FailureMessage.schema));
+        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
 
         if(!parameters.getFailFast()) {
             final String failuresName = config.getName() + ".failures";
             final PCollection<Row> failures = tuple.get(write.getFailuresTag());
-            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, FailureMessage.schema));
+            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
         }
 
         return outputs;
@@ -667,7 +666,7 @@ public class SpannerSink implements SinkModule {
             final List<String> createTableDdl = buildCreateTableDdl(tableSchema, table, keyFields);
             try(Spanner spanner = SpannerUtil.connectSpanner(projectId, 1, 1, 1, false, parameters.getEmulator())) {
                 if(!SpannerUtil.existsTable(spanner, DatabaseId.of(projectId, instanceId, databaseId), table)) {
-                    LOG.info("Set create operation for spanner table: " + table);
+                    LOG.info("Set create operation for spanner table: {}", table);
                     if(keyFields == null) {
                         throw new IllegalArgumentException("Missing PrimaryKeyFields for creation table: " + table);
                     }
@@ -679,7 +678,7 @@ public class SpannerSink implements SinkModule {
                     }
                     ddl.addAll(createTableDdl);
                 } else if(this.parameters.getRecreate()) {
-                    LOG.info("Set recreate operation for spanner table: " + table);
+                    LOG.info("Set recreate operation for spanner table: {}", table);
                     ddl.add(SpannerUtil.buildDropTableSQL(table));
                     ddl.addAll(createTableDdl);
                 } else {
@@ -1364,7 +1363,7 @@ public class SpannerSink implements SinkModule {
             this.parentTables = SpannerUtil.getParentTables(
                     parameters.getProjectId(), parameters.getInstanceId(), parameters.getDatabaseId(), parameters.getEmulator());
 
-            LOG.info("parent tables: " + this.parentTables);
+            LOG.info("parent tables: {}", this.parentTables);
 
             final Set<String> tables = parentTables.values()
                     .stream()
@@ -1389,7 +1388,7 @@ public class SpannerSink implements SinkModule {
                     .of(new WithTableTagDoFn())
                     .withOutputTags(ftag, TupleTagList.of(tagList)));
             List<PCollection<?>> waits;
-            if(waitsFCollections == null || waitsFCollections.size() == 0) {
+            if(waitsFCollections == null || waitsFCollections.isEmpty()) {
                 waits = List.of(input.getPipeline().apply("Create", Create.empty(VoidCoder.of())));
             } else {
                 waits = waitsFCollections.stream().map(FCollection::getCollection).collect(Collectors.toList());
