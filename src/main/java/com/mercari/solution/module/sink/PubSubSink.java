@@ -3,6 +3,7 @@ package com.mercari.solution.module.sink;
 import com.google.cloud.spanner.Struct;
 import com.google.datastore.v1.Entity;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
 import com.mercari.solution.config.SinkConfig;
@@ -45,11 +46,11 @@ public class PubSubSink implements SinkModule {
     private static class PubSubSinkParameters implements Serializable {
 
         private String topic;
-        private String topicTemplate;
         private Format format;
         private List<String> attributes;
         private String idAttribute;
         private String timestampAttribute;
+        private List<String> idAttributeFields;
         private List<String> orderingKeyFields;
 
         private String protobufDescriptor;
@@ -58,12 +59,9 @@ public class PubSubSink implements SinkModule {
         private Integer maxBatchSize;
         private Integer maxBatchBytesSize;
 
+
         public String getTopic() {
             return topic;
-        }
-
-        public String getTopicTemplate() {
-            return topicTemplate;
         }
 
         public Format getFormat() {
@@ -80,6 +78,10 @@ public class PubSubSink implements SinkModule {
 
         public String getTimestampAttribute() {
             return timestampAttribute;
+        }
+
+        public List<String> getIdAttributeFields() {
+            return idAttributeFields;
         }
 
         public List<String> getOrderingKeyFields() {
@@ -106,7 +108,7 @@ public class PubSubSink implements SinkModule {
         private void validate(final String name) {
             // check required parameters filled
             final List<String> errorMessages = new ArrayList<>();
-            if(this.topic == null && this.topicTemplate == null) {
+            if(this.topic == null) {
                 errorMessages.add("pubsub sink module " + name + " parameter must contain topic or topicTemplate");
             }
             if(this.format == null) {
@@ -121,7 +123,7 @@ public class PubSubSink implements SinkModule {
                     }
                 }
             }
-            if(errorMessages.size() > 0) {
+            if(!errorMessages.isEmpty()) {
                 throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
@@ -130,16 +132,25 @@ public class PubSubSink implements SinkModule {
             if(this.attributes == null) {
                 this.attributes = new ArrayList<>();
             }
-            if(this.idAttribute != null
-                    && !this.attributes.contains(this.idAttribute)) {
-                this.attributes.add(this.idAttribute);
+            if(this.idAttributeFields == null) {
+                this.idAttributeFields = new ArrayList<>();
             }
             if(this.orderingKeyFields == null) {
                 this.orderingKeyFields = new ArrayList<>();
-            } else if(this.orderingKeyFields.size() > 0 && (this.maxBatchSize == null || this.maxBatchSize != 1)) {
+            } else if(!this.orderingKeyFields.isEmpty() && (this.maxBatchSize == null || this.maxBatchSize != 1)) {
                 LOG.warn("pubsub sink module maxBatchSize must be 1 when using orderingKeyFields. ref: https://issues.apache.org/jira/browse/BEAM-13148");
                 this.maxBatchSize = 1;
             }
+        }
+
+        public static PubSubSinkParameters of(final JsonObject jsonObject, final String name) {
+            final PubSubSinkParameters parameters = new Gson().fromJson(jsonObject, PubSubSinkParameters.class);
+            if(parameters == null) {
+                throw new IllegalArgumentException("pubsub sink module parameters must not be empty!");
+            }
+            parameters.validate(name);
+            parameters.setDefaults();
+            return parameters;
         }
     }
 
@@ -154,22 +165,17 @@ public class PubSubSink implements SinkModule {
 
     @Override
     public Map<String, FCollection<?>> expand(List<FCollection<?>> inputs, SinkConfig config, List<FCollection<?>> waits) {
-        if(inputs == null || inputs.size() == 0) {
+        if(inputs == null || inputs.isEmpty()) {
             throw new IllegalArgumentException("pubsub sink module requires input parameter");
         }
 
         try {
             config.outputAvroSchema(inputs.get(0).getAvroSchema());
         } catch (Exception e) {
-            LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
+            LOG.error("Failed to output avro schema for {} to path: {}", config.getName(), config.getOutputAvroSchema(), e);
         }
 
-        final PubSubSinkParameters parameters = new Gson().fromJson(config.getParameters(), PubSubSinkParameters.class);
-        if(parameters == null) {
-            throw new IllegalArgumentException("pubsub sink module parameters must not be empty!");
-        }
-        parameters.validate(config.getName());
-        parameters.setDefaults();
+        final PubSubSinkParameters parameters = PubSubSinkParameters.of(config.getParameters(), config.getName());
 
         if(inputs.size() == 1) {
             final Write write = new Write(inputs.get(0), parameters, waits);
@@ -212,15 +218,13 @@ public class PubSubSink implements SinkModule {
 
     private static PubsubIO.Write<PubsubMessage> createWrite(PubSubSinkParameters parameters) {
         PubsubIO.Write<PubsubMessage> write;
-        if(parameters.getTopic() != null) {
-            write = PubsubIO.writeMessages().to(parameters.getTopic());
-        } else if(parameters.getTopicTemplate() != null) {
+        if(TemplateUtil.isTemplateText(parameters.getTopic())) {
             write = PubsubIO.writeMessagesDynamic().to(topicFunction);
         } else {
-            throw new IllegalArgumentException("pubsub sink module missing the both topic and topicTemplate parameter");
+            write = PubsubIO.writeMessages().to(parameters.getTopic());
         }
 
-        if (parameters.getIdAttribute() != null) {
+        if (parameters.getIdAttribute() != null && parameters.getIdAttributeFields().isEmpty()) {
             write = write.withIdAttribute(parameters.getIdAttribute());
         }
         if (parameters.getTimestampAttribute() != null) {
@@ -247,8 +251,6 @@ public class PubSubSink implements SinkModule {
 
     private static class Write extends PTransform<PCollection<?>, PDone> {
 
-        private static final Logger LOG = LoggerFactory.getLogger(Write.class);
-
         private FCollection<?> collection;
         private final PubSubSinkParameters parameters;
         private final List<FCollection<?>> waits;
@@ -266,69 +268,75 @@ public class PubSubSink implements SinkModule {
 
             final PubsubIO.Write<PubsubMessage> write = createWrite(parameters);
             switch (parameters.getFormat()) {
-                case avro: {
+                case avro -> {
                     final PCollection<GenericRecord> records = input
                             .apply("ToRecord", DataTypeTransform.transform(collection, DataType.AVRO));
                     return records.apply("ToMessage", ParDo.of(new GenericRecordPubsubMessageDoFn(
                                     parameters.getAttributes(),
                                     parameters.getIdAttribute(),
+                                    parameters.getIdAttributeFields(),
                                     parameters.getOrderingKeyFields(),
                                     collection.getAvroSchema().toString())))
                             .apply("PublishPubSub", write);
                 }
-                case json: {
-                    switch (collection.getDataType()) {
-                        case ROW: {
+                case json -> {
+                    return switch (collection.getDataType()) {
+                        case ROW -> {
                             final PCollection<Row> rows = (PCollection<Row>) input;
-                            return rows.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                            yield rows.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             RowSchemaUtil::getAsString,
                                             RowToJsonConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        case AVRO: {
+                        case AVRO -> {
                             final PCollection<GenericRecord> records = (PCollection<GenericRecord>) input;
-                            return records.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                            yield records.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             AvroSchemaUtil::getAsString,
                                             RecordToJsonConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        case STRUCT: {
+                        case STRUCT -> {
                             final PCollection<Struct> structs = (PCollection<Struct>) input;
-                            return structs.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                            yield structs.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             StructSchemaUtil::getAsString,
                                             StructToJsonConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        case ENTITY: {
+                        case ENTITY -> {
                             final PCollection<Entity> entities = (PCollection<Entity>) input;
-                            return entities.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
+                            yield entities.apply("ToMessage", ParDo.of(new JsonPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             EntitySchemaUtil::getAsString,
                                             EntityToJsonConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        default:
-                            throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
-                    }
+                        default ->
+                                throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
+                    };
                 }
-                case protobuf: {
-                    switch (collection.getDataType()) {
-                        case ROW: {
+                case protobuf -> {
+                    return switch (collection.getDataType()) {
+                        case ROW -> {
                             final PCollection<Row> rows = (PCollection<Row>) input;
-                            return rows.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                            yield rows.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             parameters.getProtobufDescriptor(),
                                             parameters.getProtobufMessageName(),
@@ -336,11 +344,12 @@ public class PubSubSink implements SinkModule {
                                             RowToProtoConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        case AVRO: {
+                        case AVRO -> {
                             final PCollection<GenericRecord> records = (PCollection<GenericRecord>) input;
-                            return records.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                            yield records.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             parameters.getProtobufDescriptor(),
                                             parameters.getProtobufMessageName(),
@@ -348,11 +357,12 @@ public class PubSubSink implements SinkModule {
                                             RecordToProtoConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        case STRUCT: {
+                        case STRUCT -> {
                             final PCollection<Struct> structs = (PCollection<Struct>) input;
-                            return structs.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                            yield structs.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             parameters.getProtobufDescriptor(),
                                             parameters.getProtobufMessageName(),
@@ -360,11 +370,12 @@ public class PubSubSink implements SinkModule {
                                             StructToProtoConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        case ENTITY: {
+                        case ENTITY -> {
                             final PCollection<Entity> entities = (PCollection<Entity>) input;
-                            return entities.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
+                            yield entities.apply("ToMessage", ParDo.of(new ProtobufPubsubMessageDoFn<>(
                                             parameters.getAttributes(),
                                             parameters.getIdAttribute(),
+                                            parameters.getIdAttributeFields(),
                                             parameters.getOrderingKeyFields(),
                                             parameters.getProtobufDescriptor(),
                                             parameters.getProtobufMessageName(),
@@ -372,12 +383,10 @@ public class PubSubSink implements SinkModule {
                                             EntityToProtoConverter::convert)))
                                     .apply("PublishPubSub", write);
                         }
-                        default:
-                            throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
-                    }
+                        default -> throw new IllegalArgumentException("PubSubSink module not support data type: " + collection.getDataType());
+                    };
                 }
-                default:
-                    throw new IllegalArgumentException("PubSubSink module not support format: " + parameters.getFormat());
+                default -> throw new IllegalArgumentException("PubSubSink module not support format: " + parameters.getFormat());
             }
         }
 
@@ -389,11 +398,12 @@ public class PubSubSink implements SinkModule {
 
             JsonPubsubMessageDoFn(final List<String> attributes,
                                   final String idAttribute,
+                                  final List<String> idAttributeFields,
                                   final List<String> orderingKeyFields,
                                   final SchemaUtil.StringGetter<T> stringGetter,
                                   final JsonConverter<T> converter) {
 
-                super(attributes, idAttribute, orderingKeyFields);
+                super(attributes, idAttribute, idAttributeFields, orderingKeyFields);
                 this.stringGetter = stringGetter;
                 this.converter = converter;
             }
@@ -424,10 +434,11 @@ public class PubSubSink implements SinkModule {
 
             GenericRecordPubsubMessageDoFn(final List<String> attributes,
                                            final String idAttribute,
+                                           final List<String> idAttributeFields,
                                            final List<String> orderingKeyFields,
                                            final String schemaString) {
 
-                super(attributes, idAttribute, orderingKeyFields);
+                super(attributes, idAttribute, idAttributeFields, orderingKeyFields);
                 this.schemaString = schemaString;
             }
 
@@ -468,13 +479,14 @@ public class PubSubSink implements SinkModule {
 
             ProtobufPubsubMessageDoFn(final List<String> attributes,
                                       final String idAttribute,
+                                      final List<String> idAttributeFields,
                                       final List<String> orderingKeyFields,
                                       final String descriptorPath,
                                       final String messageName,
                                       final SchemaUtil.StringGetter<T> stringGetter,
                                       final ProtoConverter<T> converter) {
 
-                super(attributes, idAttribute, orderingKeyFields);
+                super(attributes, idAttribute, idAttributeFields, orderingKeyFields);
                 this.descriptorPath = descriptorPath;
                 this.messageName = messageName;
                 this.stringGetter = stringGetter;
@@ -508,11 +520,18 @@ public class PubSubSink implements SinkModule {
 
             private final List<String> attributes;
             private final String idAttribute;
+            private final List<String> idAttributeFields;
             private final List<String> orderingKeyFields;
 
-            PubsubMessageDoFn(final List<String> attributes, final String idAttribute, final List<String> orderingKeyFields) {
+            PubsubMessageDoFn(
+                    final List<String> attributes,
+                    final String idAttribute,
+                    final List<String> idAttributeFields,
+                    final List<String> orderingKeyFields) {
+
                 this.attributes = attributes;
                 this.idAttribute = idAttribute;
+                this.idAttributeFields = idAttributeFields;
                 this.orderingKeyFields = orderingKeyFields;
             }
 
@@ -523,13 +542,16 @@ public class PubSubSink implements SinkModule {
                 final String messageId = getMessageId(element);
                 final String orderingKey = getOrderingKey(element);
                 final byte[] payload = encode(element);
+                if(this.idAttribute != null) {
+                    attributeMap.put(this.idAttribute, messageId);
+                }
                 final PubsubMessage message = new PubsubMessage(payload, attributeMap, messageId, orderingKey);
                 c.output(message);
             }
 
             private Map<String, String> getAttributes(T element) {
                 final Map<String, String> attributeMap = new HashMap<>();
-                if(attributes == null || attributes.size() == 0) {
+                if(attributes == null || attributes.isEmpty()) {
                     return attributeMap;
                 }
                 for(final String attribute : attributes) {
@@ -543,14 +565,14 @@ public class PubSubSink implements SinkModule {
             }
 
             private String getMessageId(T element) {
-                if(idAttribute == null) {
+                if(idAttributeFields == null || idAttributeFields.isEmpty()) {
                     return null;
                 }
-                return getString(element, idAttribute);
+                return getAttributesAsString(element, idAttributeFields);
             }
 
             private String getOrderingKey(T element) {
-                if(orderingKeyFields == null || orderingKeyFields.size() == 0) {
+                if(orderingKeyFields == null || orderingKeyFields.isEmpty()) {
                     return null;
                 }
                 return getAttributesAsString(element, orderingKeyFields);
@@ -563,7 +585,7 @@ public class PubSubSink implements SinkModule {
                     sb.append(fieldValue == null ? "" : fieldValue);
                     sb.append("#");
                 }
-                if(sb.length() > 0) {
+                if(!sb.isEmpty()) {
                     sb.deleteCharAt(sb.length() - 1);
                 }
                 return sb.toString();
@@ -623,6 +645,13 @@ public class PubSubSink implements SinkModule {
             }
 
             final PubsubIO.Write<PubsubMessage> write = createWrite(parameters);
+
+            if(TemplateUtil.isTemplateText(parameters.getTopic())) {
+                return waited
+                        .apply("ToMessage", ParDo.of(new UnionPubsubMessageDoFn(parameters, schema.toString())))
+                        .apply("PublishPubSub", write);
+            }
+
             return waited
                     .apply("ToMessage", ParDo.of(new UnionPubsubMessageDoFn(parameters, schema.toString())))
                     .apply("PublishPubSub", write);
@@ -633,12 +662,16 @@ public class PubSubSink implements SinkModule {
             private final Format format;
             private final List<String> attributes;
             private final String idAttribute;
+            private final List<String> idAttributeFields;
             private final List<String> orderingKeyFields;
-            private final String topicTemplateString;
+            private final String topic;
+            private final boolean isDynamicTopic;
 
             private final String schemaString;
             private final String descriptorPath;
             private final String messageName;
+
+            private final List<String> topicTemplateArgs;
 
             private transient Schema schema;
             private transient DatumWriter<GenericRecord> writer;
@@ -655,12 +688,17 @@ public class PubSubSink implements SinkModule {
                 this.format = parameters.getFormat();
                 this.attributes = parameters.getAttributes();
                 this.idAttribute = parameters.getIdAttribute();
+                this.idAttributeFields = parameters.getIdAttributeFields();
                 this.orderingKeyFields = parameters.getOrderingKeyFields();
-                this.topicTemplateString = parameters.getTopicTemplate();
+                this.topic = parameters.getTopic();
+                this.isDynamicTopic = TemplateUtil.isTemplateText(parameters.getTopic());
 
                 this.schemaString = schemaString;
                 this.descriptorPath = parameters.getProtobufDescriptor();
                 this.messageName = parameters.getProtobufMessageName();
+
+                final Schema avroSchema = AvroSchemaUtil.convertSchema(schemaString);
+                this.topicTemplateArgs = TemplateUtil.extractTemplateArgs(this.topic, avroSchema);
             }
 
             @Setup
@@ -677,8 +715,8 @@ public class PubSubSink implements SinkModule {
                         this.descriptor = descriptors.get(messageName);
                     }
                 }
-                if(topicTemplateString != null) {
-                    this.topicTemplate = TemplateUtil.createStrictTemplate("topicTemplate", topicTemplateString);
+                if(isDynamicTopic) {
+                    this.topicTemplate = TemplateUtil.createStrictTemplate("topicTemplate", topic);
                 }
             }
 
@@ -702,17 +740,20 @@ public class PubSubSink implements SinkModule {
                         yield Optional.ofNullable(message).map(DynamicMessage::toByteArray).orElse(null);
                     }
                 };
+                if(this.idAttribute != null) {
+                    attributeMap.put(this.idAttribute, messageId);
+                }
                 final PubsubMessage message = new PubsubMessage(payload, attributeMap, messageId, orderingKey);
                 c.output(message);
             }
 
             private Map<String, String> getAttributes(UnionValue element) {
                 final Map<String, String> attributeMap = new HashMap<>();
-                if(topicTemplateString != null) {
-                    final String topic = TemplateUtil.executeStrictTemplate(topicTemplate, element.getMap());
+                if(isDynamicTopic) {
+                    final String topic = TemplateUtil.executeStrictTemplate(topicTemplate, element.getMap(topicTemplateArgs));
                     attributeMap.put(ATTRIBUTE_NAME_TOPIC, topic);
                 }
-                if(attributes == null || attributes.size() == 0) {
+                if(attributes == null || attributes.isEmpty()) {
                     return attributeMap;
                 }
                 for(final String attribute : attributes) {
@@ -726,23 +767,27 @@ public class PubSubSink implements SinkModule {
             }
 
             private String getMessageId(UnionValue element) {
-                if(idAttribute == null) {
+                if(idAttributeFields == null || idAttributeFields.isEmpty()) {
                     return null;
                 }
-                return element.getString(idAttribute);
+                return getAttributesAsString(element, idAttributeFields);
             }
 
             private String getOrderingKey(UnionValue element) {
-                if(orderingKeyFields == null || orderingKeyFields.size() == 0) {
+                if(orderingKeyFields == null || orderingKeyFields.isEmpty()) {
                     return null;
                 }
+                return getAttributesAsString(element, orderingKeyFields);
+            }
+
+            private String getAttributesAsString(final UnionValue value, final List<String> fields) {
                 final StringBuilder sb = new StringBuilder();
-                for(final String fieldName : orderingKeyFields) {
-                    final String fieldValue = element.getString(fieldName);
+                for(final String fieldName : fields) {
+                    final String fieldValue = value.getString(fieldName);
                     sb.append(fieldValue == null ? "" : fieldValue);
                     sb.append("#");
                 }
-                if(sb.length() > 0) {
+                if(!sb.isEmpty()) {
                     sb.deleteCharAt(sb.length() - 1);
                 }
                 return sb.toString();

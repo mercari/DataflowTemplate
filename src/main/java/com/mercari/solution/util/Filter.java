@@ -6,6 +6,8 @@ import com.mercari.solution.util.domain.math.ExpressionUtil;
 import com.mercari.solution.util.schema.SchemaUtil;
 import net.objecthunter.exp4j.Expression;
 import org.joda.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -16,6 +18,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class Filter implements Serializable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Filter.class);
 
     public enum Type implements Serializable {
         AND,
@@ -84,12 +88,12 @@ public class Filter implements Serializable {
 
         public Set<String> getRequiredVariables() {
             final Set<String> variables = new HashSet<>();
-            if(this.nodes != null && this.nodes.size() > 0) {
+            if(this.nodes != null && !this.nodes.isEmpty()) {
                 for(final ConditionNode node : this.nodes) {
                     variables.addAll(node.getRequiredVariables());
                 }
             }
-            if(this.leaves != null && this.leaves.size() > 0) {
+            if(this.leaves != null && !this.leaves.isEmpty()) {
                 for(final ConditionLeaf leaf : this.leaves) {
                     variables.addAll(leaf.getRequiredVariables());
                 }
@@ -207,7 +211,11 @@ public class Filter implements Serializable {
                 if(!child.isJsonObject()) {
                     throw new IllegalArgumentException("Simple conditions must be jsonObject. json: " + child.toString());
                 }
-                final ConditionLeaf leaf = createLeaf(child.getAsJsonObject());
+                final JsonObject childObject = child.getAsJsonObject();
+                if(childObject.size() == 1 && (childObject.has("or") || childObject.has("and"))) {
+                    throw new IllegalArgumentException("`or`, `and` conditions should be defined at the top level, not in an array. json: " + childObject);
+                }
+                final ConditionLeaf leaf = createLeaf(childObject);
                 leaves.add(leaf);
             }
             ConditionNode node = new ConditionNode();
@@ -265,7 +273,7 @@ public class Filter implements Serializable {
     public static <T> boolean filter(final T element, final SchemaUtil.ValueGetter<T> getter, final ConditionNode condition, final Map<String, Object> values) {
         final List<Boolean> bits = new ArrayList<>();
 
-        if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
+        if(condition.getLeaves() != null && !condition.getLeaves().isEmpty()) {
             for(ConditionLeaf leaf : condition.getLeaves()) {
                 final Object value;
                 if(leaf.expression != null) {
@@ -283,13 +291,13 @@ public class Filter implements Serializable {
                 bits.add(is(value, leaf));
             }
         }
-        if(condition.getNodes() != null && condition.getNodes().size() > 0) {
+        if(condition.getNodes() != null && !condition.getNodes().isEmpty()) {
             for(ConditionNode node : condition.getNodes()) {
                 bits.add(filter(element, getter, node, values));
             }
         }
 
-        if(bits.size() == 0) {
+        if(bits.isEmpty()) {
             return false;
         }
 
@@ -299,7 +307,7 @@ public class Filter implements Serializable {
     public static boolean filter(final ConditionNode condition, final Map<String, Object> values) {
         final List<Boolean> bits = new ArrayList<>();
 
-        if(condition.getLeaves() != null && condition.getLeaves().size() > 0) {
+        if(condition.getLeaves() != null && !condition.getLeaves().isEmpty()) {
             for(ConditionLeaf leaf : condition.getLeaves()) {
                 final Object value;
                 if(leaf.expression != null) {
@@ -328,13 +336,13 @@ public class Filter implements Serializable {
                 bits.add(is(value, leaf));
             }
         }
-        if(condition.getNodes() != null && condition.getNodes().size() > 0) {
+        if(condition.getNodes() != null && !condition.getNodes().isEmpty()) {
             for(ConditionNode node : condition.getNodes()) {
                 bits.add(filter(node, values));
             }
         }
 
-        if(bits.size() == 0) {
+        if(bits.isEmpty()) {
             return false;
         }
 
@@ -379,6 +387,8 @@ public class Filter implements Serializable {
                     || value instanceof BigDecimal) {
 
                 c = new BigDecimal(value.toString()).compareTo(leaf.getValue().getAsBigDecimal());
+            } else if(value instanceof Boolean) {
+                c = ((Boolean)value).compareTo(leaf.getValue().getAsBoolean());
             } else if(value instanceof Short) {
                 c = ((Short)value).compareTo(leaf.getValue().getAsShort());
             } else if(value instanceof Integer) {
@@ -397,6 +407,8 @@ public class Filter implements Serializable {
                 c = ((Double)value).compareTo(leaf.getValue().getAsDouble());
             } else if(value instanceof String) {
                 c = ((String)value).compareTo(leaf.getValue().getAsString());
+            } else if(value instanceof java.time.Instant) {
+                c = ((java.time.Instant)value).compareTo(DateTimeUtil.toInstant(leaf.getValue().getAsString()));
             } else if(value instanceof Instant) {
                 c = ((Instant)value).compareTo(DateTimeUtil.toJodaInstant(leaf.getValue().getAsString()));
             } else if(value instanceof LocalDate) {
@@ -407,29 +419,21 @@ public class Filter implements Serializable {
                 c = ((org.apache.avro.util.Utf8)value).toString().compareTo(leaf.getValue().getAsString());
             } else {
                 c = (value).toString().compareTo(leaf.getValue().getAsString());
+                LOG.warn("not matched value: {} to leaf: {}", value, leaf.getValue().getAsString());
                 //throw new IllegalArgumentException("Condition compare op must be Number or String. : " + value.getClass());
             }
 
-            switch (leaf.getOp()) {
-                case EQUAL:
-                    return c == 0;
-                case NOT_EQUAL:
-                    return c != 0;
-                case GREATER:
-                    return c > 0;
-                case GREATER_OR_EQUAL:
-                    return c >= 0;
-                case LESSER:
-                    return c < 0;
-                case LESSER_OR_EQUAL:
-                    return c <= 0;
-                case TRUE:
-                    return true;
-                case FALSE:
-                    return false;
-                default:
-                    throw new IllegalArgumentException("");
-            }
+            return switch (leaf.getOp()) {
+                case EQUAL -> c == 0;
+                case NOT_EQUAL -> c != 0;
+                case GREATER -> c > 0;
+                case GREATER_OR_EQUAL -> c >= 0;
+                case LESSER -> c < 0;
+                case LESSER_OR_EQUAL -> c <= 0;
+                case TRUE -> true;
+                case FALSE -> false;
+                default -> throw new IllegalArgumentException("");
+            };
         }
     }
 
