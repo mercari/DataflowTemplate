@@ -469,14 +469,15 @@ public class SpannerSink implements SinkModule {
         final SpannerWriteUnifiedMutations write = new SpannerWriteUnifiedMutations(parameters, waits);
         final PCollectionTuple tuple = collection.getCollection().apply(config.getName(), write);
 
+        final Schema failureSchema = FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures());
         final PCollection<Void> output = tuple.get(write.getOutputTag());
         final Map<String, FCollection<?>> outputs = new HashMap<>();
-        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.UNIFIEDMUTATION, UnifiedMutation.schema));
+        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.UNIFIEDMUTATION, failureSchema));
 
         if(!parameters.getFailFast()) {
             final String failuresName = config.getName() + ".failures";
             final PCollection<Row> failures = tuple.get(write.getFailuresTag());
-            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, FailureMessage.schema));
+            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, failureSchema));
         }
 
         return outputs;
@@ -491,14 +492,15 @@ public class SpannerSink implements SinkModule {
         final SpannerWriteMutations write = new SpannerWriteMutations(parameters, waits);
         final PCollectionTuple tuple = collection.getCollection().apply(config.getName(), write);
 
+        final Schema failureSchema = FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures());
         final PCollection<Void> output = tuple.get(write.getOutputTag());
         final Map<String, FCollection<?>> outputs = new HashMap<>();
-        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
+        outputs.put(config.getName(), FCollection.of(config.getName(), output, DataType.MUTATION, failureSchema));
 
         if(!parameters.getFailFast()) {
             final String failuresName = config.getName() + ".failures";
             final PCollection<Row> failures = tuple.get(write.getFailuresTag());
-            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, FailedMutationConvertDoFn.createFailureSchema(parameters.getFlattenFailures())));
+            outputs.put(failuresName, FCollection.of(failuresName, failures, DataType.ROW, failureSchema));
         }
 
         return outputs;
