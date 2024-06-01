@@ -114,7 +114,7 @@ public class RowToProtoConverter {
                             if(o instanceof Row) {
                                 return convert(field.getMessageType(), (Row) o);
                             } else {
-                                return convertValue(field, fieldType.getCollectionElementType(), o);
+                                return convertSingleValue(field, fieldType.getCollectionElementType(), o);
                             }
                         })
                         .toList();
@@ -126,12 +126,16 @@ public class RowToProtoConverter {
             }
         }
 
+        return convertSingleValue(field, fieldType, value);
+    }
+
+    private static Object convertSingleValue(Descriptors.FieldDescriptor field, Schema.FieldType fieldType, Object value) {
         return switch (field.getJavaType()) {
             case BOOLEAN -> switch (fieldType.getTypeName()) {
-                    case BOOLEAN -> value;
-                    case STRING -> Boolean.valueOf((String) value);
-                    default -> throw new IllegalArgumentException();
-                };
+                case BOOLEAN -> value;
+                case STRING -> Boolean.valueOf((String) value);
+                default -> throw new IllegalArgumentException();
+            };
             case STRING -> switch (fieldType.getTypeName()) {
                 case STRING -> value;
                 case INT32, INT64, FLOAT, DOUBLE -> value.toString();
@@ -184,74 +188,74 @@ public class RowToProtoConverter {
             }
             case BYTE_STRING -> ByteString.copyFrom(((byte[]) value));
             case MESSAGE ->
-                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
-                    case BOOL_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                    switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                        case BOOL_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), value)
                                 .build();
-                    case BYTES_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                        case BYTES_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), ByteString.copyFrom((byte[]) value))
                                 .build();
-                    case STRING_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                        case STRING_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), value.toString())
                                 .build();
-                    case INT32_VALUE, UINT32_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                        case INT32_VALUE, UINT32_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), (Integer) value)
                                 .build();
-                    case INT64_VALUE, UINT64_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                        case INT64_VALUE, UINT64_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), (Long) value)
                                 .build();
-                    case FLOAT_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                        case FLOAT_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), (Float) value)
                                 .build();
-                    case DOUBLE_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
+                        case DOUBLE_VALUE -> DynamicMessage.newBuilder(field.getMessageType())
                                 .setField(field.getMessageType().findFieldByName("value"), (Double) value)
                                 .build();
-                    case DATE -> {
-                        final LocalDate date = (LocalDate) value;
-                        yield DynamicMessage.newBuilder(field.getMessageType())
-                                .setField(field.getMessageType().findFieldByName("year"), date.getYear())
-                                .setField(field.getMessageType().findFieldByName("month"), date.getMonthValue())
-                                .setField(field.getMessageType().findFieldByName("day"), date.getDayOfMonth())
-                                .build();
-                    }
-                    case TIME -> {
-                        final LocalTime time = (LocalTime) value;
-                        yield DynamicMessage.newBuilder(field.getMessageType())
-                                .setField(field.getMessageType().findFieldByName("hours"), time.getHour())
-                                .setField(field.getMessageType().findFieldByName("minutes"), time.getMinute())
-                                .setField(field.getMessageType().findFieldByName("seconds"), time.getSecond())
-                                .setField(field.getMessageType().findFieldByName("nanos"), time.getNano())
-                                .build();
-                    }
-                    case DATETIME -> {
-                        final Descriptors.FieldDescriptor timezone = field.getMessageType().findFieldByName("time_zone");
-                        final org.joda.time.DateTime dt = ((Instant) value).toDateTime(DateTimeZone.UTC);
-                        yield DynamicMessage.newBuilder(field.getMessageType())
-                                .setField(timezone,
-                                        DynamicMessage.newBuilder(timezone.getMessageType())
-                                                .setField(timezone.getMessageType().findFieldByName("id"), ZoneOffset.UTC.getId())
-                                                .build())
-                                .setField(field.getMessageType().findFieldByName("year"), dt.getYear())
-                                .setField(field.getMessageType().findFieldByName("month"), dt.getMonthOfYear())
-                                .setField(field.getMessageType().findFieldByName("day"), dt.getDayOfMonth())
-                                .setField(field.getMessageType().findFieldByName("hours"), dt.getHourOfDay())
-                                .setField(field.getMessageType().findFieldByName("minutes"), dt.getMinuteOfHour())
-                                .setField(field.getMessageType().findFieldByName("seconds"), dt.getSecondOfMinute())
-                                .build();
-                    }
-                    case TIMESTAMP -> {
-                        final Timestamp instant = Timestamps.fromMillis(((Instant) value).getMillis());
-                        yield DynamicMessage.newBuilder(field.getMessageType())
-                                .setField(field.getMessageType().findFieldByName("seconds"), instant.getSeconds())
-                                .setField(field.getMessageType().findFieldByName("nanos"), instant.getNanos())
-                                .build();
-                    }
-                    case ANY -> Any.newBuilder().setValue(ByteString.copyFromUtf8(value.toString())).build();
-                    case EMPTY -> Empty.newBuilder().build();
-                    case NULL_VALUE -> NullValue.NULL_VALUE;
-                    case CUSTOM -> convert(field.getMessageType(), (Row) value);
-                    default -> throw new IllegalArgumentException("Not supported type: " + field.getJavaType());
-                };
+                        case DATE -> {
+                            final LocalDate date = (LocalDate) value;
+                            yield DynamicMessage.newBuilder(field.getMessageType())
+                                    .setField(field.getMessageType().findFieldByName("year"), date.getYear())
+                                    .setField(field.getMessageType().findFieldByName("month"), date.getMonthValue())
+                                    .setField(field.getMessageType().findFieldByName("day"), date.getDayOfMonth())
+                                    .build();
+                        }
+                        case TIME -> {
+                            final LocalTime time = (LocalTime) value;
+                            yield DynamicMessage.newBuilder(field.getMessageType())
+                                    .setField(field.getMessageType().findFieldByName("hours"), time.getHour())
+                                    .setField(field.getMessageType().findFieldByName("minutes"), time.getMinute())
+                                    .setField(field.getMessageType().findFieldByName("seconds"), time.getSecond())
+                                    .setField(field.getMessageType().findFieldByName("nanos"), time.getNano())
+                                    .build();
+                        }
+                        case DATETIME -> {
+                            final Descriptors.FieldDescriptor timezone = field.getMessageType().findFieldByName("time_zone");
+                            final org.joda.time.DateTime dt = ((Instant) value).toDateTime(DateTimeZone.UTC);
+                            yield DynamicMessage.newBuilder(field.getMessageType())
+                                    .setField(timezone,
+                                            DynamicMessage.newBuilder(timezone.getMessageType())
+                                                    .setField(timezone.getMessageType().findFieldByName("id"), ZoneOffset.UTC.getId())
+                                                    .build())
+                                    .setField(field.getMessageType().findFieldByName("year"), dt.getYear())
+                                    .setField(field.getMessageType().findFieldByName("month"), dt.getMonthOfYear())
+                                    .setField(field.getMessageType().findFieldByName("day"), dt.getDayOfMonth())
+                                    .setField(field.getMessageType().findFieldByName("hours"), dt.getHourOfDay())
+                                    .setField(field.getMessageType().findFieldByName("minutes"), dt.getMinuteOfHour())
+                                    .setField(field.getMessageType().findFieldByName("seconds"), dt.getSecondOfMinute())
+                                    .build();
+                        }
+                        case TIMESTAMP -> {
+                            final Timestamp instant = Timestamps.fromMillis(((Instant) value).getMillis());
+                            yield DynamicMessage.newBuilder(field.getMessageType())
+                                    .setField(field.getMessageType().findFieldByName("seconds"), instant.getSeconds())
+                                    .setField(field.getMessageType().findFieldByName("nanos"), instant.getNanos())
+                                    .build();
+                        }
+                        case ANY -> Any.newBuilder().setValue(ByteString.copyFromUtf8(value.toString())).build();
+                        case EMPTY -> Empty.newBuilder().build();
+                        case NULL_VALUE -> NullValue.NULL_VALUE;
+                        case CUSTOM -> convert(field.getMessageType(), (Row) value);
+                        default -> throw new IllegalArgumentException("Not supported type: " + field.getJavaType());
+                    };
         };
     }
 }
