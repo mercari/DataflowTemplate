@@ -13,7 +13,7 @@ public class RecordToCsvConverter {
     public static String convert(final GenericRecord record, final List<String> fields) {
         final List<?> values = fields
                 .stream()
-                .map(record::get)
+                .map(field -> record.hasField(field) ? record.get(field) : null)
                 .collect(Collectors.toList());
         final StringBuilder sb = new StringBuilder();
         try(final CSVPrinter printer = new CSVPrinter(sb, CSVFormat.DEFAULT)) {

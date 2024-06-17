@@ -84,43 +84,35 @@ public class RecordToBigtableConverter {
                 mutations.add(mutation);
             } else {
 
-                final Object value = record.get(field.name());
+                final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
                 if(value == null) {
                     continue;
                 }
 
-                final ByteString bytes;
-                switch (format) {
-                    case bytes: {
-                        bytes = AvroSchemaUtil.getAsByteString(record, field.name());
-                        break;
-                    }
-                    case string: {
+                final ByteString bytes = switch (format) {
+                    case bytes -> AvroSchemaUtil.getAsByteString(record, field.name());
+                    case string -> {
                         final String stringValue = AvroSchemaUtil.getAsString(record, field.name());
                         if(stringValue == null) {
-                            bytes = null;
+                            yield null;
                         } else {
-                            bytes = ByteString.copyFrom(stringValue, StandardCharsets.UTF_8);
+                            yield ByteString.copyFrom(stringValue, StandardCharsets.UTF_8);
                         }
-                        break;
                     }
-                    case avro: {
+                    case avro -> {
                         if(AvroSchemaUtil.unnestUnion(field.schema()).getType().equals(Schema.Type.RECORD)) {
                             final GenericRecord fieldRecord = (GenericRecord) value;
                             try {
-                                bytes = ByteString.copyFrom(AvroSchemaUtil.encode(fieldRecord));
+                                yield ByteString.copyFrom(AvroSchemaUtil.encode(fieldRecord));
                             } catch (IOException e) {
                                 throw new IllegalStateException(e);
                             }
                         } else {
-                            bytes = AvroSchemaUtil.getAsByteString(record, field.name());
+                            yield AvroSchemaUtil.getAsByteString(record, field.name());
                         }
-                        break;
                     }
-                    default: {
-                        throw new IllegalStateException();
-                    }
-                }
+                    default -> throw new IllegalStateException();
+                };
 
                 if(bytes == null) {
                     continue;

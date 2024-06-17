@@ -161,6 +161,7 @@ public class StructToRowConverter {
             case BYTES -> Schema.FieldType.BYTES.withNullable(true);
             case JSON, STRING -> Schema.FieldType.STRING;
             case INT64 -> Schema.FieldType.INT64.withNullable(true);
+            case FLOAT32 -> Schema.FieldType.FLOAT;
             case FLOAT64 -> Schema.FieldType.DOUBLE;
             case NUMERIC, PG_NUMERIC -> Schema.FieldType.DECIMAL;
             case BOOL -> Schema.FieldType.BOOLEAN;

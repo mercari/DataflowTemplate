@@ -561,7 +561,7 @@ public class TestDatum {
                 .set("booleanField").to((Boolean)null)
                 .set("intField").to((Long)null)
                 .set("longField").to((Long)null)
-                .set("floatField").to((Double)null)
+                .set("floatField").to((Float) null)
                 .set("doubleField").to((Double)null)
                 .set("dateField").to((Date)null)
                 .set("timestampField").to((Timestamp)null)

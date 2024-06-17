@@ -111,7 +111,7 @@ public class StructToProtoConverterTest {
                 new String(struct.getBytes("bytesValue").toByteArray(), StandardCharsets.UTF_8));
         Assert.assertEquals(((Integer) ProtoSchemaUtil.getValue(message, "intValue", printer)).intValue(), struct.getLong("intValue"));
         Assert.assertEquals(ProtoSchemaUtil.getValue(message, "longValue", printer), struct.getLong("longValue"));
-        Assert.assertEquals(((Float) ProtoSchemaUtil.getValue(message, "floatValue", printer)).doubleValue(), struct.getDouble("floatValue"), DELTA);
+        Assert.assertEquals(((Float) ProtoSchemaUtil.getValue(message, "floatValue", printer)).doubleValue(), struct.getFloat("floatValue"), DELTA);
         Assert.assertEquals(ProtoSchemaUtil.getValue(message, "doubleValue", printer), struct.getDouble("doubleValue"));
         Assert.assertEquals(((Integer) ProtoSchemaUtil.getValue(message, "uintValue", printer)).longValue(), struct.getLong("uintValue"));
         Assert.assertEquals(ProtoSchemaUtil.getValue(message, "ulongValue", printer), struct.getLong("ulongValue"));
@@ -171,8 +171,8 @@ public class StructToProtoConverterTest {
                 ProtoSchemaUtil.getValue(message, "wrappedInt64Value", printer),
                 struct.getLong("wrappedInt64Value"));
         Assert.assertEquals(
-                ((Float) ProtoSchemaUtil.getValue(message, "wrappedFloatValue", printer)).doubleValue(),
-                struct.getDouble("wrappedFloatValue"), DELTA);
+                ((Float) ProtoSchemaUtil.getValue(message, "wrappedFloatValue", printer)),
+                struct.getFloat("wrappedFloatValue"), DELTA);
         Assert.assertEquals(
                 ProtoSchemaUtil.getValue(message, "wrappedDoubleValue", printer),
                 struct.getDouble("wrappedDoubleValue"));
@@ -209,8 +209,7 @@ public class StructToProtoConverterTest {
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "intValues")).orElse(new ArrayList<>()), struct.getLongList("intValues").stream()
                 .map(Long::intValue).collect(Collectors.toList()));
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "longValues")).orElse(new ArrayList<>()), struct.getLongList("longValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "floatValues")).orElse(new ArrayList<>()), struct.getDoubleList("floatValues").stream()
-                .map(Double::floatValue).collect(Collectors.toList()));
+        Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "floatValues")).orElse(new ArrayList<>()), new ArrayList<>(struct.getFloatList("floatValues")));
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "doubleValues")).orElse(new ArrayList<>()), struct.getDoubleList("doubleValues"));
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "uintValues")).orElse(new ArrayList<>()), struct.getLongList("uintValues").stream()
                 .map(Long::intValue).collect(Collectors.toList()));

@@ -15,7 +15,6 @@ import org.apache.beam.sdk.schemas.Schema;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Converter converts Cloud Spanner Struct to Cloud Spanner Mutation
@@ -78,122 +77,97 @@ public class StructToMutationConverter {
 
         Mutation.WriteBuilder builder = StructSchemaUtil.createMutationWriteBuilder(table, mutationOp);
         for(final Type.StructField field : struct.getType().getStructFields()) {
-            if(excludeFields != null && excludeFields.contains(field.getName())) {
+            if (excludeFields != null && excludeFields.contains(field.getName())) {
                 continue;
             }
 
             final boolean isNullField = struct.isNull(field.getName());
             final boolean isCommitTimestampField = commitTimestampFields != null && commitTimestampFields.contains(field.getName());
             final String fieldName;
-            if(field.getName().startsWith("_")) {
+            if (field.getName().startsWith("_")) {
                 fieldName = fieldPrefix + field.getName();
             } else {
                 fieldName = field.getName();
             }
-            switch(field.getType().getCode()) {
-                case STRING:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getString(field.getName()));
-                    break;
-                case JSON:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getJson(field.getName()));
-                    break;
-                case PG_NUMERIC:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getString(field.getName()));
-                    break;
-                case PG_JSONB:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getPgJsonb(field.getName()));
-                    break;
-                case BYTES:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getBytes(field.getName()));
-                    break;
-                case BOOL:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getBoolean(field.getName()));
-                    break;
-                case INT64:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getLong(field.getName()));
-                    break;
-                case FLOAT64:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getDouble(field.getName()));
-                    break;
-                case NUMERIC:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getBigDecimal(field.getName()));
-                    break;
-                case DATE:
-                    builder = builder.set(fieldName).to(isNullField ? null : struct.getDate(field.getName()));
-                    break;
-                case TIMESTAMP:
-                    if(isCommitTimestampField) {
-                        builder = builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
+            builder = switch (field.getType().getCode()) {
+                case STRING -> builder.set(fieldName).to(isNullField ? null : struct.getString(field.getName()));
+                case JSON -> builder.set(fieldName).to(isNullField ? null : struct.getJson(field.getName()));
+                case PG_NUMERIC -> builder.set(fieldName).to(isNullField ? null : struct.getString(field.getName()));
+                case PG_JSONB -> builder.set(fieldName).to(isNullField ? null : struct.getPgJsonb(field.getName()));
+                case BYTES -> builder.set(fieldName).to(isNullField ? null : struct.getBytes(field.getName()));
+                case BOOL -> builder.set(fieldName).to(isNullField ? null : struct.getBoolean(field.getName()));
+                case INT64 -> builder.set(fieldName).to(isNullField ? null : struct.getLong(field.getName()));
+                case FLOAT32 -> builder.set(fieldName).to(isNullField ? null : struct.getFloat(field.getName()));
+                case FLOAT64 -> builder.set(fieldName).to(isNullField ? null : struct.getDouble(field.getName()));
+                case NUMERIC -> builder.set(fieldName).to(isNullField ? null : struct.getBigDecimal(field.getName()));
+                case DATE -> builder.set(fieldName).to(isNullField ? null : struct.getDate(field.getName()));
+                case TIMESTAMP -> {
+                    if (isCommitTimestampField) {
+                        yield builder.set(fieldName).to(Value.COMMIT_TIMESTAMP);
                     } else {
-                        builder = builder.set(fieldName).to(isNullField ? null : struct.getTimestamp(field.getName()));
+                        yield builder.set(fieldName).to(isNullField ? null : struct.getTimestamp(field.getName()));
                     }
-                    break;
-                case STRUCT:
+                }
+                case STRUCT -> {
                     // NOT SUPPOERTED TO STORE STRUCT AS FIELD! (2019/03/04)
                     // https://cloud.google.com/spanner/docs/data-types
-                    if(isNullField) {
-                        builder = builder.set(fieldName).to((String) null);
+                    if (isNullField) {
+                        yield builder.set(fieldName).to((String) null);
                     } else {
                         Struct child = struct.getStruct(field.getName());
                         final String json = StructToJsonConverter.convert(child);
-                        builder = builder.set(fieldName).to(json);
+                        yield builder.set(fieldName).to(json);
                     }
-                    break;
-                case ARRAY:
-                    switch (field.getType().getArrayElementType().getCode()) {
-                        case STRING:
-                            builder = builder.set(fieldName).toStringArray(isNullField ? null : struct.getStringList(field.getName()));
-                            break;
-                        case JSON:
-                            builder = builder.set(fieldName).toJsonArray(isNullField ? null : struct.getJsonList(field.getName()));
-                            break;
-                        case PG_JSONB:
-                            builder = builder.set(fieldName).toPgJsonbArray(isNullField ? null : struct.getPgJsonbList(field.getName()));
-                            break;
-                        case PG_NUMERIC:
-                            builder = builder.set(fieldName).toPgNumericArray(isNullField ? null : struct.getStringList(field.getName()));
-                            break;
-                        case BYTES:
-                            builder = builder.set(fieldName).toBytesArray(isNullField ? null : struct.getBytesList(field.getName()));
-                            break;
-                        case BOOL:
-                            builder = builder.set(fieldName).toBoolArray(isNullField ? null : struct.getBooleanArray(field.getName()));
-                            break;
-                        case INT64:
-                            builder = builder.set(fieldName).toInt64Array(isNullField ? null : struct.getLongArray(field.getName()));
-                            break;
-                        case FLOAT64:
-                            builder = builder.set(fieldName).toFloat64Array(isNullField ? null : struct.getDoubleArray(field.getName()));
-                            break;
-                        case NUMERIC:
-                            builder = builder.set(fieldName).toNumericArray(isNullField ? null : struct.getBigDecimalList(field.getName()));
-                            break;
-                        case DATE:
-                            builder = builder.set(fieldName).toDateArray(isNullField ? null : struct.getDateList(field.getName()));
-                            break;
-                        case TIMESTAMP:
-                            builder = builder.set(fieldName).toTimestampArray(isNullField ? null : struct.getTimestampList(field.getName()));
-                            break;
-                        case STRUCT:
-                            // NOT SUPPOERTED TO STORE STRUCT AS FIELD! (2019/03/04)
-                            // https://cloud.google.com/spanner/docs/data-types
-                            if(isNullField) {
-                                builder = builder.set(fieldName).to((String) null);
-                            } else {
-                                List<Struct> children = struct.getStructList(field.getName());
-                                final JsonArray array = new JsonArray();
-                                children.stream()
-                                        .map(StructToJsonConverter::convertObject)
-                                        .forEach(array::add);
-                                builder = builder.set(fieldName).to(array.toString());
-                            }
-                            break;
-                        case ARRAY:
-                            // NOT SUPPOERTED TO STORE ARRAY IN ARRAY FIELD! (2019/03/04)
-                            // https://cloud.google.com/spanner/docs/data-types
-                            break;
+                }
+                case ARRAY -> switch (field.getType().getArrayElementType().getCode()) {
+                    case STRING ->
+                            builder.set(fieldName).toStringArray(isNullField ? null : struct.getStringList(field.getName()));
+                    case JSON ->
+                            builder.set(fieldName).toJsonArray(isNullField ? null : struct.getJsonList(field.getName()));
+                    case PG_JSONB ->
+                            builder.set(fieldName).toPgJsonbArray(isNullField ? null : struct.getPgJsonbList(field.getName()));
+                    case PG_NUMERIC ->
+                            builder.set(fieldName).toPgNumericArray(isNullField ? null : struct.getStringList(field.getName()));
+                    case BYTES ->
+                            builder.set(fieldName).toBytesArray(isNullField ? null : struct.getBytesList(field.getName()));
+                    case BOOL ->
+                            builder.set(fieldName).toBoolArray(isNullField ? null : struct.getBooleanArray(field.getName()));
+                    case INT64 ->
+                            builder.set(fieldName).toInt64Array(isNullField ? null : struct.getLongArray(field.getName()));
+                    case FLOAT32 ->
+                            builder.set(fieldName).toFloat32Array(isNullField ? null : struct.getFloatList(field.getName()));
+                    case FLOAT64 ->
+                            builder.set(fieldName).toFloat64Array(isNullField ? null : struct.getDoubleList(field.getName()));
+                    case NUMERIC ->
+                            builder.set(fieldName).toNumericArray(isNullField ? null : struct.getBigDecimalList(field.getName()));
+                    case DATE ->
+                            builder.set(fieldName).toDateArray(isNullField ? null : struct.getDateList(field.getName()));
+                    case TIMESTAMP ->
+                            builder.set(fieldName).toTimestampArray(isNullField ? null : struct.getTimestampList(field.getName()));
+                    case STRUCT -> {
+                        // NOT SUPPOERTED TO STORE STRUCT AS FIELD! (2019/03/04)
+                        // https://cloud.google.com/spanner/docs/data-types
+                        if (isNullField) {
+                            yield builder.set(fieldName).to((String) null);
+                        } else {
+                            List<Struct> children = struct.getStructList(field.getName());
+                            final JsonArray array = new JsonArray();
+                            children.stream()
+                                    .map(StructToJsonConverter::convertObject)
+                                    .forEach(array::add);
+                            yield builder.set(fieldName).to(array.toString());
+                        }
                     }
-            }
+                    case ARRAY -> {
+                        // NOT SUPPOERTED TO STORE ARRAY IN ARRAY FIELD! (2019/03/04)
+                        // https://cloud.google.com/spanner/docs/data-types
+                        throw new IllegalArgumentException();
+                    }
+                    default -> throw new IllegalArgumentException();
+
+                };
+                default -> throw new IllegalArgumentException();
+            };
         }
 
         if(commitTimestampFields != null) {
@@ -220,30 +194,22 @@ public class StructToMutationConverter {
                 continue;
             }
             switch (field.getType().getCode()) {
-                case BOOL:
-                case STRING:
-                case BYTES:
-                case INT64:
-                case FLOAT64:
-                case DATE:
-                case TIMESTAMP:
-                    break;
-                case STRUCT:
+                case STRUCT -> {
                     final Mutation mutation = convert(struct, fieldName, mutationOp, null, null, null);
-                    if(fieldName.equals(primaryField)) {
+                    if (fieldName.equals(primaryField)) {
                         primary = mutation;
                     } else {
                         mutations.add(mutation);
                     }
-                    break;
-                case ARRAY: {
+                }
+                case ARRAY -> {
                     if (!Type.Code.STRUCT.equals(field.getType().getArrayElementType().getCode())) {
                         break;
                     }
                     final List<Mutation> mutationArray = struct.getStructList(fieldName).stream()
                             .map(s -> convert(s, fieldName, mutationOp, null, null, null))
-                            .collect(Collectors.toList());
-                    if(mutationArray.size() == 0) {
+                            .toList();
+                    if(mutationArray.isEmpty()) {
                         break;
                     }
                     if(fieldName.equals(primaryField)) {
@@ -252,12 +218,8 @@ public class StructToMutationConverter {
                     } else {
                         mutations.addAll(mutationArray);
                     }
-                    break;
                 }
-                default:
-                    break;
             }
-
         }
         if(primary == null) {
             return MutationGroup.create(mutations.get(0), mutations.subList(1, mutations.size()));
@@ -280,41 +242,21 @@ public class StructToMutationConverter {
                 builder = builder.appendObject(null);
                 continue;
             }
-            switch(struct.getColumnType(keyField).getCode()) {
-                case STRING:
-                    builder = builder.append(struct.getString(keyField));
-                    break;
-                case JSON:
-                    builder = builder.append(struct.getJson(keyField));
-                    break;
-                case BYTES:
-                    builder = builder.append(struct.getBytes(keyField));
-                    break;
-                case BOOL:
-                    builder = builder.append(struct.getBoolean(keyField));
-                    break;
-                case INT64:
-                    builder = builder.append(struct.getLong(keyField));
-                    break;
-                case FLOAT64:
-                    builder = builder.append(struct.getDouble(keyField));
-                    break;
-                case NUMERIC:
-                    builder = builder.append(struct.getBigDecimal(keyField));
-                    break;
-                case DATE:
-                    builder = builder.append(struct.getDate(keyField));
-                    break;
-                case TIMESTAMP:
-                    builder = builder.append(struct.getTimestamp(keyField));
-                    break;
-                case STRUCT:
-                case ARRAY:
-                default:
-                    throw new IllegalArgumentException(String.format(
+            builder = switch(struct.getColumnType(keyField).getCode()) {
+                case STRING -> builder.append(struct.getString(keyField));
+                case JSON -> builder.append(struct.getJson(keyField));
+                case BYTES -> builder.append(struct.getBytes(keyField));
+                case BOOL -> builder.append(struct.getBoolean(keyField));
+                case INT64 -> builder.append(struct.getLong(keyField));
+                case FLOAT32 -> builder.append(struct.getFloat(keyField));
+                case FLOAT64 -> builder.append(struct.getDouble(keyField));
+                case NUMERIC -> builder.append(struct.getBigDecimal(keyField));
+                case DATE -> builder.append(struct.getDate(keyField));
+                case TIMESTAMP -> builder.append(struct.getTimestamp(keyField));
+                default -> throw new IllegalArgumentException(String.format(
                             "field: %s, fieldType: %s at table %s, is impossible as Key.",
                             keyField, struct.getColumnType(keyField).toString(), table));
-            }
+            };
         }
         return Mutation.delete(table, builder.build());
     }

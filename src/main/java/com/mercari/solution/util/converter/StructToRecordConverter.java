@@ -205,16 +205,13 @@ public class StructToRecordConverter {
         }
 
         switch (schema.getType()) {
-            case FIXED:
-            case BYTES:
-                builder.set(fieldName, struct.getBytes(fieldName).asReadOnlyByteBuffer());
-                break;
-            case ENUM:
-            case STRING:
-                builder.set(fieldName, struct.getString(fieldName));
-                break;
-            case INT:
-                if(Type.date().equals(type)) {
+            case BOOLEAN -> builder.set(fieldName, struct.getBoolean(fieldName));
+            case FLOAT -> builder.set(fieldName, struct.getFloat(fieldName));
+            case DOUBLE -> builder.set(fieldName, struct.getDouble(fieldName));
+            case ENUM, STRING -> builder.set(fieldName, struct.getString(fieldName));
+            case FIXED, BYTES -> builder.set(fieldName, struct.getBytes(fieldName).asReadOnlyByteBuffer());
+            case INT -> {
+                if (Type.date().equals(type)) {
                     final Date date = struct.getDate(fieldName);
                     final DateTime datetime = new DateTime(date.getYear(), date.getMonth(), date.getDayOfMonth(), 0, 0, DateTimeZone.UTC);
                     final Days days = Days.daysBetween(EPOCH_DATETIME, datetime);
@@ -222,43 +219,28 @@ public class StructToRecordConverter {
                 } else {
                     builder.set(fieldName, struct.getLong(fieldName));
                 }
-                break;
-            case LONG:
-                if(Type.timestamp().equals(type)) {
+            }
+            case LONG -> {
+                if (Type.timestamp().equals(type)) {
                     builder.set(fieldName, Timestamps.toMicros(struct.getTimestamp(fieldName).toProto()));
                 } else {
                     builder.set(fieldName, struct.getLong(fieldName));
                 }
-                break;
-            case DOUBLE:
-                builder.set(fieldName, struct.getDouble(fieldName));
-                break;
-            case BOOLEAN:
-                builder.set(fieldName, struct.getBoolean(fieldName));
-                break;
-            case RECORD:
+            }
+            case RECORD -> {
                 final GenericRecord chileRecord = convert(schema, struct.getStruct(fieldName));
                 builder.set(fieldName, chileRecord);
-                break;
-            case UNION:
+            }
+            case UNION -> {
                 for(final Schema childSchema : schema.getTypes()) {
                     if(Schema.Type.NULL.equals(childSchema.getType())) {
                         continue;
                     }
                     setFieldValue(builder, fieldName, childSchema, struct);
                 }
-                break;
-            case ARRAY:
-                setArrayFieldValue(builder, fieldName, schema.getElementType(), struct);
-                break;
-            case NULL:
-                builder.set(fieldName, null);
-                break;
-            case FLOAT:
-            case MAP:
-                break;
-            default:
-                break;
+            }
+            case ARRAY -> setArrayFieldValue(builder, fieldName, schema.getElementType(), struct);
+            case NULL -> builder.set(fieldName, null);
         }
     }
 
@@ -278,22 +260,16 @@ public class StructToRecordConverter {
             return;
         }
         switch (schema.getType()) {
-            case BOOLEAN:
-                builder.set(fieldName, struct.getBooleanList(fieldName));
-                return;
-            case FIXED:
-            case BYTES:
-                builder.set(fieldName, struct.getBytesList(fieldName)
+            case BOOLEAN -> builder.set(fieldName, struct.getBooleanList(fieldName));
+            case FLOAT -> builder.set(fieldName, struct.getFloatList(fieldName));
+            case DOUBLE -> builder.set(fieldName, struct.getDoubleList(fieldName));
+            case ENUM, STRING -> builder.set(fieldName, struct.getStringList(fieldName));
+            case FIXED, BYTES -> builder.set(fieldName, struct.getBytesList(fieldName)
                         .stream()
                         .map(ByteArray::asReadOnlyByteBuffer)
                         .collect(Collectors.toList()));
-                return;
-            case ENUM:
-            case STRING:
-                builder.set(fieldName, struct.getStringList(fieldName));
-                return;
-            case INT:
-                if(Type.array(Type.date()).equals(type)) {
+            case INT -> {
+                if (Type.array(Type.date()).equals(type)) {
                     builder.set(fieldName, struct.getDateList(fieldName).stream()
                             .map(date -> new DateTime(date.getYear(), date.getMonth(), date.getDayOfMonth(), 0, 0, DateTimeZone.UTC))
                             .map(datetime -> Days.daysBetween(EPOCH_DATETIME, datetime).getDays())
@@ -301,9 +277,9 @@ public class StructToRecordConverter {
                 } else {
                     builder.set(fieldName, struct.getLongList(fieldName));
                 }
-                return;
-            case LONG:
-                if(Type.array(Type.timestamp()).equals(type)) {
+            }
+            case LONG -> {
+                if (Type.array(Type.timestamp()).equals(type)) {
                     builder.set(fieldName, struct.getTimestampList(fieldName).stream()
                             .map(Timestamp::toProto)
                             .map(Timestamps::toMicros)
@@ -311,34 +287,20 @@ public class StructToRecordConverter {
                 } else {
                     builder.set(fieldName, struct.getLongList(fieldName));
                 }
-                return;
-            case DOUBLE:
-                builder.set(fieldName, struct.getDoubleList(fieldName));
-                return;
-            case RECORD:
-                builder.set(fieldName, struct.getStructList(fieldName).stream()
+            }
+            case RECORD -> builder.set(fieldName, struct.getStructList(fieldName).stream()
                         .map(childStruct -> convert(schema, childStruct))
                         .collect(Collectors.toList()));
-                return;
-            case UNION:
-                for(final Schema childSchema : schema.getTypes()) {
-                    if(Schema.Type.NULL.equals(childSchema.getType())) {
+            case UNION -> {
+                for (final Schema childSchema : schema.getTypes()) {
+                    if (Schema.Type.NULL.equals(childSchema.getType())) {
                         continue;
                     }
                     setArrayFieldValue(builder, fieldName, childSchema, struct);
                 }
-                return;
-            case ARRAY:
-                setArrayFieldValue(builder, fieldName, schema.getElementType(), struct);
-                return;
-            case NULL:
-                builder.set(fieldName, null);
-                return;
-            case FLOAT:
-            case MAP:
-                return;
-            default:
-                break;
+            }
+            case ARRAY -> setArrayFieldValue(builder, fieldName, schema.getElementType(), struct);
+            case NULL -> builder.set(fieldName, null);
         }
     }
 

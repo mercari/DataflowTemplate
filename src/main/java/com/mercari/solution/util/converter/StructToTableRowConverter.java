@@ -52,6 +52,7 @@ public class StructToTableRowConverter {
             case STRING -> value.getString();
             case JSON -> value.getJson();
             case INT64 -> value.getInt64();
+            case FLOAT32 -> value.getFloat32();
             case FLOAT64 -> value.getFloat64();
             case DATE -> value.getDate().toString();
             case TIMESTAMP -> value.getTimestamp().toString();
@@ -66,6 +67,7 @@ public class StructToTableRowConverter {
                     case JSON -> value.getJsonArray();
                     case BYTES -> value.getBytesArray().stream().map(ByteArray::toByteArray).toList();
                     case INT64 -> value.getInt64Array();
+                    case FLOAT32 -> value.getFloat32Array();
                     case FLOAT64 -> value.getFloat64Array();
                     case NUMERIC -> value.getNumericArray().stream().map(BigDecimal::toString).toList();
                     case DATE -> value.getDateArray().stream().map(d -> d.toString()).toList();
@@ -96,7 +98,7 @@ public class StructToTableRowConverter {
             case JSON -> tableFieldSchema.setType("JSON");
             case BYTES -> tableFieldSchema.setType("BYTES");
             case INT64 -> tableFieldSchema.setType("INTEGER");
-            case FLOAT64 -> tableFieldSchema.setType("FLOAT");
+            case FLOAT32, FLOAT64 -> tableFieldSchema.setType("FLOAT");
             case NUMERIC -> tableFieldSchema.setType("NUMERIC");
             case DATE -> tableFieldSchema.setType("DATE");
             case TIMESTAMP -> tableFieldSchema.setType("TIMESTAMP");
@@ -135,6 +137,7 @@ public class StructToTableRowConverter {
             case BYTES -> row.set(fieldName, struct.getBytes(fieldName).toByteArray());
             case BOOL -> row.set(fieldName, struct.getBoolean(fieldName));
             case INT64 -> row.set(fieldName, struct.getLong(fieldName));
+            case FLOAT32 -> row.set(fieldName, struct.getFloat(fieldName));
             case FLOAT64 -> row.set(fieldName, struct.getDouble(fieldName));
             case NUMERIC -> row.set(fieldName, struct.getBigDecimal(fieldName));
             case DATE -> {
@@ -177,9 +180,12 @@ public class StructToTableRowConverter {
             case INT64 -> row.set(fieldName, struct.getLongList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
-            case FLOAT64 -> row.set(fieldName, struct.getDoubleList(fieldName).stream()
+            case FLOAT32 -> row.set(fieldName, struct.getFloatList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
+            case FLOAT64 -> row.set(fieldName, struct.getDoubleList(fieldName).stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList()));
             case NUMERIC -> row.set(fieldName, struct.getBigDecimalList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));

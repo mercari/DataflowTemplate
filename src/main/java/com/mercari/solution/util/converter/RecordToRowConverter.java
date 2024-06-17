@@ -29,8 +29,9 @@ public class RecordToRowConverter {
         final Row.Builder builder = Row.withSchema(schema);
         Row.FieldValueBuilder fieldBuilder = builder.withFieldValues(new HashMap<>());
         for(final org.apache.avro.Schema.Field field : record.getSchema().getFields()) {
+            final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
             fieldBuilder = fieldBuilder.withFieldValue(field.name(),
-                        convertValue(field.schema(), schema.getField(field.name()).getType(), record.get(field.name())));
+                        convertValue(field.schema(), schema.getField(field.name()).getType(), value));
         }
         return fieldBuilder.build();
     }
@@ -39,12 +40,13 @@ public class RecordToRowConverter {
         final Row.Builder builder = Row.withSchema(schema);
         Row.FieldValueBuilder fieldBuilder = null;
         for(final org.apache.avro.Schema.Field field : avroSchema.getFields()) {
+            final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
             if(fieldBuilder == null) {
                 fieldBuilder = builder.withFieldValue(field.name(),
-                        convertValue(field.schema(), schema.getField(field.name()).getType(), record.get(field.name())));
+                        convertValue(field.schema(), schema.getField(field.name()).getType(), value));
             } else {
                 fieldBuilder = fieldBuilder.withFieldValue(field.name(),
-                        convertValue(field.schema(), schema.getField(field.name()).getType(), record.get(field.name())));
+                        convertValue(field.schema(), schema.getField(field.name()).getType(), value));
             }
         }
         return fieldBuilder.build();
@@ -141,66 +143,52 @@ public class RecordToRowConverter {
     }
 
     private static Schema.FieldType convertFieldType(final org.apache.avro.Schema avroSchema) {
-        switch (avroSchema.getType()) {
-            case BOOLEAN -> {
-                return Schema.FieldType.BOOLEAN;
-            }
-            case ENUM -> {
-                return Schema.FieldType.logicalType(EnumerationType.create(avroSchema.getEnumSymbols()));
-            }
+        return switch (avroSchema.getType()) {
+            case BOOLEAN -> Schema.FieldType.BOOLEAN;
+            case FLOAT -> Schema.FieldType.FLOAT;
+            case DOUBLE -> Schema.FieldType.DOUBLE;
+            case ENUM -> Schema.FieldType.logicalType(EnumerationType.create(avroSchema.getEnumSymbols()));
             case STRING -> {
                 final String sqlType = avroSchema.getProp("sqlType");
                 if (sqlType == null) {
-                    return Schema.FieldType.STRING;
+                    yield Schema.FieldType.STRING;
                 }
                 if ("DATETIME".equalsIgnoreCase(sqlType)) {
-                    return Schema.FieldType.DATETIME;
+                    yield Schema.FieldType.DATETIME;
                 } else if ("JSON".equalsIgnoreCase(sqlType)) {
-                    return Schema.FieldType.STRING;
+                    yield Schema.FieldType.STRING;
                 } else if ("GEOGRAPHY".equalsIgnoreCase(sqlType)) {
-                    return Schema.FieldType.STRING;
+                    yield Schema.FieldType.STRING;
                 }
-                return Schema.FieldType.STRING;
+                yield Schema.FieldType.STRING;
             }
             case FIXED, BYTES -> {
                 if (AvroSchemaUtil.isLogicalTypeDecimal(avroSchema)) {
-                    return Schema.FieldType.DECIMAL;
+                    yield Schema.FieldType.DECIMAL;
                 }
-                return Schema.FieldType.BYTES;
+                yield Schema.FieldType.BYTES;
             }
             case INT -> {
                 if (LogicalTypes.date().equals(avroSchema.getLogicalType())) {
-                    return CalciteUtils.DATE;
+                    yield CalciteUtils.DATE;
                 } else if (LogicalTypes.timeMillis().equals(avroSchema.getLogicalType())) {
-                    return CalciteUtils.TIME;
+                    yield CalciteUtils.TIME;
                 }
-                return Schema.FieldType.INT32;
+                yield Schema.FieldType.INT32;
             }
             case LONG -> {
                 if (LogicalTypes.timestampMillis().equals(avroSchema.getLogicalType())) {
-                    return Schema.FieldType.DATETIME;
+                    yield Schema.FieldType.DATETIME;
                 } else if (LogicalTypes.timestampMicros().equals(avroSchema.getLogicalType())) {
-                    return Schema.FieldType.DATETIME;
+                    yield Schema.FieldType.DATETIME;
                 } else if (LogicalTypes.timeMicros().equals(avroSchema.getLogicalType())) {
-                    return CalciteUtils.TIME;
+                    yield CalciteUtils.TIME;
                 }
-                return Schema.FieldType.INT64;
+                yield Schema.FieldType.INT64;
             }
-            case FLOAT -> {
-                return Schema.FieldType.FLOAT;
-            }
-            case DOUBLE -> {
-                return Schema.FieldType.DOUBLE;
-            }
-            case RECORD -> {
-                return Schema.FieldType.row(convertSchema(avroSchema));
-            }
-            case ARRAY -> {
-                return Schema.FieldType.array(convertFieldType(avroSchema.getElementType()));
-            }
-            case MAP -> {
-                return Schema.FieldType.map(Schema.FieldType.STRING, convertFieldType(avroSchema.getValueType()));
-            }
+            case RECORD -> Schema.FieldType.row(convertSchema(avroSchema));
+            case ARRAY -> Schema.FieldType.array(convertFieldType(avroSchema.getElementType()));
+            case MAP -> Schema.FieldType.map(Schema.FieldType.STRING, convertFieldType(avroSchema.getValueType()));
             case UNION -> {
                 final boolean nullable = avroSchema.getTypes().stream()
                         .anyMatch(s -> s.getType().equals(org.apache.avro.Schema.Type.NULL));
@@ -208,13 +196,10 @@ public class RecordToRowConverter {
                         .filter(s -> !s.getType().equals(org.apache.avro.Schema.Type.NULL))
                         .findAny()
                         .orElseThrow(() -> new IllegalArgumentException(""));
-                return convertFieldType(unnested).withNullable(nullable);
+                yield convertFieldType(unnested).withNullable(nullable);
             }
-            default -> {
-                return Schema.FieldType.STRING;
-            }
-        }
-
+            default -> Schema.FieldType.STRING;
+        };
     }
 
     private static Schema.Options convertFieldOption(final org.apache.avro.Schema.Field field) {
@@ -223,7 +208,7 @@ public class RecordToRowConverter {
             try {
                 builder.setOption("defaultVal", convertFieldType(field.schema()), field.defaultVal());
             } catch (ClassCastException e) {
-                LOG.warn("Failed to convert defaultVal cause: " + e.getMessage());
+                LOG.warn("Failed to convert defaultVal cause: {}", e.getMessage());
             }
         }
         if(field.order() != null) {
