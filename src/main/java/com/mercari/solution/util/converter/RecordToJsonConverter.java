@@ -36,7 +36,7 @@ public class RecordToJsonConverter {
         if(record == null) {
             return obj;
         }
-        if(fields != null && fields.size() > 0) {
+        if(fields != null && !fields.isEmpty()) {
             record.getSchema().getFields().stream()
                     .filter(f -> fields.contains(f.name()))
                     .forEach(f -> setValue(obj, f, record));
@@ -50,18 +50,12 @@ public class RecordToJsonConverter {
     private static void setValue(final JsonObject obj, final Schema.Field field, final GenericRecord record) {
         final String fieldName = field.name();
         final Schema fieldSchema = AvroSchemaUtil.unnestUnion(field.schema());
-        final Object value = record.get(fieldName);
+        final Object value = record.hasField(fieldName) ? record.get(fieldName) : null;
         final boolean isNullField = value == null;
         switch (fieldSchema.getType()) {
-            case BOOLEAN:
-                obj.addProperty(fieldName, (Boolean) value);
-                break;
-            case ENUM:
-            case STRING:
-                obj.addProperty(fieldName, isNullField ? null : value.toString());
-                break;
-            case FIXED:
-            case BYTES: {
+            case BOOLEAN -> obj.addProperty(fieldName, (Boolean) value);
+            case ENUM, STRING -> obj.addProperty(fieldName, isNullField ? null : value.toString());
+            case FIXED, BYTES -> {
                 if(isNullField) {
                     obj.addProperty(fieldName, (String)null);
                 } else {
@@ -74,9 +68,8 @@ public class RecordToJsonConverter {
                         obj.addProperty(fieldName, Base64.getEncoder().encodeToString(bytes));
                     }
                 }
-                break;
             }
-            case INT:
+            case INT -> {
                 if (LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : LocalDate.ofEpochDay((int) value).format(DateTimeFormatter.ISO_LOCAL_DATE));
                 } else if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
@@ -84,8 +77,8 @@ public class RecordToJsonConverter {
                 } else {
                     obj.addProperty(fieldName, (Integer) value);
                 }
-                break;
-            case LONG: {
+            }
+            case LONG -> {
                 final Long longValue = (Long) value;
                 if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
                     obj.addProperty(fieldName, isNullField ? null : DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.ofEpochMilli(longValue)));
@@ -96,55 +89,41 @@ public class RecordToJsonConverter {
                 } else {
                     obj.addProperty(fieldName, longValue);
                 }
-                break;
             }
-            case FLOAT: {
+            case FLOAT -> {
                 final Float floatValue = (Float) value;
                 if (isNullField || Float.isNaN(floatValue) || Float.isInfinite(floatValue)) {
                     obj.addProperty(fieldName, (Float) null);
                 } else {
                     obj.addProperty(fieldName, floatValue);
                 }
-                break;
             }
-            case DOUBLE: {
+            case DOUBLE -> {
                 final Double doubleValue = (Double) value;
                 if (isNullField || Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
                     obj.addProperty(fieldName, (Double) null);
                 } else {
                     obj.addProperty(fieldName, doubleValue);
                 }
-                break;
             }
-            case RECORD:
-                obj.add(fieldName, isNullField ? null : convertObject((GenericRecord) value));
-                break;
-            case ARRAY:
-                obj.add(fieldName, isNullField ? null : convertArray(fieldSchema.getElementType(), (List<?>) value));
-                break;
-            case NULL:
-                obj.add(fieldName, null);
-            case MAP:
-            case UNION:
-            default:
-                break;
+            case RECORD -> obj.add(fieldName, isNullField ? null : convertObject((GenericRecord) value));
+            case ARRAY -> obj.add(fieldName, isNullField ? null : convertArray(fieldSchema.getElementType(), (List<?>) value));
+            case NULL -> obj.add(fieldName, null);
         }
     }
 
     private static JsonArray convertArray(final Schema schema, final List<?> arrayValue) {
         final JsonArray array = new JsonArray();
-        if(arrayValue == null || arrayValue.size() == 0) {
+        if(arrayValue == null || arrayValue.isEmpty()) {
             return array;
         }
         final Schema elementSchema = AvroSchemaUtil.unnestUnion(schema);
         switch (elementSchema.getType()) {
-            case BOOLEAN:
+            case BOOLEAN ->
                 arrayValue.stream()
                         .map(v -> (Boolean) v)
                         .forEach(array::add);
-                break;
-            case FIXED:
-            case BYTES:
+            case FIXED, BYTES ->
                 arrayValue.stream()
                         .map(v -> (ByteBuffer)v)
                         .map(v -> {
@@ -161,31 +140,28 @@ public class RecordToJsonConverter {
                             }
                         })
                         .forEach(array::add);
-                break;
-            case ENUM:
-            case STRING:
+            case ENUM, STRING ->
                 arrayValue.stream()
                         .map(v -> v == null ? null : v.toString())
                         .forEach(array::add);
-                break;
-            case INT:
+            case INT -> {
                 if (LogicalTypes.date().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
                             .map(v -> {
-                                if(v == null) {
+                                if (v == null) {
                                     return null;
                                 }
-                                return LocalDate.ofEpochDay((Integer)v)
+                                return LocalDate.ofEpochDay((Integer) v)
                                         .format(DateTimeFormatter.ISO_LOCAL_DATE);
                             })
                             .forEach(array::add);
                 } else if (LogicalTypes.timeMillis().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
                             .map(v -> {
-                                if(v == null) {
+                                if (v == null) {
                                     return null;
                                 }
-                                return LocalTime.ofNanoOfDay((1000L * 1000L * (Integer)v))
+                                return LocalTime.ofNanoOfDay((1000L * 1000L * (Integer) v))
                                         .format(DateTimeFormatter.ISO_LOCAL_TIME);
                             })
                             .forEach(array::add);
@@ -194,13 +170,13 @@ public class RecordToJsonConverter {
                             .map(v -> (Integer) v)
                             .forEach(array::add);
                 }
-                break;
-            case LONG:
+            }
+            case LONG -> {
                 if (LogicalTypes.timestampMillis().equals(elementSchema.getLogicalType())) {
                     arrayValue.stream()
                             .map(v -> (Long) v)
                             .map(v -> {
-                                if(v == null) {
+                                if (v == null) {
                                     return null;
                                 }
                                 var instant = java.time.Instant.ofEpochMilli(v);
@@ -211,10 +187,10 @@ public class RecordToJsonConverter {
                     arrayValue.stream()
                             .map(v -> (Long) v)
                             .map(v -> {
-                                if(v == null) {
+                                if (v == null) {
                                     return null;
                                 }
-                                var instant = java.time.Instant.ofEpochMilli(v/1000);
+                                var instant = java.time.Instant.ofEpochMilli(v / 1000);
                                 return DateTimeFormatter.ISO_INSTANT.format(instant);
                             })
                             .forEach(array::add);
@@ -222,7 +198,7 @@ public class RecordToJsonConverter {
                     arrayValue.stream()
                             .map(v -> (Long) v)
                             .map(v -> {
-                                if(v == null) {
+                                if (v == null) {
                                     return null;
                                 }
                                 return LocalTime.ofNanoOfDay(v * 1000)
@@ -234,8 +210,8 @@ public class RecordToJsonConverter {
                             .map(v -> (Long) v)
                             .forEach(array::add);
                 }
-                break;
-            case FLOAT:
+            }
+            case FLOAT ->
                 arrayValue.stream()
                         .map(v -> {
                             final Float floatValue = (Float) v;
@@ -246,8 +222,7 @@ public class RecordToJsonConverter {
                             }
                         })
                         .forEach(array::add);
-                break;
-            case DOUBLE:
+            case DOUBLE ->
                 arrayValue.stream()
                         .map(v -> {
                             final Double doubleValue = (Double) v;
@@ -258,17 +233,11 @@ public class RecordToJsonConverter {
                             }
                         })
                         .forEach(array::add);
-                break;
-            case RECORD:
+            case RECORD ->
                 arrayValue.stream()
                         .map(o -> (GenericRecord)o)
                         .map(RecordToJsonConverter::convertObject)
                         .forEach(array::add);
-                break;
-            case ARRAY:
-            case MAP:
-            default:
-                break;
         }
         return array;
     }

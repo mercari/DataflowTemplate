@@ -30,11 +30,12 @@ public class RecordToEntityConverter {
                 final Key key = createPathElement(KEY_FIELD_NAME, keyRecord);
                 builder.setKey(key);
             } else {
-                if (excludeFromIndexFields.size() == 0) {
-                    builder.putProperties(field.name(), convertValue(field.schema(), record.get(field.name()), false));
+                final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
+                if (excludeFromIndexFields.isEmpty()) {
+                    builder.putProperties(field.name(), convertValue(field.schema(), value, false));
                 } else {
                     final boolean excludeFromIndexes = excludeFromIndexFields.contains(field.name());
-                    builder.putProperties(field.name(), convertValue(field.schema(), record.get(field.name()), excludeFromIndexes));
+                    builder.putProperties(field.name(), convertValue(field.schema(), value, excludeFromIndexes));
                 }
             }
         }
@@ -45,7 +46,7 @@ public class RecordToEntityConverter {
                                  final String kind, final List<String> keyFields, final String keySplitter) {
 
         final Key key;
-        if(keyFields != null && keyFields.size() > 0) {
+        if(keyFields != null && !keyFields.isEmpty()) {
             if(keyFields.size() > 1) {
                 final StringBuilder sb = new StringBuilder();
                 for (final String keyField : keyFields) {
@@ -59,27 +60,23 @@ public class RecordToEntityConverter {
             } else {
                 final String keyField = keyFields.get(0);
                 switch (AvroSchemaUtil.unnestUnion(schema.getField(keyField).schema()).getType()) {
-                    case INT:
-                    case LONG: {
+                    case INT, LONG -> {
                         final Key.PathElement pathElement = Key.PathElement.newBuilder()
                                 .setKind(kind)
                                 .setId((long)record.get(keyField))
                                 .build();
                         key = Key.newBuilder().addPath(pathElement).build();
-                        break;
                     }
-                    case RECORD: {
+                    case RECORD -> {
                         final GenericRecord keyRecord = (GenericRecord) record.get(keyField);
                         key = createPathElement(kind, keyRecord);
-                        break;
                     }
-                    default: {
+                    default -> {
                         final Key.PathElement pathElement = Key.PathElement.newBuilder()
                                 .setKind(kind)
                                 .setName(record.get(keyField).toString())
                                 .build();
                         key = Key.newBuilder().addPath(pathElement).build();
-                        break;
                     }
                 }
             }
@@ -117,28 +114,24 @@ public class RecordToEntityConverter {
         }
         final Value.Builder builder;
         switch (schema.getType()) {
-            case BOOLEAN:
-                builder = Value.newBuilder().setBooleanValue((Boolean) value);
-                break;
-            case FIXED:
-            case BYTES: {
+            case BOOLEAN -> builder = Value.newBuilder().setBooleanValue((Boolean) value);
+            case FLOAT -> builder = Value.newBuilder().setDoubleValue((Float) value);
+            case DOUBLE -> builder = Value.newBuilder().setDoubleValue((Double) value);
+            case FIXED, BYTES -> {
                 final ByteString byteString = ByteString.copyFrom((ByteBuffer) value);
                 builder = Value.newBuilder().setBlobValue(byteString);
                 if(byteString.size() >= DatastoreUtil.QUOTE_VALUE_SIZE) {
                     return builder.setExcludeFromIndexes(true).build();
                 }
-                break;
             }
-            case ENUM:
-            case STRING: {
+            case ENUM, STRING -> {
                 final String stringValue = value.toString();
                 builder = Value.newBuilder().setStringValue(stringValue);
                 if(stringValue.getBytes().length >= DatastoreUtil.QUOTE_VALUE_SIZE) {
                     return builder.build();
                 }
-                break;
             }
-            case INT:
+            case INT -> {
                 final int intValue = (int) value;
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
                     builder = Value.newBuilder()
@@ -153,15 +146,15 @@ public class RecordToEntityConverter {
                 } else {
                     builder = Value.newBuilder().setIntegerValue(intValue);
                 }
-                break;
-            case LONG:
-                if(LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
+            }
+            case LONG -> {
+                if (LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
                     builder = Value.newBuilder()
                             .setTimestampValue(Timestamp.ofTimeMicroseconds(1000 * (long) value).toProto());
-                } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
                     builder = Value.newBuilder()
                             .setTimestampValue(Timestamp.ofTimeMicroseconds((long) value).toProto());
-                } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
+                } else if (LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
                     builder = Value.newBuilder()
                             .setStringValue(LocalTime
                                     .ofNanoOfDay(((long) value) * 1000)
@@ -169,36 +162,33 @@ public class RecordToEntityConverter {
                 } else {
                     builder = Value.newBuilder().setIntegerValue((Long) value);
                 }
-                break;
-            case FLOAT:
-                builder = Value.newBuilder().setDoubleValue((Float) value);
-                break;
-            case DOUBLE:
-                builder =  Value.newBuilder().setDoubleValue((Double) value);
-                break;
-            case RECORD:
+            }
+            case RECORD -> {
                 final GenericRecord childRecord = (GenericRecord) value;
                 final Entity.Builder entityBuilder = Entity.newBuilder();
-                for(final Schema.Field field : schema.getFields()) {
-                    entityBuilder.putProperties(field.name(), convertValue(field.schema(), childRecord.get(field.name())));
+                for (final Schema.Field field : schema.getFields()) {
+                    final Object childValue = childRecord.hasField(field.name()) ? childRecord.get(field.name()) : null;
+                    entityBuilder.putProperties(field.name(), convertValue(field.schema(), childValue));
                 }
                 return Value.newBuilder()
                         .setEntityValue(entityBuilder.build())
                         .setExcludeFromIndexes(true)
                         .build();
-            case ARRAY:
+            }
+            case ARRAY -> {
                 return Value.newBuilder().setArrayValue(ArrayValue.newBuilder()
-                        .addAllValues(((List<Object>) value).stream()
-                                .map(o -> convertValue(schema.getElementType(), o, excludeFromIndexes))
-                                .collect(Collectors.toList()))
-                        .build())
+                                .addAllValues(((List<Object>) value).stream()
+                                        .map(o -> convertValue(schema.getElementType(), o, excludeFromIndexes))
+                                        .collect(Collectors.toList()))
+                                .build())
                         .build();
-            case UNION:
+            }
+            case UNION -> {
                 return convertValue(AvroSchemaUtil.unnestUnion(schema), value, excludeFromIndexes);
-            case MAP:
-            case NULL:
-            default:
+            }
+            default -> {
                 return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
+            }
         }
         if (excludeFromIndexes) {
             return builder.setExcludeFromIndexes(true).build();
