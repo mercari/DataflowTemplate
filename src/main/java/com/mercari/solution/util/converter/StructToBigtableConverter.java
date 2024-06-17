@@ -90,40 +90,32 @@ public class StructToBigtableConverter {
                     continue;
                 }
 
-                final ByteString bytes;
-                switch (format) {
-                    case bytes: {
-                        bytes = StructSchemaUtil.getAsByteString(struct, field.getName());
-                        break;
-                    }
-                    case string: {
+                final ByteString bytes = switch (format) {
+                    case bytes -> StructSchemaUtil.getAsByteString(struct, field.getName());
+                    case string -> {
                         final String stringValue = StructSchemaUtil.getAsString(struct, field.getName());
                         if(stringValue == null) {
-                            bytes = null;
+                            yield null;
                         } else {
-                            bytes = ByteString.copyFrom(stringValue, StandardCharsets.UTF_8);
+                            yield ByteString.copyFrom(stringValue, StandardCharsets.UTF_8);
                         }
-                        break;
                     }
-                    case avro: {
+                    case avro -> {
                         if(field.getType().getCode().equals(Type.Code.STRUCT)) {
                             final Struct fieldStruct = struct.getStruct(field.getName());
                             final org.apache.avro.Schema fieldSchema = StructToRecordConverter.convertSchema(fieldStruct.getType());
                             final GenericRecord fieldRecord = StructToRecordConverter.convert(fieldSchema, fieldStruct);
                             try {
-                                bytes = ByteString.copyFrom(AvroSchemaUtil.encode(fieldRecord));
+                                yield ByteString.copyFrom(AvroSchemaUtil.encode(fieldRecord));
                             } catch (IOException e) {
                                 throw new IllegalStateException(e);
                             }
                         } else {
-                            bytes = StructSchemaUtil.getAsByteString(struct, field.getName());
+                            yield StructSchemaUtil.getAsByteString(struct, field.getName());
                         }
-                        break;
                     }
-                    default: {
-                        throw new IllegalStateException();
-                    }
-                }
+                    default -> throw new IllegalStateException();
+                };
 
                 if(bytes == null) {
                     continue;

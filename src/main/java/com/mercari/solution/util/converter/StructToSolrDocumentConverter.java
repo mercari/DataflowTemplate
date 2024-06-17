@@ -58,47 +58,25 @@ public class StructToSolrDocumentConverter {
         final boolean isNullField = struct.isNull(fieldName);
         final String name = parentName == null ? fieldName : parentName + "." + fieldName;
         switch (type.getCode()) {
-            case BOOL: {
-                doc.addField(name, !isNullField && struct.getBoolean(fieldName));
-                return;
-            }
-            case STRING: {
-                doc.addField(name, isNullField ? "" : struct.getString(fieldName));
-                return;
-            }
-            case BYTES: {
-                doc.addField(name, isNullField ? new byte[0] : struct.getBytes(fieldName).toByteArray());
-                return;
-            }
-            case INT64: {
-                doc.addField(name, isNullField ? 0L : struct.getLong(fieldName));
-                return;
-            }
-            case FLOAT64: {
-                doc.addField(name, isNullField ? 0D : struct.getDouble(fieldName));
-                return;
-            }
-            case DATE: {
+            case BOOL -> doc.addField(name, !isNullField && struct.getBoolean(fieldName));
+            case STRING -> doc.addField(name, isNullField ? "" : struct.getString(fieldName));
+            case BYTES -> doc.addField(name, isNullField ? new byte[0] : struct.getBytes(fieldName).toByteArray());
+            case INT64 -> doc.addField(name, isNullField ? 0L : struct.getLong(fieldName));
+            case FLOAT32 -> doc.addField(name, isNullField ? 0D : struct.getFloat(fieldName));
+            case FLOAT64 -> doc.addField(name, isNullField ? 0D : struct.getDouble(fieldName));
+            case DATE -> {
                 final com.google.cloud.Date date = struct.getDate(fieldName);
                 final LocalDate ld = LocalDate.of(date.getYear(), date.getMonth(), date.getDayOfMonth());
                 doc.addField(name, isNullField ? "" : java.util.Date.from(ld.atStartOfDay().toInstant(ZoneOffset.UTC)));
-                return;
             }
-            case TIMESTAMP: {
-                doc.addField(name, isNullField ? "" : struct.getTimestamp(fieldName).toDate());
-                return;
-            }
-            case STRUCT:
-                if(!isNullField) {
+            case TIMESTAMP -> doc.addField(name, isNullField ? "" : struct.getTimestamp(fieldName).toDate());
+            case STRUCT -> {
+                if (!isNullField) {
                     doc.addChildDocument(convert(struct.getStruct(fieldName), name, fieldNames));
                 }
-                return;
-            case ARRAY:
-                setArrayFieldValue(doc, parentName, name, struct.getType().getArrayElementType(), struct, fieldNames);
-                return;
-            case NUMERIC:
-            default:
-                return;
+            }
+            case ARRAY -> setArrayFieldValue(doc, parentName, name, struct.getType().getArrayElementType(), struct, fieldNames);
+            case NUMERIC -> doc.addField(name, isNullField ? 0D : struct.getBigDecimal(fieldName).doubleValue());
         }
     }
 
@@ -112,39 +90,26 @@ public class StructToSolrDocumentConverter {
         }
         final String name = parentName == null ? fieldName : parentName + "." + fieldName;
         switch (type.getCode()) {
-            case BOOL: {
-                struct.getBooleanList(fieldName).stream()
+            case BOOL -> struct.getBooleanList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .forEach(b -> doc.addField(name, b));
-                return;
-            }
-            case STRING: {
-                struct.getStringList(fieldName).stream()
+            case STRING -> struct.getStringList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .forEach(s -> doc.addField(name, s));
-                return;
-            }
-            case BYTES: {
-                struct.getBytesList(fieldName).stream()
+            case BYTES -> struct.getBytesList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .map(bytes -> bytes.toByteArray())
                         .forEach(b -> doc.addField(name, b));
-                return;
-            }
-            case INT64: {
-                struct.getLongList(fieldName).stream()
+            case INT64 -> struct.getLongList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .forEach(i -> doc.addField(name, i));
-                return;
-            }
-            case FLOAT64: {
-                struct.getDoubleList(fieldName).stream()
+            case FLOAT32 -> struct.getFloatList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .forEach(i -> doc.addField(name, i));
-                return;
-            }
-            case DATE: {
-                struct.getDateList(fieldName).stream()
+            case FLOAT64 -> struct.getDoubleList(fieldName).stream()
+                    .filter(Objects::nonNull)
+                    .forEach(i -> doc.addField(name, i));
+            case DATE -> struct.getDateList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .map(d -> {
                             final com.google.cloud.Date date = struct.getDate(fieldName);
@@ -152,26 +117,17 @@ public class StructToSolrDocumentConverter {
                             return java.util.Date.from(ld.atStartOfDay().toInstant(ZoneOffset.UTC));
                         })
                         .forEach(s -> doc.addField(name, s));
-                return;
-            }
-            case TIMESTAMP: {
-                struct.getTimestampList(fieldName).stream()
+            case TIMESTAMP -> struct.getTimestampList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .map(Timestamp::toDate)
                         .forEach(i -> doc.addField(name, i));
-                return;
-            }
-            case STRUCT: {
-                struct.getStructList(fieldName).stream()
+            case STRUCT -> struct.getStructList(fieldName).stream()
                         .filter(Objects::nonNull)
                         .map(s -> convert(s, name, fieldNames))
                         .forEach(doc::addChildDocument);
-                return;
-            }
-            case NUMERIC:
-            case ARRAY:
-            default:
-                return;
+            case NUMERIC -> struct.getBigDecimalList(fieldName).stream()
+                    .filter(Objects::nonNull)
+                    .forEach(i -> doc.addField(name, i.doubleValue()));
         }
     }
 
@@ -191,39 +147,17 @@ public class StructToSolrDocumentConverter {
             fieldElement.setAttribute("multiValued", "true");
         }
         switch (type.getCode()) {
-            case STRING: {
-                fieldElement.setAttribute("type", "textja");
-                break;
-            }
-            case BOOL: {
-                fieldElement.setAttribute("type", "boolean");
-                break;
-            }
-            case INT64: {
-                fieldElement.setAttribute("type", "long");
-                break;
-            }
-            case FLOAT64: {
-                fieldElement.setAttribute("type", "double");
-                break;
-            }
-            case DATE: {
-                fieldElement.setAttribute("type", "date");
-                break;
-            }
-            case TIMESTAMP: {
-                fieldElement.setAttribute("type", "date");
-                break;
-            }
-            case ARRAY: {
-                setSchemaField(document, fields, name, type.getArrayElementType(), nullable, true);
+            case STRING -> fieldElement.setAttribute("type", "textja");
+            case BOOL -> fieldElement.setAttribute("type", "boolean");
+            case INT64 -> fieldElement.setAttribute("type", "long");
+            case FLOAT32 -> fieldElement.setAttribute("type", "float");
+            case FLOAT64 -> fieldElement.setAttribute("type", "double");
+            case DATE -> fieldElement.setAttribute("type", "date");
+            case TIMESTAMP -> fieldElement.setAttribute("type", "date");
+            case ARRAY -> setSchemaField(document, fields, name, type.getArrayElementType(), nullable, true);
+            default -> {
                 return;
             }
-            case STRUCT:
-            case BYTES:
-            case NUMERIC:
-            default:
-                return;
         }
         fields.appendChild(fieldElement);
     }

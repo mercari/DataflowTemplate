@@ -479,13 +479,13 @@ public class FilterTransformTest {
                 final Struct selectedStructChild = selectedStruct.getStruct("recordField");
                 Assert.assertEquals(5, selectedStructChild.getColumnCount());
                 Assert.assertEquals(TestDatum.getStringFieldValue(), selectedStructChild.getString("stringField"));
-                Assert.assertEquals(TestDatum.getDoubleFieldValue().doubleValue(), selectedStructChild.getDouble("doubleField"), DELTA);
+                Assert.assertEquals(TestDatum.getDoubleFieldValue(), selectedStructChild.getDouble("doubleField"), DELTA);
                 Assert.assertEquals(TestDatum.getBooleanFieldValue(), selectedStructChild.getBoolean("booleanField"));
 
                 final Struct selectedStructGrandchild = selectedStructChild.getStruct("recordField");
                 Assert.assertEquals(2, selectedStructGrandchild.getColumnCount());
                 Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(selectedStructGrandchild.getLong("intField")).intValue());
-                Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(selectedStructGrandchild.getDouble("floatField")).floatValue(), DELTA);
+                Assert.assertEquals(TestDatum.getFloatFieldValue(), selectedStructGrandchild.getFloat("floatField"), DELTA);
 
                 Assert.assertEquals(2, selectedStruct.getStructList("recordArrayField").size());
                 for(final Struct child : selectedStruct.getStructList("recordArrayField")) {
@@ -497,12 +497,12 @@ public class FilterTransformTest {
                     for(final Struct grandchild : child.getStructList("recordArrayField")) {
                         Assert.assertEquals(2, grandchild.getColumnCount());
                         Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(grandchild.getLong("intField")).intValue());
-                        Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getDouble("floatField")).floatValue(), DELTA);
+                        Assert.assertEquals(TestDatum.getFloatFieldValue(), grandchild.getFloat("floatField"), DELTA);
                     }
 
                     final Struct grandchild = child.getStruct("recordField");
                     Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(grandchild.getLong("intField")).intValue());
-                    Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getDouble("floatField")).floatValue(), DELTA);
+                    Assert.assertEquals(TestDatum.getFloatFieldValue(), grandchild.getFloat("floatField"), DELTA);
                 }
 
                 count++;
