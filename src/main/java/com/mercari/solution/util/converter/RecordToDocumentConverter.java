@@ -7,6 +7,7 @@ import com.google.firestore.v1.Value;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.gcp.FirestoreUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -25,6 +26,9 @@ public class RecordToDocumentConverter {
     public static Document.Builder convert(final Schema schema, final GenericRecord record) {
         final Document.Builder builder = Document.newBuilder();
         for(final Schema.Field field : schema.getFields()) {
+            if(FirestoreUtil.NAME_FIELD.equals(field.name())) {
+                continue;
+            }
             final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
             builder.putFields(field.name(), getValue(field.schema(), value));
         }

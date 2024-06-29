@@ -8,6 +8,7 @@ import com.google.firestore.v1.Value;
 import com.google.firestore.v1.Document;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
+import com.mercari.solution.util.gcp.FirestoreUtil;
 
 import java.util.stream.Collectors;
 
@@ -17,6 +18,9 @@ public class StructToDocumentConverter {
 
         final Document.Builder builder = Document.newBuilder();
         for(Type.StructField field : type.getStructFields()) {
+            if(FirestoreUtil.NAME_FIELD.equals(field.getName())) {
+                continue;
+            }
             builder.putFields(field.getName(), convertValue(field, struct));
         }
         return builder;
