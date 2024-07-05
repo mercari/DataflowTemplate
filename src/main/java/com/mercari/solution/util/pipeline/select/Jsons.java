@@ -5,16 +5,19 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.module.DataType;
+import com.mercari.solution.util.converter.RowToJsonConverter;
+import com.mercari.solution.util.schema.RowSchemaUtil;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
-public class Struct implements SelectFunction {
+public class Jsons implements SelectFunction {
 
-    private static final Logger LOG = LoggerFactory.getLogger(Struct.class);
+    private static final Logger LOG = LoggerFactory.getLogger(Jsons.class);
 
     private final String name;
     private final String selectFunctionsJson;
@@ -23,36 +26,40 @@ public class Struct implements SelectFunction {
     private final List<Schema.Field> inputFields;
     private final Schema.FieldType outputFieldType;
     private final String eachField;
+
+    private final Schema outputSchema;
     private final boolean isArray;
     private final boolean ignore;
 
 
     private transient List<SelectFunction> selectFunctions;
 
-    Struct(final String name,
+    Jsons(final String name,
            final String selectFunctionsJson,
-           final DataType outputType,
            final Schema.FieldType outputFieldType,
            final List<Schema.Field> inputFields,
            final String eachField,
+           final Schema outputSchema,
            final boolean isArray,
            final boolean ignore) {
 
         this.name = name;
         this.selectFunctionsJson = selectFunctionsJson;
-        this.outputType = outputType;
+        this.outputType = DataType.ROW;
         this.inputFields = inputFields;
         this.outputFieldType = outputFieldType;
         this.eachField = eachField;
+
+        this.outputSchema = outputSchema;
         this.isArray = isArray;
         this.ignore = ignore;
     }
 
-    public static Struct of(String name, JsonObject jsonObject, DataType outputType, List<Schema.Field> inputFields, boolean ignore) {
+    public static Jsons of(String name, JsonObject jsonObject, DataType outputType, List<Schema.Field> inputFields, boolean ignore) {
         if(!jsonObject.has("fields")) {
-            throw new IllegalArgumentException("SelectField: " + name + " struct func requires fields parameter");
+            throw new IllegalArgumentException("SelectField: " + name + " json func requires fields parameter");
         } else if(!jsonObject.get("fields").isJsonArray()) {
-            throw new IllegalArgumentException("SelectField: " + name + " struct func fields parameter must be array");
+            throw new IllegalArgumentException("SelectField: " + name + " json func fields parameter must be array");
         }
         final JsonElement fieldsElement = jsonObject.get("fields");
         final List<SelectFunction> childFunctions = SelectFunction.of(fieldsElement.getAsJsonArray(), inputFields, outputType);
@@ -76,15 +83,16 @@ public class Struct implements SelectFunction {
             eachField = null;
         }
 
-        final Schema.FieldType fieldType = Schema.FieldType.row(outputSchema);
+        final Schema.FieldType fieldType = Schema.FieldType.STRING;
         final Schema.FieldType outputFieldType = switch (mode) {
             case "required" -> fieldType;
             case "nullable" -> fieldType.withNullable(true);
             case "repeated" -> Schema.FieldType.array(fieldType).withNullable(true);
-            default -> throw new IllegalArgumentException("illegal struct mode: " + mode);
+            default -> throw new IllegalArgumentException("illegal json mode: " + mode);
         };
 
         final boolean isArray = Schema.TypeName.ARRAY.equals(outputFieldType.getTypeName());
+
         final List<Schema.Field> deduplicatedNestedInputFields = new ArrayList<>();
         final Set<String> nestedInputFieldNames = new HashSet<>();
         for(final Schema.Field nestedInputField : nestedInputFields) {
@@ -94,8 +102,9 @@ public class Struct implements SelectFunction {
             }
         }
 
-        return new Struct(name, fieldsElement.toString(),
-                outputType, outputFieldType, deduplicatedNestedInputFields, eachField, isArray, ignore);
+        return new Jsons(name, fieldsElement.toString(), outputFieldType,
+                deduplicatedNestedInputFields, eachField,
+                outputSchema, isArray, ignore);
     }
 
     @Override
@@ -133,7 +142,8 @@ public class Struct implements SelectFunction {
             if(eachField == null || !input.containsKey(eachField)) {
                 final Map<String, Object> newInput = new HashMap<>(input);
                 final Map<String, Object> output = SelectFunction.apply(selectFunctions, newInput, outputType, timestamp);
-                return List.of(output);
+                final JsonObject jsonObject = toJsonObject(output);
+                return List.of(jsonObject.toString());
             }
             final List<Object> eachValues = (List) input.get(eachField);
             if(eachValues == null) {
@@ -146,12 +156,26 @@ public class Struct implements SelectFunction {
                 final Map<String, Object> output =  SelectFunction.apply(selectFunctions, newInput, outputType, timestamp);
                 outputs.add(output);
             }
-            return outputs;
+
+            final JsonArray jsonArray = new JsonArray();
+            for(final Map<String, Object> value : outputs) {
+                jsonArray.add(toJsonObject(value));
+            }
+            return jsonArray.toString();
         } else {
             final Map<String, Object> newInput = new HashMap<>(input);
             final Map<String, Object> output = SelectFunction.apply(selectFunctions, newInput, outputType, timestamp);
-            return output;
+            final JsonObject jsonObject = toJsonObject(output);
+            return jsonObject.toString();
         }
+    }
+
+    private JsonObject toJsonObject(final Map<String, Object> values) {
+        if(values == null) {
+            return null;
+        }
+        final Row row = RowSchemaUtil.create(outputSchema, values);
+        return RowToJsonConverter.convertObject(row);
     }
 
 }

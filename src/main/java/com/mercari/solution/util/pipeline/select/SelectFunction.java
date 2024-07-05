@@ -36,6 +36,7 @@ public interface SelectFunction extends Serializable {
         event_timestamp,
         current_timestamp,
         struct,
+        json,
         map
     }
 
@@ -109,6 +110,7 @@ public interface SelectFunction extends Serializable {
             case event_timestamp -> EventTimestamp.of(name, ignore);
             case current_timestamp -> CurrentTimestamp.of(name, ignore);
             case struct -> Struct.of(name, jsonObject, outputType, inputFields, ignore);
+            case json -> Jsons.of(name, jsonObject, outputType, inputFields, ignore);
             case map -> Maps.of(name, jsonObject, outputType, inputFields, ignore);
         };
     }
@@ -125,8 +127,11 @@ public interface SelectFunction extends Serializable {
                 continue;
             }
             final Schema.FieldType selectOutputFieldType = selectFunction.getOutputFieldType();
-
-            selectOutputFields.add(Schema.Field.of(selectFunction.getName(), selectOutputFieldType));
+            Schema.Field field = Schema.Field.of(selectFunction.getName(), selectOutputFieldType);
+            if(selectFunction instanceof Jsons) {
+                field = field.withOptions(Schema.Options.builder().setOption("sqlType", Schema.FieldType.STRING, "json").build());
+            }
+            selectOutputFields.add(field);
         }
         return Schema.builder().addFields(selectOutputFields).build();
     }
