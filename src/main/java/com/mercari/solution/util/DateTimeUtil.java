@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -408,6 +409,18 @@ public class DateTimeUtil {
             case hour -> Duration.standardHours(size);
             case day -> Duration.standardDays(size);
             default -> throw new IllegalArgumentException("Illegal window unit: " + unit);
+        };
+    }
+
+    public static ChronoUnit convertChronoUnit(final TimeUnit unit) {
+        return switch (unit) {
+            case second -> ChronoUnit.SECONDS;
+            case minute -> ChronoUnit.MINUTES;
+            case hour -> ChronoUnit.HOURS;
+            case day -> ChronoUnit.DAYS;
+            case week -> ChronoUnit.WEEKS;
+            case month -> ChronoUnit.MONTHS;
+            case year -> ChronoUnit.YEARS;
         };
     }
 

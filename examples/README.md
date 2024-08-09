@@ -38,6 +38,7 @@ Try to find and arrange a configuration file that is similar to the data process
     * [Solr index from PDF files](bigquery-pdf-to-localsolr.json)
     * [Neo4j database from BigQuery](bigquery-to-localneo4j.json)
     * [Neo4j data processing](bigquery-to-localneo4j-to-bigquery.json)
+    * [Http request for Cloud Run](create-to-http-to-bigquery.json)
     * [Tokenize](bigquery-to-tokenize-to-bigquery.json)
     * [Protobuf deserialize](spanner-to-protobuf-to-avro.json)
     * [Decrypt secret data](spanner-to-decrypt-to-avro.json)
