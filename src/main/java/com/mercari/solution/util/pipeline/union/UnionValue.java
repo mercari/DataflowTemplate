@@ -2,14 +2,20 @@ package com.mercari.solution.util.pipeline.union;
 
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Struct;
+import com.google.cloud.spanner.Type;
 import com.google.datastore.v1.Entity;
 import com.google.firestore.v1.Document;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.util.converter.*;
+import com.mercari.solution.util.pipeline.mutation.UnifiedMutation;
 import com.mercari.solution.util.schema.*;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroGenericCoder;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
@@ -305,7 +311,24 @@ public class UnionValue {
             case ENTITY -> EntityToJsonConverter.convert((Entity) unionValue.getValue());
             case MUTATION -> MutationToJsonConverter.convertJsonString((Mutation) unionValue.getValue());
             case MUTATIONGROUP -> MutationToJsonConverter.convertJsonString((MutationGroup) unionValue.getValue());
+            case UNIFIEDMUTATION -> UnifiedMutation.toJson((UnifiedMutation) unionValue.getValue());
             default -> throw new IllegalArgumentException("Not supported json conversion: " + unionValue.getType());
+        };
+    }
+
+    public static Row getAsRow(final Schema schema, final UnionValue unionValue) {
+        if(unionValue == null) {
+            return null;
+        }
+        return switch (unionValue.getType()) {
+            case ROW -> (Row) unionValue.getValue();
+            case AVRO -> RecordToRowConverter.convert(schema, (GenericRecord) unionValue.getValue());
+            case STRUCT -> StructToRowConverter.convert(schema, (Struct) unionValue.getValue());
+            case DOCUMENT -> DocumentToRowConverter.convert(schema, (Document) unionValue.getValue());
+            case ENTITY -> EntityToRowConverter.convert(schema, (Entity) unionValue.getValue());
+            case MUTATION -> MutationToRowConverter.convert(schema, (Mutation) unionValue.getValue());
+            case UNIFIEDMUTATION -> UnifiedMutation.toRow(schema, (UnifiedMutation) unionValue.getValue());
+            default -> throw new IllegalArgumentException();
         };
     }
 
@@ -320,6 +343,7 @@ public class UnionValue {
             case DOCUMENT -> DocumentToRecordConverter.convert(schema, (Document) unionValue.getValue());
             case ENTITY -> EntityToRecordConverter.convert(schema, (Entity) unionValue.getValue());
             case MUTATION -> MutationToRecordConverter.convert(schema, (Mutation) unionValue.getValue());
+            case UNIFIEDMUTATION -> UnifiedMutation.toGenericRecord(schema, (UnifiedMutation) unionValue.getValue());
             default -> throw new IllegalArgumentException();
         };
     }
@@ -334,6 +358,50 @@ public class UnionValue {
             case STRUCT -> StructToProtoConverter.convert(messageDescriptor, (Struct) unionValue.getValue());
             case ENTITY -> EntityToProtoConverter.convert(messageDescriptor, (Entity) unionValue.getValue());
             default -> throw new IllegalArgumentException();
+        };
+    }
+
+    public static <InputSchemaT, RuntimeSchemaT> RuntimeSchemaT convertSchema(final InputSchemaT inputSchema, final DataType dataType) {
+        return switch (dataType) {
+            case AVRO -> (RuntimeSchemaT) AvroSchemaUtil.convertSchema((String) inputSchema);
+            case ROW, STRUCT, DOCUMENT, ENTITY -> (RuntimeSchemaT) inputSchema;
+            default -> throw new IllegalArgumentException("Not supported schema convert: " + dataType);
+        };
+    }
+
+    public static <RuntimeSchemaT> RuntimeSchemaT convertRowSchema(final Schema inputSchema, final DataType dataType) {
+        return switch (dataType) {
+            case AVRO -> (RuntimeSchemaT) RowToRecordConverter.convertSchema(inputSchema);
+            case ROW, DOCUMENT, ENTITY -> (RuntimeSchemaT) inputSchema;
+            case STRUCT -> (RuntimeSchemaT) RowToMutationConverter.convertSchema(inputSchema);
+            default -> throw new IllegalArgumentException("Not supported schema convert: " + dataType);
+        };
+    }
+
+    public static <SchemaT, ElementT> ElementT convert(final SchemaT schema, final UnionValue unionValue, final DataType outputType) {
+        if(unionValue == null) {
+            return null;
+        }
+
+        if(unionValue.getType().equals(outputType)) {
+            return (ElementT) unionValue.getValue();
+        }
+
+        return switch (outputType) {
+            case AVRO -> (ElementT) getAsRecord((org.apache.avro.Schema) schema, unionValue);
+            case ROW -> (ElementT) getAsRow((Schema) schema, unionValue);
+            default -> throw new IllegalArgumentException("Not supported convert data type: " + outputType);
+        };
+    }
+
+    public static <SchemaT, ElementT> ElementT create(final SchemaT schema, final Map<String, Object> values, final DataType dataType) {
+        return switch (dataType) {
+            case AVRO -> (ElementT) AvroSchemaUtil.create((org.apache.avro.Schema) schema, values);
+            case ROW -> (ElementT) RowSchemaUtil.create((Schema) schema, values);
+            case STRUCT -> (ElementT) StructSchemaUtil.create((Type) schema, values);
+            case DOCUMENT -> (ElementT) DocumentSchemaUtil.create((Schema) schema, values);
+            case ENTITY -> (ElementT) EntitySchemaUtil.create((Schema) schema, values);
+            default -> throw new IllegalArgumentException("Not supported create data type: " + dataType);
         };
     }
 
@@ -428,6 +496,36 @@ public class UnionValue {
                     throw new IllegalStateException("Union.merge not supported data type: " + unionValue.type.name());
         }
 
+    }
+
+    public static <SchemaT, T> Coder<T> createCoder(final SchemaT schema, final DataType outputType) {
+        return switch (outputType) {
+            case ROW -> (Coder<T>) RowCoder.of((Schema) schema);
+            case AVRO -> (Coder<T>) AvroGenericCoder.of((org.apache.avro.Schema) schema);
+            case STRUCT -> (Coder<T>) SerializableCoder.of(Struct.class);
+            case DOCUMENT -> (Coder<T>) SerializableCoder.of(Document.class);
+            case ENTITY -> (Coder<T>) SerializableCoder.of(Entity.class);
+            default -> throw new IllegalArgumentException();
+        };
+    }
+
+    public static <T> Coder<T> createCoderWithRowSchema(final Schema schema, final DataType outputType) {
+        return switch (outputType) {
+            case ROW -> (Coder<T>) RowCoder.of(schema);
+            case AVRO -> (Coder<T>) AvroGenericCoder.of(RowToRecordConverter.convertSchema(schema));
+            case STRUCT -> (Coder<T>) SerializableCoder.of(Struct.class);
+            case DOCUMENT -> (Coder<T>) SerializableCoder.of(Document.class);
+            case ENTITY -> (Coder<T>) SerializableCoder.of(Entity.class);
+            default -> throw new IllegalArgumentException();
+        };
+    }
+
+    @Override
+    public String toString() {
+        if(this.value == null) {
+            return "null";
+        }
+        return this.value.toString();
     }
 
 }

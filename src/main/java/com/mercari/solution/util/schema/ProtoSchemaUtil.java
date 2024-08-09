@@ -6,6 +6,7 @@ import com.google.protobuf.Duration;
 import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.Timestamps;
 import com.google.type.*;
+import org.apache.beam.sdk.extensions.protobuf.ProtoDomain;
 import org.apache.beam.sdk.schemas.logicaltypes.EnumerationType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -512,7 +513,7 @@ public class ProtoSchemaUtil {
                 .anyMatch(f -> f.getKey().getName().equals(field));
     }
 
-    private static Map<String, Descriptors.Descriptor> getDescriptors(final DescriptorProtos.FileDescriptorSet set) {
+    public static Map<String, Descriptors.Descriptor> getDescriptors(final DescriptorProtos.FileDescriptorSet set) {
         final List<Descriptors.FileDescriptor> fileDescriptors = new ArrayList<>();
         return getDescriptors(set.getFileList(), fileDescriptors);
     }

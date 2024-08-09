@@ -1,6 +1,8 @@
 package com.mercari.solution.util.pipeline.mutation;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 public enum MutationOp implements Serializable {
 
@@ -28,6 +30,14 @@ public enum MutationOp implements Serializable {
             }
         }
         throw new IllegalArgumentException("No such enum object for MutationOp id: " + id);
+    }
+
+    public static List<String> symbols() {
+        final List<String> symbols = new ArrayList<>();
+        for(final MutationOp op : values()) {
+            symbols.add(op.name());
+        }
+        return symbols;
     }
 
 }

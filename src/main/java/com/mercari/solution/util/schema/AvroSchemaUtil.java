@@ -8,6 +8,7 @@ import com.google.gson.*;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.converter.JsonToRecordConverter;
+import com.mercari.solution.util.converter.RowToRecordConverter;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -1186,7 +1187,13 @@ public class AvroSchemaUtil {
             case LOGICAL_TYPE -> {
                 final Schema fieldSchema = unnestUnion(((GenericRecord) record).getSchema().getField(field).schema());
                 if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                    if(value instanceof LocalDate) {
+                        return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                    } else if(value instanceof Integer) {
+                        return value;
+                    } else {
+                        throw new IllegalArgumentException();
+                    }
                 } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
                         return (Long) value * 1000L;
@@ -1210,7 +1217,6 @@ public class AvroSchemaUtil {
                         return ((List<Object>) value).stream().map(Object::toString).collect(Collectors.toList());
                     }
                     case DATETIME -> {
-
                         final long m;
                         if (LogicalTypes.timestampMillis().equals(elementSchema.getLogicalType())) {
                             m = 1000L;
@@ -1244,7 +1250,20 @@ public class AvroSchemaUtil {
                             throw new IllegalStateException();
                         }
                     }
-                    default -> throw new IllegalStateException();
+                    case ROW, MAP -> {
+                        return ((List<Object>) value).stream()
+                                .map(o -> {
+                                    if(o instanceof GenericRecord) {
+                                        return asPrimitiveMap((GenericRecord) o);
+                                    } else if(o instanceof Map<?,?>) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException("Not supported primitive type: " + fieldType.getCollectionElementType());
                 }
             }
             default -> throw new IllegalStateException();
@@ -1298,7 +1317,20 @@ public class AvroSchemaUtil {
                                 })
                                 .collect(Collectors.toList());
                     }
-                    default -> throw new IllegalStateException();
+                    case ROW, MAP -> {
+                        return ((List<Object>) fieldValue).stream()
+                                .map(o -> {
+                                    if(o instanceof GenericRecord) {
+                                        return asPrimitiveMap((GenericRecord) o);
+                                    } else if(o instanceof Map<?,?>) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException("Not supported primitive type: " + fieldType.getCollectionElementType());
                 }
             }
             default -> throw new IllegalStateException();
@@ -1390,7 +1422,27 @@ public class AvroSchemaUtil {
                         throw new IllegalStateException();
                     }
                 }
-                default -> throw new IllegalStateException();
+                case MAP -> ((List<Object>) primitiveValue).stream()
+                        .map(o -> {
+                            if(o instanceof Map<?,?>) {
+                                return o;
+                            } else {
+                                throw new IllegalStateException("Could not convert value: " + o + " to map");
+                            }
+                        })
+                        .collect(Collectors.toList());
+                case ROW -> ((List<Object>) primitiveValue).stream()
+                        .map(o -> {
+                            if(o instanceof Map<?,?>) {
+                                return create(RowToRecordConverter.convertSchema(fieldType.getCollectionElementType().getRowSchema()), (Map) o);
+                            } else if(o instanceof GenericRecord) {
+                                return o;
+                            } else {
+                                throw new IllegalStateException("Could not convert value: " + o + " to record");
+                            }
+                        })
+                        .collect(Collectors.toList());
+                default -> throw new IllegalStateException("Not supported array element type: " + fieldType.getCollectionElementType());
             };
             default -> throw new IllegalStateException();
         };
