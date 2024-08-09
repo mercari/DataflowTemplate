@@ -12,7 +12,7 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.56.0</beam.version>
+    <beam.version>2.58.0</beam.version>
 
     <freemarker.version>2.3.33</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>
@@ -28,11 +28,12 @@
     <mysql-connector.version>8.4.0</mysql-connector.version>
     <postgresql-connector.version>42.7.3</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.19.0</jdbc-socket-factory.version>
+    <jdbc-socket-factory.version>1.19.1</jdbc-socket-factory.version>
     <secretmanager.version>2.45.0</secretmanager.version>
     <iamcredentials.version>2.45.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
+    <jsoup.version>1.18.1</jsoup.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -332,7 +333,7 @@
       <artifactId>onnxruntime</artifactId>
       <version>${onnxruntime.version}</version>
     </dependency>
-    
+
     <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx-platform -->
     <dependency>
       <groupId>org.bytedeco</groupId>
@@ -478,6 +479,13 @@
       <groupId>net.objecthunter</groupId>
       <artifactId>exp4j</artifactId>
       <version>${exp4j.version}</version>
+    </dependency>
+
+    <!-- https://mvnrepository.com/artifact/org.jsoup/jsoup -->
+    <dependency>
+      <groupId>org.jsoup</groupId>
+      <artifactId>jsoup</artifactId>
+      <version>${jsoup.version}</version>
     </dependency>
 
     <!-- for solr dependency conflict -->
