@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mercari.solution.module.DataType;
+import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.*;
 import org.apache.beam.sdk.schemas.Schema;
 import org.joda.time.Instant;
@@ -37,7 +38,10 @@ public interface SelectFunction extends Serializable {
         current_timestamp,
         struct,
         json,
-        map
+        map,
+        http,
+        scrape,
+        generate
     }
 
 
@@ -51,7 +55,11 @@ public interface SelectFunction extends Serializable {
             if(!select.isJsonObject()) {
                 continue;
             }
-            selectFunctions.add(SelectFunction.of(select.getAsJsonObject(), outputType, inputFields));
+            final SelectFunction selectFunction = SelectFunction.of(select.getAsJsonObject(), outputType, inputFields);
+            if(selectFunction.ignore()) {
+                continue;
+            }
+            selectFunctions.add(selectFunction);
         }
         return selectFunctions;
     }
@@ -112,6 +120,9 @@ public interface SelectFunction extends Serializable {
             case struct -> Struct.of(name, jsonObject, outputType, inputFields, ignore);
             case json -> Jsons.of(name, jsonObject, outputType, inputFields, ignore);
             case map -> Maps.of(name, jsonObject, outputType, inputFields, ignore);
+            case http -> Http.of(name, jsonObject, inputFields, ignore);
+            case scrape -> Scrape.of(name, jsonObject, inputFields, ignore);
+            case generate -> Generate.of(name, jsonObject, inputFields, ignore);
         };
     }
 
@@ -134,6 +145,15 @@ public interface SelectFunction extends Serializable {
             selectOutputFields.add(field);
         }
         return Schema.builder().addFields(selectOutputFields).build();
+    }
+
+    static Map<String, Object> apply(
+            List<SelectFunction> selectFunctions,
+            UnionValue element,
+            DataType outputType,
+            Instant timestamp) {
+
+        return apply(selectFunctions, element.getValue(), element.getType(), outputType, timestamp);
     }
 
     static Map<String, Object> apply(
@@ -207,6 +227,34 @@ public interface SelectFunction extends Serializable {
             }
         }
         throw new IllegalArgumentException("Not found field: " + field + " in input fields: " + inputFields);
+    }
+
+    static String getStringParameter(final String name, final JsonObject jsonObject, final String field, final String defaultValue) {
+        final String value;
+        if(jsonObject.has(field)) {
+            if(!jsonObject.get(field).isJsonPrimitive()) {
+                throw new IllegalArgumentException("SelectField: " + name + "." + field + " parameter must be string");
+            }
+            value = jsonObject.get(field).getAsString();
+        } else {
+            value = defaultValue;
+        }
+        return value;
+    }
+
+    static Schema createFlattenSchema(final Schema inputSchema, final String flattenField) {
+        final Schema.Builder builder = Schema.builder();
+        for(final Schema.Field field : inputSchema.getFields()) {
+            if(field.getName().equals(flattenField)) {
+                if(!Schema.TypeName.ARRAY.equals(field.getType().getTypeName())) {
+                    throw new IllegalArgumentException("flattenField: " + flattenField + " type: " + field.getType() + " is not array type");
+                }
+                builder.addField(field.getName(), field.getType().getCollectionElementType().withNullable(true));
+            } else {
+                builder.addField(field);
+            }
+        }
+        return builder.build();
     }
 
 }

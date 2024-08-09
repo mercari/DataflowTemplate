@@ -2,7 +2,6 @@ package com.mercari.solution.module.transform;
 
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
 import com.mercari.solution.config.TransformConfig;
 import com.mercari.solution.module.DataType;
 import com.mercari.solution.module.FCollection;
@@ -43,6 +42,7 @@ public class ChangeStreamTransform implements TransformModule {
         private Boolean applyUpsertForInsert;
         private Boolean applyUpsertForUpdate;
 
+        private Boolean debug;
 
         public Type getType() {
             return type;
@@ -72,6 +72,9 @@ public class ChangeStreamTransform implements TransformModule {
             return applyUpsertForUpdate;
         }
 
+        public Boolean getDebug() {
+            return debug;
+        }
 
         public void validate(final String name, final boolean isStreaming) {
             final List<String> errorMessages = new ArrayList<>();
@@ -86,7 +89,7 @@ public class ChangeStreamTransform implements TransformModule {
                 errorMessages.add("changeStream transform module[" + name + "].startAt value: " + startAt + " is illegal");
             }
             if(endAt != null && DateTimeUtil.toInstant(endAt, true) == null) {
-                errorMessages.add("changeStream transform module[" + name + "].startAt value: " + endAt + " is illegal");
+                errorMessages.add("changeStream transform module[" + name + "].endAt value: " + endAt + " is illegal");
             }
             if(!errorMessages.isEmpty()) {
                 throw new IllegalArgumentException(String.join("\n", errorMessages));
@@ -106,13 +109,18 @@ public class ChangeStreamTransform implements TransformModule {
             if(this.applyUpsertForUpdate == null) {
                 this.applyUpsertForUpdate = false;
             }
+            if(this.debug == null) {
+                this.debug = false;
+            }
         }
 
-        public static ChangeStreamTransformParameters of(final JsonElement jsonElement) {
-            final ChangeStreamTransformParameters parameters = new Gson().fromJson(jsonElement, ChangeStreamTransformParameters.class);
+        public static ChangeStreamTransformParameters of(final TransformConfig config, final boolean isStreaming) {
+            final ChangeStreamTransformParameters parameters = new Gson().fromJson(config.getParameters(), ChangeStreamTransformParameters.class);
             if (parameters == null) {
-                throw new IllegalArgumentException("ChangeStreamTransform config parameters must not be empty!");
+                throw new IllegalArgumentException("changeStream transform module[" + config.getName() + "].parameters must not be empty!");
             }
+            parameters.validate(config.getName(), isStreaming);
+            parameters.setDefaults();
             return parameters;
         }
 
@@ -143,9 +151,7 @@ public class ChangeStreamTransform implements TransformModule {
     }
 
     public static Map<String, FCollection<?>> transform(final List<FCollection<?>> inputs, TransformConfig config) {
-        final ChangeStreamTransformParameters parameters = ChangeStreamTransformParameters.of(config.getParameters());
-        parameters.validate(config.getName(), OptionUtil.isStreaming(inputs.get(0).getCollection()));
-        parameters.setDefaults();
+        final ChangeStreamTransformParameters parameters = ChangeStreamTransformParameters.of(config, OptionUtil.isStreaming(inputs.get(0).getCollection()));
 
         final List<TupleTag<?>> inputTags = new ArrayList<>();
         final List<String> inputNames = new ArrayList<>();

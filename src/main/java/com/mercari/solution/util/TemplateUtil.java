@@ -74,11 +74,15 @@ public class TemplateUtil {
     }
 
     public static List<String> extractTemplateArgs(final String text, final org.apache.beam.sdk.schemas.Schema inputSchema) {
+        return extractTemplateArgs(text, inputSchema.getFields());
+    }
+
+    public static List<String> extractTemplateArgs(final String text, final List<org.apache.beam.sdk.schemas.Schema.Field> inputFields) {
         final List<String> args = new ArrayList<>();
         if(!isTemplateText(text)) {
             return args;
         }
-        for(final org.apache.beam.sdk.schemas.Schema.Field field : inputSchema.getFields()) {
+        for(final org.apache.beam.sdk.schemas.Schema.Field field : inputFields) {
             if(text.contains(field.getName())) {
                 args.add(field.getName());
             }
@@ -134,6 +138,41 @@ public class TemplateUtil {
             return dateTime.format(DateTimeFormatter.ISO_DATE_TIME);
         }
 
+        public String formatDate(Integer epocDays) {
+            return formatDate(epocDays, null);
+        }
+
+        public String formatDate(Integer epocDays, String pattern) {
+            if(epocDays == null) {
+                return "";
+            }
+            final LocalDate localDate = LocalDate.ofEpochDay(epocDays);
+            final DateTimeFormatter formatter;
+            if(pattern == null) {
+                formatter = DateTimeFormatter.ISO_DATE;
+            } else {
+                formatter = DateTimeFormatter.ofPattern(pattern);
+            }
+            return localDate.format(formatter);
+        }
+
+        public String formatDate(LocalDate localDate) {
+            return formatDate(localDate, null);
+        }
+
+        public String formatDate(LocalDate localDate, String pattern) {
+            if(localDate == null) {
+                return "";
+            }
+            final DateTimeFormatter formatter;
+            if(pattern == null) {
+                formatter = DateTimeFormatter.ISO_DATE;
+            } else {
+                formatter = DateTimeFormatter.ofPattern(pattern);
+            }
+            return localDate.format(formatter);
+        }
+
         public String formatDateTime(Long epocMicros) {
             return formatDateTime(epocMicros, "UTC");
         }
@@ -145,6 +184,32 @@ public class TemplateUtil {
             final Instant timestamp = Instant.ofEpochMilli(epocMicros / 1000L);
             final LocalDateTime dateTime = getLocalDateTime(timestamp, timezone);
             return dateTime.format(DateTimeFormatter.ISO_DATE_TIME);
+        }
+
+        public String currentDate(final String zone) {
+            return currentDate(zone, 0L, "yyyy-MM-dd");
+        }
+
+        public String currentDate(final String zone, final Long plusDays) {
+            return currentDate(zone, plusDays, "yyyy-MM-dd");
+        }
+
+        public String currentDate(final String zone, final Long plusDays, final String pattern) {
+            final LocalDate localDate = LocalDate.now(ZoneId.of(zone));
+            return DateTimeFormatter.ofPattern(pattern).format(localDate.plusDays(plusDays));
+        }
+
+        public String currentTime(final String zone) {
+            return currentTime(zone, 0L, "HH:mm:ss");
+        }
+
+        public String currentTime(final String zone, final Long plusSeconds) {
+            return currentTime(zone, plusSeconds, "HH:mm:ss");
+        }
+
+        public String currentTime(final String zone, final Long plusSeconds, final String pattern) {
+            final LocalTime localTime = LocalTime.now(ZoneId.of(zone));
+            return DateTimeFormatter.ofPattern(pattern).format(localTime.plusSeconds(plusSeconds));
         }
 
         public String year(Instant timestamp, String timezone) {
