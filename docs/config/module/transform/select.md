@@ -29,3 +29,4 @@ SelectField is the definition for limiting the fields to be output, changing fie
 | uuid              | Generates a field with uuid string value                                                                                                              | -                            |
 | hash              | Generates a hashed string of the values of the specified `fields` as a string. if `size` is specified, returns it in the length of the string.        | (`fields` or `text`), `size` |
 | struct            | Generate nested structure field by defining the `fields` of select. If you want to generate an array of structures, specify `repeated` in `mode`.     | `fields`, `mode`, `each`     |
+| json              | Generate nested json field by defining the `fields` of select. If you want to generate an array of structures, specify `repeated` in `mode`.          | `fields`, `mode`, `each`     |

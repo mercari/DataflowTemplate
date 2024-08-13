@@ -12,28 +12,28 @@
   <packaging>jar</packaging>
 
   <properties>
-    <beam.version>2.55.1</beam.version>
+    <beam.version>2.58.0</beam.version>
 
-    <freemarker.version>2.3.32</freemarker.version>
+    <freemarker.version>2.3.33</freemarker.version>
     <hadoop.version>3.3.6</hadoop.version>
-    <hbase.version>2.5.5</hbase.version>
+    <hbase.version>2.5.8</hbase.version>
     <onnxruntime.version>1.18.0</onnxruntime.version>
     <onnx.version>1.15.0-1.5.10</onnx.version>
-    <solr.version>9.4.1</solr.version>
-    <lucene.version>9.8.0</lucene.version>
+    <solr.version>9.6.1</solr.version>
+    <lucene.version>9.10.0</lucene.version>
     <neo4j.version>5.19.0</neo4j.version>
     <h2.version>2.2.224</h2.version>
-    <pdfbox.version>2.0.30</pdfbox.version>
+    <pdfbox.version>3.0.2</pdfbox.version>
     <jts.version>1.19.0</jts.version>
-    <mysql-connector.version>8.3.0</mysql-connector.version>
-    <postgresql-connector.version>42.7.1</postgresql-connector.version>
+    <mysql-connector.version>8.4.0</mysql-connector.version>
+    <postgresql-connector.version>42.7.3</postgresql-connector.version>
     <sqlserver-connector.version>8.4.1.jre11</sqlserver-connector.version>
-    <jdbc-socket-factory.version>1.15.2</jdbc-socket-factory.version>
-    <secretmanager.version>2.24.0</secretmanager.version>
-    <iamcredentials.version>2.24.0</iamcredentials.version>
+    <jdbc-socket-factory.version>1.19.1</jdbc-socket-factory.version>
+    <secretmanager.version>2.45.0</secretmanager.version>
+    <iamcredentials.version>2.45.0</iamcredentials.version>
     <drive.version>v3-rev20221023-2.0.0</drive.version>
     <exp4j.version>0.4.8</exp4j.version>
-    <socketio.version>2.1.0</socketio.version>
+    <jsoup.version>1.18.1</jsoup.version>
     <junit.version>4.13.1</junit.version>
     <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
     <maven-exec-plugin.version>1.6.0</maven-exec-plugin.version>
@@ -333,7 +333,7 @@
       <artifactId>onnxruntime</artifactId>
       <version>${onnxruntime.version}</version>
     </dependency>
-    
+
     <!-- https://mvnrepository.com/artifact/org.bytedeco/onnx-platform -->
     <dependency>
       <groupId>org.bytedeco</groupId>
@@ -375,44 +375,6 @@
       <groupId>org.neo4j</groupId>
       <artifactId>neo4j</artifactId>
       <version>${neo4j.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-core</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-analysis-common</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-analyzers-common</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-queryparser</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-backward-codecs</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.eclipse.jetty</groupId>
-          <artifactId>jetty-webapp</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.glassfish.jersey.containers</groupId>
-          <artifactId>jersey-container-servlet</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.glassfish.jaxb</groupId>
-          <artifactId>jaxb-runtime</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.fasterxml.jackson.jaxrs</groupId>
-          <artifactId>jackson-jaxrs-json-provider</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/com.h2database/h2 -->
@@ -420,32 +382,6 @@
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
       <version>${h2.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-core</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-analysis-common</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-analyzers-common</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-queryparser</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.lucene</groupId>
-          <artifactId>lucene-backward-codecs</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.eclipse.jetty</groupId>
-          <artifactId>jetty-webapp</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.pdfbox/pdfbox -->
@@ -545,11 +481,25 @@
       <version>${exp4j.version}</version>
     </dependency>
 
-    <!-- https://mvnrepository.com/artifact/io.socket/socket.io-client -->
+    <!-- https://mvnrepository.com/artifact/org.jsoup/jsoup -->
     <dependency>
-      <groupId>io.socket</groupId>
-      <artifactId>socket.io-client</artifactId>
-      <version>${socketio.version}</version>
+      <groupId>org.jsoup</groupId>
+      <artifactId>jsoup</artifactId>
+      <version>${jsoup.version}</version>
+    </dependency>
+
+    <!-- for solr dependency conflict -->
+    <!-- https://mvnrepository.com/artifact/jakarta.xml.bind/jakarta.xml.bind-api -->
+    <dependency>
+      <groupId>jakarta.xml.bind</groupId>
+      <artifactId>jakarta.xml.bind-api</artifactId>
+      <version>4.0.2</version>
+    </dependency>
+
+    <dependency>
+      <groupId>javax.xml.bind</groupId>
+      <artifactId>jaxb-api</artifactId>
+      <version>2.3.1</version>
     </dependency>
 
     <!-- Log -->

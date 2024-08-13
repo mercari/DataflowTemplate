@@ -104,7 +104,7 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.BYTES, getField(type, "bytesValue").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "intValue").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "longValue").getType().getCode());
-        Assert.assertEquals(Type.Code.FLOAT64, getField(type, "floatValue").getType().getCode());
+        Assert.assertEquals(Type.Code.FLOAT32, getField(type, "floatValue").getType().getCode());
         Assert.assertEquals(Type.Code.FLOAT64, getField(type, "doubleValue").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "uintValue").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "ulongValue").getType().getCode());
@@ -121,7 +121,7 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.BYTES, getField(type, "wrappedBytesValue").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedInt32Value").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedInt64Value").getType().getCode());
-        Assert.assertEquals(Type.Code.FLOAT64, getField(type, "wrappedFloatValue").getType().getCode());
+        Assert.assertEquals(Type.Code.FLOAT32, getField(type, "wrappedFloatValue").getType().getCode());
         Assert.assertEquals(Type.Code.FLOAT64, getField(type, "wrappedDoubleValue").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedUInt32Value").getType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedUInt64Value").getType().getCode());
@@ -183,7 +183,7 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.BYTES, getField(type, "bytesValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "intValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "longValues").getType().getArrayElementType().getCode());
-        Assert.assertEquals(Type.Code.FLOAT64, getField(type, "floatValues").getType().getArrayElementType().getCode());
+        Assert.assertEquals(Type.Code.FLOAT32, getField(type, "floatValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.FLOAT64, getField(type, "doubleValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "uintValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "ulongValues").getType().getArrayElementType().getCode());
@@ -197,7 +197,7 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedInt64Values").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedUInt32Values").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.INT64, getField(type, "wrappedUInt64Values").getType().getArrayElementType().getCode());
-        Assert.assertEquals(Type.Code.FLOAT64, getField(type, "wrappedFloatValues").getType().getArrayElementType().getCode());
+        Assert.assertEquals(Type.Code.FLOAT32, getField(type, "wrappedFloatValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.FLOAT64, getField(type, "wrappedDoubleValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.STRING, getField(type, "anyValues").getType().getArrayElementType().getCode());
         Assert.assertEquals(Type.Code.STRING, getField(type, "enumValues").getType().getArrayElementType().getCode());
@@ -213,7 +213,7 @@ public class ProtoToStructConverterTest {
                 new String(struct.getBytes("bytesValue").toByteArray(), StandardCharsets.UTF_8));
         Assert.assertEquals(((Integer) ProtoSchemaUtil.getValue(message, "intValue", printer)).intValue(), struct.getLong("intValue"));
         Assert.assertEquals(ProtoSchemaUtil.getValue(message, "longValue", printer), struct.getLong("longValue"));
-        Assert.assertEquals(((Float) ProtoSchemaUtil.getValue(message, "floatValue", printer)).doubleValue(), struct.getDouble("floatValue"), DELTA);
+        Assert.assertEquals(((Float) ProtoSchemaUtil.getValue(message, "floatValue", printer)).doubleValue(), struct.getFloat("floatValue"), DELTA);
         Assert.assertEquals(ProtoSchemaUtil.getValue(message, "doubleValue", printer), struct.getDouble("doubleValue"));
         Assert.assertEquals(((Integer) ProtoSchemaUtil.getValue(message, "uintValue", printer)).longValue(), struct.getLong("uintValue"));
         Assert.assertEquals(ProtoSchemaUtil.getValue(message, "ulongValue", printer), struct.getLong("ulongValue"));
@@ -273,8 +273,8 @@ public class ProtoToStructConverterTest {
                 ProtoSchemaUtil.getValue(message, "wrappedInt64Value", printer),
                 struct.getLong("wrappedInt64Value"));
         Assert.assertEquals(
-                ((Float) ProtoSchemaUtil.getValue(message, "wrappedFloatValue", printer)).doubleValue(),
-                struct.getDouble("wrappedFloatValue"), DELTA);
+                ((Float) ProtoSchemaUtil.getValue(message, "wrappedFloatValue", printer)),
+                struct.getFloat("wrappedFloatValue"), DELTA);
         Assert.assertEquals(
                 ProtoSchemaUtil.getValue(message, "wrappedDoubleValue", printer),
                 struct.getDouble("wrappedDoubleValue"));
@@ -344,8 +344,7 @@ public class ProtoToStructConverterTest {
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "intValues")).orElse(new ArrayList<>()), struct.getLongList("intValues").stream()
                 .map(Long::intValue).collect(Collectors.toList()));
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "longValues")).orElse(new ArrayList<>()), struct.getLongList("longValues"));
-        Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "floatValues")).orElse(new ArrayList<>()), struct.getDoubleList("floatValues").stream()
-                .map(Double::floatValue).collect(Collectors.toList()));
+        Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "floatValues")).orElse(new ArrayList<>()), new ArrayList<>(struct.getFloatList("floatValues")));
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "doubleValues")).orElse(new ArrayList<>()), struct.getDoubleList("doubleValues"));
         Assert.assertEquals(Optional.ofNullable(ProtoSchemaUtil.getFieldValue(message, "uintValues")).orElse(new ArrayList<>()), struct.getLongList("uintValues").stream()
                 .map(Long::intValue).collect(Collectors.toList()));

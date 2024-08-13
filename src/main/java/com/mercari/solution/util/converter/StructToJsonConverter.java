@@ -60,55 +60,50 @@ public class StructToJsonConverter {
         final String fieldName = field.getName();
         final boolean isNullField = struct.isNull(fieldName);
         switch (field.getType().getCode()) {
-            case BOOL:
-                obj.addProperty(fieldName, isNullField ? null : struct.getBoolean(fieldName));
-                break;
-            case INT64:
-                obj.addProperty(fieldName, isNullField ? null : struct.getLong(fieldName));
-                break;
-            case FLOAT64: {
+            case BOOL -> obj.addProperty(fieldName, isNullField ? null : struct.getBoolean(fieldName));
+            case INT64 -> obj.addProperty(fieldName, isNullField ? null : struct.getLong(fieldName));
+            case FLOAT32 -> {
+                if (isNullField) {
+                    obj.addProperty(fieldName, (Float) null);
+                } else {
+                    final float floatValue = struct.getFloat(fieldName);
+                    if (Float.isNaN(floatValue) || Float.isInfinite(floatValue)) {
+                        obj.addProperty(fieldName, (Float) null);
+                    } else {
+                        obj.addProperty(fieldName, floatValue);
+                    }
+                }
+            }
+            case FLOAT64 -> {
                 if (isNullField) {
                     obj.addProperty(fieldName, (Double) null);
                 } else {
-                    final Double doubleValue = struct.getDouble(fieldName);
+                    final double doubleValue = struct.getDouble(fieldName);
                     if (Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
                         obj.addProperty(fieldName, (Double) null);
                     } else {
                         obj.addProperty(fieldName, doubleValue);
                     }
                 }
-                break;
             }
-            case STRING:
-                obj.addProperty(fieldName, isNullField ? null : struct.getString(fieldName));
-                break;
-            case BYTES:
-                obj.addProperty(fieldName, isNullField ? null : struct.getBytes(fieldName).toBase64());
-                break;
-            case NUMERIC:
-                obj.addProperty(fieldName, isNullField ? null : struct.getBigDecimal(fieldName).toString());
-                break;
-            case TIMESTAMP:
-                obj.addProperty(fieldName, isNullField ? null : struct.getTimestamp(fieldName).toString());
-                break;
-            case DATE:
-                obj.addProperty(fieldName, isNullField ? null : struct.getDate(fieldName).toString());
-                break;
-            case STRUCT:
-                if(isNullField) {
+            case STRING -> obj.addProperty(fieldName, isNullField ? null : struct.getString(fieldName));
+            case BYTES -> obj.addProperty(fieldName, isNullField ? null : struct.getBytes(fieldName).toBase64());
+            case NUMERIC -> obj.addProperty(fieldName, isNullField ? null : struct.getBigDecimal(fieldName).toString());
+            case TIMESTAMP -> obj.addProperty(fieldName, isNullField ? null : struct.getTimestamp(fieldName).toString());
+            case DATE -> obj.addProperty(fieldName, isNullField ? null : struct.getDate(fieldName).toString());
+            case STRUCT -> {
+                if (isNullField) {
                     obj.add(field.getName(), null);
                     return;
                 }
                 Struct childStruct = struct.getStruct(fieldName);
                 JsonObject childObj = new JsonObject();
-                for(Type.StructField childField : childStruct.getType().getStructFields()) {
+                for (Type.StructField childField : childStruct.getType().getStructFields()) {
                     setJsonFieldValue(childObj, childField, childStruct);
                 }
                 obj.add(fieldName, childObj);
-                break;
-            case ARRAY:
-                setJsonArrayFieldValue(obj, field, struct);
-                break;
+            }
+            case ARRAY -> setJsonArrayFieldValue(obj, field, struct);
         }
     }
 
@@ -119,20 +114,12 @@ public class StructToJsonConverter {
         }
         final JsonArray array = new JsonArray();
         switch (field.getType().getArrayElementType().getCode()) {
-            case BOOL:
-                struct.getBooleanList(field.getName()).forEach(array::add);
-                break;
-            case INT64:
-                struct.getLongList(field.getName()).forEach(array::add);
-                break;
-            case FLOAT64:
-                struct.getDoubleList(field.getName()).forEach(array::add);
-                break;
-            case STRING:
-                struct.getStringList(field.getName()).forEach(array::add);
-                break;
-            case BYTES:
-                struct.getBytesList(field.getName()).stream()
+            case BOOL -> struct.getBooleanList(field.getName()).forEach(array::add);
+            case INT64 -> struct.getLongList(field.getName()).forEach(array::add);
+            case FLOAT32 -> struct.getFloatList(field.getName()).forEach(array::add);
+            case FLOAT64 -> struct.getDoubleList(field.getName()).forEach(array::add);
+            case STRING -> struct.getStringList(field.getName()).forEach(array::add);
+            case BYTES -> struct.getBytesList(field.getName()).stream()
                         .map(b -> {
                             if(b == null) {
                                 return null;
@@ -140,9 +127,7 @@ public class StructToJsonConverter {
                             return b.toBase64();
                         })
                         .forEach(array::add);
-                break;
-            case NUMERIC:
-                struct.getBigDecimalList(field.getName()).stream()
+            case NUMERIC -> struct.getBigDecimalList(field.getName()).stream()
                         .map(d -> {
                             if(d == null) {
                                 return null;
@@ -150,9 +135,7 @@ public class StructToJsonConverter {
                             return d.toString();
                         })
                         .forEach(array::add);
-                break;
-            case TIMESTAMP:
-                struct.getTimestampList(field.getName()).stream()
+            case TIMESTAMP -> struct.getTimestampList(field.getName()).stream()
                         .map(t -> {
                             if(t == null) {
                                 return null;
@@ -160,9 +143,7 @@ public class StructToJsonConverter {
                             return t.toString();
                         })
                         .forEach(array::add);
-                break;
-            case DATE:
-                struct.getDateList(field.getName()).stream()
+            case DATE -> struct.getDateList(field.getName()).stream()
                         .map(d -> {
                             if(d == null) {
                                 return null;
@@ -170,15 +151,10 @@ public class StructToJsonConverter {
                             return d.toString();
                         })
                         .forEach(array::add);
-                break;
-            case STRUCT:
-                struct.getStructList(field.getName()).stream()
+            case STRUCT -> struct.getStructList(field.getName()).stream()
                         .map(StructToJsonConverter::convertObject)
                         .forEach(array::add);
-                break;
-            case ARRAY:
-                setJsonArrayFieldValue(obj, field, struct);
-                break;
+            case ARRAY -> setJsonArrayFieldValue(obj, field, struct);
         }
         obj.add(field.getName(), array);
     }

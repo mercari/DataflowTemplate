@@ -1,0 +1,72 @@
+{
+  "sources": [
+    {
+      "name": "PubSubSource",
+      "module": "pubsub",
+      "parameters": {
+        "subscription": "projects/myproject/subscriptions/mysubscription",
+        "format": "json"
+      },
+      "schema": {
+        "fields": [
+          { "name": "UserID", "type": "long", "mode": "nullable" },
+          { "name": "Count", "type": "long", "mode": "nullable" }
+        ]
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "HttpTransform",
+      "module": "http",
+      "inputs": ["PubSubSource"],
+      "parameters": {
+        "request": {
+          "method": "post",
+          "endpoint": "https://xxxx/yyy/zzz",
+          "headers": {
+            "Authorization": "Bearer ${_id_token}"
+          },
+          "body": {
+            "user_id": "${UserID}"
+          }
+        },
+        "response": {
+          "format": "json",
+          "schema": {
+            "fields": [
+              { "name": "content", "type": "string" },
+              { "name": "timestamp", "type": "timestamp" }
+            ]
+          }
+        },
+        "select": [
+          { "name": "user_id", "field": "UserID", "type": "string" },
+          { "name": "timestamp", "func": "extract", "path": "body.timestamp", "type": "string" },
+          { "name": "content", "func": "extract", "path": "body.content", "type": "timestamp" }
+        ]
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "PubSubSink",
+      "module": "pubsub",
+      "input": "HttpTransform",
+      "parameters": {
+        "topic": "projects/myproject/topics/mytopic",
+        "format": "json"
+      }
+    },
+    {
+      "name": "BigQueryFailureSink",
+      "module": "bigquery",
+      "input": "HttpTransform.failures",
+      "parameters": {
+        "table": "myproject:mydataset.failureData",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_APPEND"
+      }
+    }
+  ]
+}

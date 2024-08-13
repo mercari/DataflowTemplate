@@ -1,0 +1,76 @@
+{
+  "sources": [
+    {
+      "name": "Source",
+      "module": "create",
+      "parameters": {
+        "from": "2024-01-01",
+        "to": "2024-01-31",
+        "interval": 2,
+        "intervalUnit": "week",
+        "type": "date"
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "Fetch",
+      "module": "http",
+      "inputs": ["Source"],
+      "parameters": {
+        "request": {
+          "method": "get",
+          "endpoint": "https://xxxx-uc.a.run.app/solr/MyCore/select",
+          "params": {
+            "q": "date:${value}"
+          },
+          "headers": {
+            "Authorization": "Bearer ${_id_token}"
+          }
+        },
+        "response": {
+          "format": "json",
+          "schema": {
+            "fields": [
+              { "name": "responseHeader", "type": "struct", "fields": [
+                { "name": "status", "type": "long" },
+                { "name": "QTime", "type": "long" }
+              ]},
+              { "name": "response", "type": "struct", "fields": [
+                { "name": "numFound", "type": "long" },
+                { "name": "docs", "type": "struct", "mode": "repeated", "fields": [
+                  { "name": "ID", "type": "string" },
+                  { "name": "Name", "type": "string" },
+                  { "name": "Description", "type": "string" }
+                ]}
+              ]}
+            ]
+          }
+        },
+        "timeoutSecond": 60
+      }
+    }
+  ],
+  "sinks": [
+    {
+      "name": "BigQueryOutput",
+      "module": "bigquery",
+      "input": "Fetch",
+      "parameters": {
+        "table": "myproject:mydataset.solrResults",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    },
+    {
+      "name": "BigQueryOutputFailures",
+      "module": "bigquery",
+      "input": "Fetch.failures",
+      "parameters": {
+        "table": "myproject:mydataset.failuresResults",
+        "createDisposition": "CREATE_IF_NEEDED",
+        "writeDisposition": "WRITE_TRUNCATE"
+      }
+    }
+  ]
+}

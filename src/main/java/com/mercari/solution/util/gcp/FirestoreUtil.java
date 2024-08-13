@@ -12,7 +12,8 @@ import java.io.IOException;
 
 public class FirestoreUtil {
 
-    private static String DEFAULT_DATABASE_NAME = "(default)";
+    public static final String DEFAULT_DATABASE_NAME = "(default)";
+    public static final String NAME_FIELD = "__name__";
 
     private static final Logger LOG = LoggerFactory.getLogger(FirestoreUtil.class);
 

@@ -1,5 +1,6 @@
 package com.mercari.solution.util.pipeline.select;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mercari.solution.module.DataType;
@@ -167,6 +168,39 @@ public class SelectFunctionTest {
             map.add("fields", fields);
             select.add(map);
         }
+        {
+            final JsonObject json = new JsonObject();
+            json.addProperty("name", "jsonField");
+            json.addProperty("func", "json");
+            final JsonArray fields = new JsonArray();
+            {
+                final JsonObject field = new JsonObject();
+                field.addProperty("name", "stringFieldA");
+                field.addProperty("field", "stringField");
+                fields.add(field);
+            }
+            {
+                final JsonObject nestedField = new JsonObject();
+                nestedField.addProperty("name", "nestedStructField");
+                nestedField.addProperty("func", "struct");
+                final JsonArray nestedNestedFields = new JsonArray();
+                {
+                    final JsonObject nestedNestedField = new JsonObject();
+                    nestedNestedField.addProperty("name", "timestampField");
+                    nestedNestedFields.add(nestedNestedField);
+                }
+                {
+                    final JsonObject nestedNestedField = new JsonObject();
+                    nestedNestedField.addProperty("name", "enumField2");
+                    nestedNestedField.addProperty("field", "enumField");
+                    nestedNestedFields.add(nestedNestedField);
+                }
+                nestedField.add("fields", nestedNestedFields);
+                fields.add(nestedField);
+            }
+            json.add("fields", fields);
+            select.add(json);
+        }
 
         final List<Schema.Field> inputFields = new ArrayList<>();
         inputFields.add(Schema.Field.of("stringField", Schema.FieldType.STRING));
@@ -194,6 +228,7 @@ public class SelectFunctionTest {
         Assert.assertTrue(outputSchema.hasField("concatField"));
         Assert.assertTrue(outputSchema.hasField("structField"));
         Assert.assertTrue(outputSchema.hasField("mapField"));
+        Assert.assertTrue(outputSchema.hasField("jsonField"));
         Assert.assertEquals(Schema.TypeName.INT64, outputSchema.getField("longField").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.INT32, outputSchema.getField("renameIntField").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("constantStringField").getType().getTypeName());
@@ -205,6 +240,7 @@ public class SelectFunctionTest {
         Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("concatField").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.ARRAY, outputSchema.getField("structField").getType().getTypeName());
         Assert.assertEquals(Schema.TypeName.MAP, outputSchema.getField("mapField").getType().getTypeName());
+        Assert.assertEquals(Schema.TypeName.STRING, outputSchema.getField("jsonField").getType().getTypeName());
 
         // test apply
         final Schema inputSchema = Schema.builder().addFields(inputFields).build();
@@ -237,6 +273,11 @@ public class SelectFunctionTest {
         Assert.assertEquals(timestamp, output.getDateTime("eventTimestampField").toInstant());
         Assert.assertEquals("stringValue 32 10", output.getString("concatField"));
 
+        final JsonObject jsonObject = new Gson().fromJson(output.getString("jsonField"), JsonObject.class);
+        Assert.assertEquals("stringValue", jsonObject.get("stringFieldA").getAsString());
+        final JsonObject nestedJsonObject = jsonObject.get("nestedStructField").getAsJsonObject();
+        Assert.assertEquals("2023-08-18T00:00:00.000Z", nestedJsonObject.get("timestampField").getAsString());
+        Assert.assertEquals("b", nestedJsonObject.get("enumField2").getAsString());
     }
 
 }

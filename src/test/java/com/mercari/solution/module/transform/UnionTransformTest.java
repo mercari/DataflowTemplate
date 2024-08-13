@@ -845,20 +845,19 @@ public class UnionTransformTest {
                     Assert.assertEquals(1L, (long)Objects.requireNonNull(((GenericRecord)row).get("longField")));
                     Assert.assertEquals(1.1D, (double)Objects.requireNonNull(((GenericRecord)row).get("doubleField")), DELTA);
                     Assert.assertEquals(true, Objects.requireNonNull(((GenericRecord)row).get("booleanField")));
-                    Assert.assertNull(((GenericRecord)row).get("dateField"));
-                    Assert.assertNull(((GenericRecord)row).get("bytesField"));
+                    Assert.assertFalse(((GenericRecord)row).hasField("dateField"));
+                    Assert.assertFalse(((GenericRecord)row).hasField("bytesField"));
                 } else if("b".equals(((GenericRecord)row).get("stringField").toString())) {
                     Assert.assertEquals(2L, (long)Objects.requireNonNull(((GenericRecord)row).get("longField")));
                     Assert.assertEquals(2.2D, (double)Objects.requireNonNull(((GenericRecord)row).get("doubleField")), DELTA);
-                    Assert.assertNull(((GenericRecord)row).get("booleanField"));
-                    Assert.assertNull(((GenericRecord)row).get("dateField"));
-                    Assert.assertNull(((GenericRecord)row).get("bytesField"));
+                    Assert.assertFalse(((GenericRecord)row).hasField("dateField"));
+                    Assert.assertFalse(((GenericRecord)row).hasField("bytesField"));
                 } else {
                     Assert.assertNull(((GenericRecord)row).get("longField"));
                     Assert.assertEquals(3.3D, (double)Objects.requireNonNull(((GenericRecord)row).get("doubleField")), DELTA);
                     Assert.assertEquals(true, Objects.requireNonNull(((GenericRecord)row).get("booleanField")));
-                    Assert.assertNull(((GenericRecord)row).get("dateField"));
-                    Assert.assertNull(((GenericRecord)row).get("bytesField"));
+                    Assert.assertFalse(((GenericRecord)row).hasField("dateField"));
+                    Assert.assertFalse(((GenericRecord)row).hasField("bytesField"));
                 }
             }
             Assert.assertEquals(6, count);

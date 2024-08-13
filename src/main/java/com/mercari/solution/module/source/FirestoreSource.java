@@ -19,6 +19,7 @@ import org.apache.beam.sdk.coders.RowCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.firestore.FirestoreIO;
+import org.apache.beam.sdk.io.gcp.firestore.FirestoreOptions;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.PBegin;
@@ -115,7 +116,7 @@ public class FirestoreSource implements SourceModule {
             if(this.collection == null) {
                 errorMessages.add("firestore source module collection parameter must not be null");
             }
-            if(errorMessages.size() > 0) {
+            if(!errorMessages.isEmpty()) {
                 throw new IllegalArgumentException(errorMessages.stream().collect(Collectors.joining(", ")));
             }
         }
@@ -125,7 +126,11 @@ public class FirestoreSource implements SourceModule {
                 this.projectId = OptionUtil.getProject(input.getPipeline().getOptions());
             }
             if(this.databaseId == null) {
-                this.databaseId = "(default)";
+                this.databaseId = FirestoreUtil.DEFAULT_DATABASE_NAME;
+            }
+            if(!FirestoreUtil.DEFAULT_DATABASE_NAME.equals(this.databaseId)) {
+                input.getPipeline().getOptions().as(FirestoreOptions.class)
+                        .setFirestoreDb(this.databaseId);
             }
             if(this.parallel == null) {
                 this.parallel = false;
@@ -145,7 +150,7 @@ public class FirestoreSource implements SourceModule {
                 this.orderDirection = StructuredQuery.Direction.ASCENDING;
             }
             if(this.partitionCount == null) {
-                final Integer hintMaxNumWorkers = OptionUtil.getMaxNumWorkers(input);
+                final int hintMaxNumWorkers = OptionUtil.getMaxNumWorkers(input);
                 this.partitionCount = hintMaxNumWorkers > 1 ? hintMaxNumWorkers - 1: 1L;
             }
 
@@ -157,6 +162,17 @@ public class FirestoreSource implements SourceModule {
                 }
             }
 
+        }
+
+        public static FirestoreSourceParameters of(final PInput input, final SourceConfig config) {
+            final FirestoreSourceParameters parameters = new Gson().fromJson(config.getParameters(), FirestoreSourceParameters.class);
+            if(parameters == null) {
+                throw new IllegalArgumentException("firestore source module parameters must not empty!");
+            }
+            parameters.validate();
+            parameters.setDefaults(input);
+
+            return parameters;
         }
 
     }
@@ -180,13 +196,7 @@ public class FirestoreSource implements SourceModule {
 
     public static FCollection batch(final PBegin begin, final SourceConfig config) {
 
-        final FirestoreSourceParameters parameters = new Gson().fromJson(config.getParameters(), FirestoreSourceParameters.class);
-        if(parameters == null) {
-            throw new IllegalArgumentException("firestore source module parameters must not empty!");
-        }
-        parameters.validate();
-        parameters.setDefaults(begin);
-
+        final FirestoreSourceParameters parameters = FirestoreSourceParameters.of(begin, config);
         final Schema outputSchema = SourceConfig.convertSchema(config.getSchema());
         switch (parameters.getOutputType()) {
             case row -> {
@@ -241,13 +251,13 @@ public class FirestoreSource implements SourceModule {
 
         private final SchemaInputT inputSchema;
         private final SchemaUtil.SchemaConverter<SchemaInputT,SchemaRuntimeT> schemaConverter;
-        private final DocumentConverter<SchemaRuntimeT, T> converter;
+        private final SchemaUtil.DataConverter<SchemaRuntimeT, Document, T> converter;
 
         BatchSource(final Schema schema,
                     final FirestoreSourceParameters parameters,
                     final SchemaInputT inputSchema,
                     final SchemaUtil.SchemaConverter<SchemaInputT,SchemaRuntimeT> schemaConverter,
-                    final DocumentConverter<SchemaRuntimeT, T> converter) {
+                    final SchemaUtil.DataConverter<SchemaRuntimeT, Document, T> converter) {
 
             this.schema = schema;
             this.parameters = parameters;
@@ -266,7 +276,7 @@ public class FirestoreSource implements SourceModule {
                 if(parameters.getCollection() != null) {
                     builder = builder.setCollectionId(parameters.getCollection());
                 }
-                if(parameters.getFields().size() > 0) {
+                if(!parameters.getFields().isEmpty()) {
                     DocumentMask.Builder maskBuilder = DocumentMask.newBuilder();
                     for(final String field : parameters.getFields()) {
                         maskBuilder.addFieldPaths(field);
@@ -319,14 +329,14 @@ public class FirestoreSource implements SourceModule {
 
             private final SchemaInputT inputSchema;
             private final SchemaUtil.SchemaConverter<SchemaInputT,SchemaRuntimeT> schemaConverter;
-            private final DocumentConverter<SchemaRuntimeT, T> converter;
+            private final SchemaUtil.DataConverter<SchemaRuntimeT, Document, T> converter;
 
 
             private transient SchemaRuntimeT runtimeSchema;
 
             ConvertListResponseDoFn(final SchemaInputT inputSchema,
                                      final SchemaUtil.SchemaConverter<SchemaInputT,SchemaRuntimeT> schemaConverter,
-                                     final DocumentConverter<SchemaRuntimeT, T> converter) {
+                                     final SchemaUtil.DataConverter<SchemaRuntimeT, Document, T> converter) {
 
                 this.inputSchema = inputSchema;
                 this.schemaConverter = schemaConverter;
@@ -351,14 +361,14 @@ public class FirestoreSource implements SourceModule {
 
             private final SchemaInputT inputSchema;
             private final SchemaUtil.SchemaConverter<SchemaInputT,SchemaRuntimeT> schemaConverter;
-            private final DocumentConverter<SchemaRuntimeT, T> converter;
+            private final SchemaUtil.DataConverter<SchemaRuntimeT, Document, T> converter;
 
 
             private transient SchemaRuntimeT runtimeSchema;
 
             ConvertQueryResponseDoFn(final SchemaInputT inputSchema,
                                      final SchemaUtil.SchemaConverter<SchemaInputT,SchemaRuntimeT> schemaConverter,
-                                     final DocumentConverter<SchemaRuntimeT, T> converter) {
+                                     final SchemaUtil.DataConverter<SchemaRuntimeT, Document, T> converter) {
 
                 this.inputSchema = inputSchema;
                 this.schemaConverter = schemaConverter;
@@ -400,7 +410,7 @@ public class FirestoreSource implements SourceModule {
             final StructuredQuery.Builder builder = StructuredQuery.newBuilder()
                     .addFrom(selectorBuilder);
 
-            if(parameters.getFields().size() > 0) {
+            if(!parameters.getFields().isEmpty()) {
                 final List<StructuredQuery.FieldReference> refers = new ArrayList<>();
                 for(String field : parameters.getFields()) {
                     refers.add(StructuredQuery.FieldReference.newBuilder()
@@ -430,7 +440,7 @@ public class FirestoreSource implements SourceModule {
 
                             final Schema.FieldType fieldType = schema.getField(field).getType();
                             final StructuredQuery.FieldFilter.Operator operator = convertOp(op);
-                            final Value value = RowToDocumentConverter.getValue(fieldType, strValue);
+                            final Value value = RowToDocumentConverter.getValueFromString(fieldType, strValue);
 
                             final StructuredQuery.FieldFilter fieldFilter = StructuredQuery.FieldFilter.newBuilder()
                                     .setField(StructuredQuery.FieldReference.newBuilder()
@@ -482,10 +492,6 @@ public class FirestoreSource implements SourceModule {
             };
         }
 
-    }
-
-    private interface DocumentConverter<SchemaT,T> extends Serializable {
-        T convert(final SchemaT schema, final Document document);
     }
 
 }

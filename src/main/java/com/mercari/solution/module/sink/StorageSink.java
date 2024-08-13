@@ -16,6 +16,7 @@ import com.mercari.solution.util.FixedFileNaming;
 import com.mercari.solution.util.TemplateUtil;
 import com.mercari.solution.util.converter.*;
 import com.mercari.solution.util.gcp.StorageUtil;
+import com.mercari.solution.util.pipeline.mutation.UnifiedMutation;
 import com.mercari.solution.util.pipeline.union.Union;
 import com.mercari.solution.util.pipeline.union.UnionValue;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
@@ -70,6 +71,7 @@ public class StorageSink implements SinkModule {
         private String avroSchema;
         private List<String> outputTemplateArgs;
         private String outputNotify;
+        private Boolean useLegacy;
 
         // csv
         private Boolean header;
@@ -131,6 +133,10 @@ public class StorageSink implements SinkModule {
             return outputNotify;
         }
 
+        public Boolean getUseLegacy() {
+            return useLegacy;
+        }
+
         // for CSV format
         public Boolean getHeader() {
             return header;
@@ -186,7 +192,7 @@ public class StorageSink implements SinkModule {
                 errorMessages.add("storage sink[" + name + "].parameters.format must not be null");
             }
 
-            if(errorMessages.size() > 0) {
+            if(!errorMessages.isEmpty()) {
                 throw new IllegalArgumentException(String.join(", ", errorMessages));
             }
         }
@@ -203,6 +209,9 @@ public class StorageSink implements SinkModule {
             }
             if(this.outputEmpty == null) {
                 this.outputEmpty = false;
+            }
+            if(useLegacy == null) {
+                this.useLegacy = true;
             }
 
             // For CSV format
@@ -270,6 +279,8 @@ public class StorageSink implements SinkModule {
             if(outputAvroSchema == null) {
                 throw new IllegalArgumentException("Failed to get avroSchema: " + parameters.getAvroSchema());
             }
+        } else if(DataType.UNIFIEDMUTATION.equals(inputs.get(0).getDataType())) {
+            outputAvroSchema = UnifiedMutation.createAvroSchema();
         } else {
             outputAvroSchema = inputs.get(0).getAvroSchema();
         }
@@ -277,11 +288,11 @@ public class StorageSink implements SinkModule {
         try {
             config.outputAvroSchema(outputAvroSchema);
         } catch (Exception e) {
-            LOG.error("Failed to output avro schema for " + config.getName() + " to path: " + config.getOutputAvroSchema(), e);
+            LOG.error("Failed to output avro schema for {} to path: {}", config.getName(), config.getOutputAvroSchema(), e);
         }
 
         final FCollection<?> output;
-        if(inputs.size() > 1 || isTemplatePath(parameters.getOutput())) {
+        if(inputs.size() > 1 || isTemplatePath(parameters.getOutput()) || !parameters.getUseLegacy()) {
             output = writeMulti(config.getName(), parameters, inputs, outputAvroSchema, waits);
         } else {
             final FCollection<?> input = inputs.get(0);
@@ -658,6 +669,15 @@ public class StorageSink implements SinkModule {
                                     this.parameters.getHeader(),
                                     this.parameters.getBom(),
                                     EntityToJsonConverter::convert)));
+                        }
+                        case UNIFIEDMUTATION -> {
+                            final FileIO.Write<String, UnifiedMutation> write = createWrite(
+                                    parameters, e -> UnifiedMutation.getAsString(e, destinationField));
+                            yield ((PCollection<UnifiedMutation>) input).apply("WriteJson", write.via(TextFileSink.of(
+                                    collection.getSchema().getFieldNames(),
+                                    this.parameters.getHeader(),
+                                    this.parameters.getBom(),
+                                    UnifiedMutation::toJson)));
                         }
                         default -> throw new IllegalArgumentException("Not supported json input type: " + collection.getDataType());
                     };

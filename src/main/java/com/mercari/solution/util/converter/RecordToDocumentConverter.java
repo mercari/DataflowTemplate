@@ -7,6 +7,7 @@ import com.google.firestore.v1.Value;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import com.mercari.solution.util.DateTimeUtil;
+import com.mercari.solution.util.gcp.FirestoreUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -25,7 +26,11 @@ public class RecordToDocumentConverter {
     public static Document.Builder convert(final Schema schema, final GenericRecord record) {
         final Document.Builder builder = Document.newBuilder();
         for(final Schema.Field field : schema.getFields()) {
-            builder.putFields(field.name(), getValue(field.schema(), record.get(field.name())));
+            if(FirestoreUtil.NAME_FIELD.equals(field.name())) {
+                continue;
+            }
+            final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
+            builder.putFields(field.name(), getValue(field.schema(), value));
         }
         return builder;
     }
@@ -33,7 +38,8 @@ public class RecordToDocumentConverter {
     public static MapValue convertMapValue(final Schema schema, final GenericRecord record) {
         final MapValue.Builder builder = MapValue.newBuilder();
         for(final Schema.Field field : schema.getFields()) {
-            builder.putFields(field.name(), getValue(field.schema(), record.get(field.name())));
+            final Object value = record.hasField(field.name()) ? record.get(field.name()) : null;
+            builder.putFields(field.name(), getValue(field.schema(), value));
         }
         return builder.build();
     }
@@ -42,72 +48,57 @@ public class RecordToDocumentConverter {
         if(v == null) {
             return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
         }
-        switch (schema.getType()) {
-            case BOOLEAN:
-                return Value.newBuilder().setBooleanValue(((Boolean) v)).build();
-            case ENUM:
-            case STRING:
-                return Value.newBuilder().setStringValue(v.toString()).build();
-            case FIXED:
-            case BYTES: {
+        return switch (schema.getType()) {
+            case BOOLEAN -> Value.newBuilder().setBooleanValue(((Boolean) v)).build();
+            case ENUM, STRING -> Value.newBuilder().setStringValue(v.toString()).build();
+            case FIXED, BYTES -> {
                 if(AvroSchemaUtil.isLogicalTypeDecimal(schema)) {
                     final BigDecimal decimal = AvroSchemaUtil.getAsBigDecimal(schema, (ByteBuffer) v);
-                    return Value.newBuilder().setStringValue(decimal.toString()).build();
+                    yield Value.newBuilder().setStringValue(decimal.toString()).build();
                 }
-                return Value.newBuilder().setBytesValue(ByteString.copyFrom((ByteBuffer) v)).build();
+                yield Value.newBuilder().setBytesValue(ByteString.copyFrom((ByteBuffer) v)).build();
             }
-            case INT: {
+            case INT -> {
                 final Integer i = (Integer) v;
                 if (LogicalTypes.date().equals(schema.getLogicalType())) {
-                    return Value.newBuilder()
+                    yield Value.newBuilder()
                             .setStringValue(LocalDate.ofEpochDay(i.longValue()).format(DateTimeFormatter.ISO_LOCAL_DATE))
                             .build();
                 } else if (LogicalTypes.timeMillis().equals(schema.getLogicalType())) {
-                    return Value.newBuilder()
+                    yield Value.newBuilder()
                             .setStringValue(LocalTime.ofNanoOfDay(i.longValue() * 1000_000L).format(DateTimeFormatter.ISO_LOCAL_TIME))
                             .build();
                 } else {
-                    return Value.newBuilder().setIntegerValue(i.longValue()).build();
+                    yield Value.newBuilder().setIntegerValue(i.longValue()).build();
                 }
             }
-            case LONG: {
+            case LONG -> {
                 final Long l = (Long) v;
                 if(LogicalTypes.timestampMillis().equals(schema.getLogicalType())) {
-                    return Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp(l/1000L)).build();
+                    yield Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp(l/1000L)).build();
                 } else if(LogicalTypes.timestampMicros().equals(schema.getLogicalType())) {
-                    return Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp(l)).build();
+                    yield Value.newBuilder().setTimestampValue(DateTimeUtil.toProtoTimestamp(l)).build();
                 } else if(LogicalTypes.timeMicros().equals(schema.getLogicalType())) {
-                    return Value.newBuilder()
+                    yield Value.newBuilder()
                             .setStringValue(LocalTime.ofNanoOfDay(l * 1000L).format(DateTimeFormatter.ISO_LOCAL_TIME))
                             .build();
                 } else {
-                    return Value.newBuilder().setIntegerValue(l).build();
+                    yield Value.newBuilder().setIntegerValue(l).build();
                 }
             }
-            case FLOAT:
-                return Value.newBuilder().setDoubleValue(((Float) v)).build();
-            case DOUBLE:
-                return Value.newBuilder().setDoubleValue(((Double) v)).build();
-            case RECORD:
-                return Value.newBuilder().setMapValue(convertMapValue(schema, (GenericRecord) v)).build();
-            case ARRAY:
-                return Value.newBuilder()
+            case FLOAT -> Value.newBuilder().setDoubleValue(((Float) v)).build();
+            case DOUBLE -> Value.newBuilder().setDoubleValue(((Double) v)).build();
+            case RECORD -> Value.newBuilder().setMapValue(convertMapValue(schema, (GenericRecord) v)).build();
+            case ARRAY -> Value.newBuilder()
                         .setArrayValue(ArrayValue.newBuilder()
                                 .addAllValues(((List<Object>)v).stream()
                                         .map(c -> getValue(schema.getElementType(), c))
                                         .collect(Collectors.toList()))
                                 .build())
                         .build();
-            case UNION: {
-                return getValue(AvroSchemaUtil.unnestUnion(schema), v);
-            }
-            case NULL:
-            case MAP:
-            default: {
-                throw new RuntimeException("Not supported fieldType: " + schema);
-            }
-
-        }
+            case UNION -> getValue(AvroSchemaUtil.unnestUnion(schema), v);
+            default -> throw new RuntimeException("Not supported fieldType: " + schema);
+        };
     }
 
 }

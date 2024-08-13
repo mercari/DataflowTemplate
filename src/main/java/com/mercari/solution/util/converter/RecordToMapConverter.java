@@ -24,6 +24,9 @@ public class RecordToMapConverter {
         }
         for(final Schema.Field field : record.getSchema().getFields()) {
             if(fields == null || fields.contains(field.name())) {
+                if(!record.hasField(field.name())) {
+                    continue;
+                }
                 map.put(field.name(), getValue(field.schema(), record.get(field.name())));
             }
         }

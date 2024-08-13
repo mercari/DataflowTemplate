@@ -55,27 +55,14 @@ public class ProtoToStructConverter {
     }
 
     private static Type convertSchema(Descriptors.FieldDescriptor field) {
-        final Type elementType;
-        switch (field.getJavaType()) {
-            case BOOLEAN:
-                elementType = Type.bool();
-                break;
-            case ENUM:
-            case STRING:
-                elementType =  Type.string();
-                break;
-            case BYTE_STRING:
-                elementType =  Type.bytes();
-                break;
-            case INT:
-            case LONG:
-                elementType =  Type.int64();
-                break;
-            case FLOAT:
-            case DOUBLE:
-                elementType =  Type.float64();
-                break;
-            case MESSAGE: {
+        final Type elementType = switch (field.getJavaType()) {
+            case BOOLEAN -> Type.bool();
+            case ENUM, STRING -> Type.string();
+            case BYTE_STRING -> Type.bytes();
+            case INT, LONG -> Type.int64();
+            case FLOAT -> Type.float32();
+            case DOUBLE -> Type.float64();
+            case MESSAGE -> {
                 if(field.isMapField()) {
                     Descriptors.FieldDescriptor keyField = null;
                     Descriptors.FieldDescriptor valueField = null;
@@ -86,58 +73,28 @@ public class ProtoToStructConverter {
                             valueField = mapField;
                         }
                     }
-                    elementType = Type.struct(
+                    yield Type.struct(
                             Type.StructField.of("key", convertSchema(keyField)),
                             Type.StructField.of("value", convertSchema(valueField)));
-                    break;
                 }
-                switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
-                    case BOOL_VALUE:
-                        elementType = Type.bool();
-                        break;
-                    case STRING_VALUE:
-                        elementType = Type.string();
-                        break;
-                    case BYTES_VALUE:
-                        elementType = Type.bytes();
-                        break;
-                    case INT32_VALUE:
-                    case INT64_VALUE:
-                    case UINT32_VALUE:
-                    case UINT64_VALUE:
-                        elementType = Type.int64();
-                        break;
-                    case FLOAT_VALUE:
-                    case DOUBLE_VALUE:
-                        elementType = Type.float64();
-                        break;
-                    case DATE:
-                        elementType = Type.date();
-                        break;
-                    case TIME:
-                        elementType = Type.string();
-                        break;
-                    case DATETIME:
-                    case TIMESTAMP:
-                        elementType = Type.timestamp();
-                        break;
-                    case ANY:
-                        elementType = Type.string();
-                        break;
-                    case NULL_VALUE:
-                    case EMPTY:
-                        elementType = Type.string();
-                        break;
-                    case CUSTOM:
-                    default:
-                        elementType = convertSchema(field.getMessageType());
-                        break;
-                }
-                break;
+                yield switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
+                    case BOOL_VALUE -> Type.bool();
+                    case STRING_VALUE -> Type.string();
+                    case BYTES_VALUE -> Type.bytes();
+                    case INT32_VALUE, INT64_VALUE, UINT32_VALUE, UINT64_VALUE -> Type.int64();
+                    case FLOAT_VALUE -> Type.float32();
+                    case DOUBLE_VALUE -> Type.float64();
+                    case DATE -> Type.date();
+                    case TIME -> Type.string();
+                    case DATETIME, TIMESTAMP -> Type.timestamp();
+                    case ANY -> Type.string();
+                    case NULL_VALUE, EMPTY -> Type.string();
+                    case CUSTOM -> convertSchema(field.getMessageType());
+                    default -> convertSchema(field.getMessageType());
+                };
             }
-            default:
-                throw new IllegalArgumentException(field.getName() + " is not supported for spanner.");
-        }
+            default -> throw new IllegalArgumentException(field.getName() + " is not supported for spanner.");
+        };
 
         if(field.isRepeated()) {
             return Type.array(elementType);
@@ -158,52 +115,35 @@ public class ProtoToStructConverter {
         if(field.isRepeated()) {
             final List<Object> array = isNull ? new ArrayList<>() : ((List<Object>) value);
             switch (field.getJavaType()) {
-                case BOOLEAN:
-                    builder.set(field.getName()).toBoolArray(isNull ? new ArrayList<>() : array.stream()
+                case BOOLEAN -> builder.set(field.getName()).toBoolArray(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o != null && (Boolean)o)
                             .collect(Collectors.toList()));
-                    return;
-                case LONG:
-                    builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : array.stream()
+                case LONG -> builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? 0L : (Long)o)
                             .collect(Collectors.toList()));
-                    return;
-                case INT:
-                    builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : array.stream()
+                case INT -> builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? 0 : (Integer)o)
                             .map(Integer::longValue)
                             .collect(Collectors.toList()));
-                    return;
-                case FLOAT:
-                    builder.set(field.getName()).toFloat64Array(isNull ? new ArrayList<>() : array.stream()
+                case FLOAT -> builder.set(field.getName()).toFloat32Array(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? 0f : (Float)o)
-                            .map(Float::doubleValue)
                             .collect(Collectors.toList()));
-                    return;
-                case DOUBLE:
-                    builder.set(field.getName()).toFloat64Array(isNull ? new ArrayList<>() : array.stream()
+                case DOUBLE -> builder.set(field.getName()).toFloat64Array(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? 0d : (Double)o)
                             .collect(Collectors.toList()));
-                    return;
-                case STRING:
-                    builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : array.stream()
+                case STRING -> builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? "" : (String)o)
                             .collect(Collectors.toList()));
-                    return;
-                case ENUM:
-                    builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : array.stream()
+                case ENUM -> builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? field.getEnumType().getValues().get(0) : (Descriptors.EnumValueDescriptor)o)
                             .map(Descriptors.EnumValueDescriptor::getName)
                             .collect(Collectors.toList()));
-                    return;
-                case BYTE_STRING:
-                    builder.set(field.getName()).toBytesArray(isNull ? new ArrayList<>() : array.stream()
+                case BYTE_STRING -> builder.set(field.getName()).toBytesArray(isNull ? new ArrayList<>() : array.stream()
                             .map(o -> o == null ? ByteString.copyFromUtf8("") : (ByteString)o)
                             .map(ByteString::toByteArray)
                             .map(ByteArray::copyFrom)
                             .collect(Collectors.toList()));
-                    return;
-                case MESSAGE: {
+                case MESSAGE -> {
                     if(field.isMapField()) {
                         final Type type = convertSchema(field.getMessageType());
                         builder.set(field.getName()).toStructArray(type, isNull ? new ArrayList<>() : array.stream()
@@ -216,75 +156,49 @@ public class ProtoToStructConverter {
                     List<Object> messageArray = array.stream()
                             .map(v -> (DynamicMessage) v)
                             .map(v -> ProtoSchemaUtil.convertBuildInValue(field.getMessageType().getFullName(), v))
-                            .collect(Collectors.toList());
+                            .toList();
                     switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
-                        case BOOL_VALUE:
-                            builder.set(field.getName()).toBoolArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case BOOL_VALUE -> builder.set(field.getName()).toBoolArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o != null && ((BoolValue)o).getValue())
                                     .collect(Collectors.toList()));
-                            return;
-                        case BYTES_VALUE:
-                            builder.set(field.getName()).toBytesArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case BYTES_VALUE -> builder.set(field.getName()).toBytesArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? ByteString.copyFromUtf8("") : ((BytesValue)o).getValue())
                                     .map(ByteString::toByteArray)
                                     .map(ByteArray::copyFrom)
                                     .collect(Collectors.toList()));
-                            return;
-                        case STRING_VALUE:
-                            builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case STRING_VALUE -> builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? "" : ((StringValue)o).getValue())
                                     .collect(Collectors.toList()));
-                            return;
-                        case INT32_VALUE:
-                            builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
+                        case INT32_VALUE -> builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? 0 : ((Int32Value) o).getValue())
                                     .map(i -> (long) i)
                                     .collect(Collectors.toList()));
-                            return;
-                        case INT64_VALUE:
-                            builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
+                        case INT64_VALUE -> builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? 0L : ((Int64Value)o).getValue())
                                     .collect(Collectors.toList()));
-                            return;
-                        case UINT32_VALUE:
-                            builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
+                        case UINT32_VALUE -> builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? 0 : ((UInt32Value) o).getValue())
                                     .map(i -> (long) i)
                                     .collect(Collectors.toList()));
-                            return;
-                        case UINT64_VALUE:
-                            builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
+                        case UINT64_VALUE -> builder.set(field.getName()).toInt64Array(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? 0L : ((UInt64Value)o).getValue())
                                     .collect(Collectors.toList()));
-                            return;
-                        case FLOAT_VALUE:
-                            builder.set(field.getName()).toFloat64Array(isNull ? new ArrayList<>() : messageArray.stream()
+                        case FLOAT_VALUE -> builder.set(field.getName()).toFloat32Array(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? 0f : ((FloatValue) o).getValue())
-                                    .map(i -> (double) i)
                                     .collect(Collectors.toList()));
-                            return;
-                        case DOUBLE_VALUE:
-                            builder.set(field.getName()).toFloat64Array(isNull ? new ArrayList<>() : messageArray.stream()
+                        case DOUBLE_VALUE -> builder.set(field.getName()).toFloat64Array(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? 0d : ((DoubleValue) o).getValue())
                                     .collect(Collectors.toList()));
-                            return;
-                        case DATE: {
-                            builder.set(field.getName()).toDateArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case DATE -> builder.set(field.getName()).toDateArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? Date.newBuilder().setYear(1).setMonth(1).setDay(1).build() : (Date)o)
                                     .map(d -> com.google.cloud.Date.fromYearMonthDay(d.getYear(), d.getMonth(), d.getDay()))
                                     .collect(Collectors.toList()));
-                            return;
-                        }
-                        case TIME: {
-                            builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case TIME -> builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ?
                                             TimeOfDay.newBuilder().setHours(0).setMinutes(0).setSeconds(0).setNanos(0).build() : (TimeOfDay)o)
                                     .map(t -> String.format("%02d:%02d:%02d", t.getHours(), t.getMinutes(), t.getSeconds()))
                                     .collect(Collectors.toList()));
-                            return;
-                        }
-                        case DATETIME: {
-                            builder.set(field.getName()).toTimestampArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case DATETIME -> builder.set(field.getName()).toTimestampArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> o == null ? DateTime.newBuilder()
                                             .setYear(1).setMonth(1).setDay(1)
                                             .setHours(0).setMinutes(0).setSeconds(0).setNanos(0)
@@ -296,10 +210,7 @@ public class ProtoToStructConverter {
                                     .map(i -> com.google.cloud.Timestamp
                                             .ofTimeSecondsAndNanos(i.getEpochSecond(), i.getNano()))
                                     .collect(Collectors.toList()));
-                            return;
-                        }
-                        case TIMESTAMP: {
-                            builder.set(field.getName()).toTimestampArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case TIMESTAMP -> builder.set(field.getName()).toTimestampArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> {
                                         if(o == null) {
                                             final Instant ldt = LocalDateTime.of(
@@ -315,10 +226,7 @@ public class ProtoToStructConverter {
                                     .map(t -> com.google.cloud.Timestamp
                                             .ofTimeSecondsAndNanos(t.getSeconds(), t.getNanos()))
                                     .collect(Collectors.toList()));
-                            return;
-                        }
-                        case ANY: {
-                            builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
+                        case ANY -> builder.set(field.getName()).toStringArray(isNull ? new ArrayList<>() : messageArray.stream()
                                     .map(o -> {
                                         if(o == null){
                                             return "";
@@ -332,98 +240,54 @@ public class ProtoToStructConverter {
                                         }
                                     })
                                     .collect(Collectors.toList()));
-                            return;
-                        }
-                        case EMPTY:
-                        case NULL_VALUE:
-                            builder.set(field.getName()).toStringArray(new ArrayList<>());
-                            return;
-                        case CUSTOM:
-                        default: {
+                        case EMPTY, NULL_VALUE -> builder.set(field.getName()).toStringArray(new ArrayList<>());
+                        default -> {
                             final Type type = convertSchema(field.getMessageType());
                             builder.set(field.getName()).toStructArray(type, isNull ? new ArrayList<>() : messageArray.stream()
                                     .filter(Objects::nonNull)
                                     .map(m -> convert(type, field.getMessageType(), (DynamicMessage) m, printer))
                                     .collect(Collectors.toList()));
-                            return;
                         }
                     }
                 }
-                default:
-                    builder.set(field.getName()).to((String) null);
+                default -> builder.set(field.getName()).to((String) null);
             }
         } else {
             switch (field.getJavaType()) {
-                case BOOLEAN:
-                    builder.set(field.getName()).to(isNull ? false : (Boolean)value);
-                    return;
-                case LONG:
-                    builder.set(field.getName()).to(isNull ? 0L : (Long)value);
-                    return;
-                case INT:
-                    builder.set(field.getName()).to(isNull ? 0 : ((Integer)value).longValue());
-                    return;
-                case FLOAT:
-                    builder.set(field.getName()).to(isNull ? 0f : ((Float)value).doubleValue());
-                    return;
-                case DOUBLE:
-                    builder.set(field.getName()).to(isNull ? 0d : (Double)value);
-                    return;
-                case STRING:
-                    builder.set(field.getName()).to(isNull ? "" : value.toString());
-                    return;
-                case ENUM:
-                    builder.set(field.getName()).to(isNull ?
+                case BOOLEAN -> builder.set(field.getName()).to(isNull ? false : (Boolean)value);
+                case LONG -> builder.set(field.getName()).to(isNull ? 0L : (Long)value);
+                case INT -> builder.set(field.getName()).to(isNull ? 0 : ((Integer)value).longValue());
+                case FLOAT -> builder.set(field.getName()).to(isNull ? 0f : ((Float)value));
+                case DOUBLE -> builder.set(field.getName()).to(isNull ? 0d : (Double)value);
+                case STRING -> builder.set(field.getName()).to(isNull ? "" : value.toString());
+                case ENUM -> builder.set(field.getName()).to(isNull ?
                             field.getEnumType().getValues().get(0).getName() : ((Descriptors.EnumValueDescriptor)value).getName());
-                    return;
-                case BYTE_STRING:
-                    builder.set(field.getName()).to(isNull ? ByteArray.copyFrom("") : ByteArray.copyFrom(((ByteString) value).toByteArray()));
-                    return;
-                case MESSAGE: {
+                case BYTE_STRING -> builder.set(field.getName()).to(isNull ? ByteArray.copyFrom("") : ByteArray.copyFrom(((ByteString) value).toByteArray()));
+                case MESSAGE -> {
                     final Object object = ProtoSchemaUtil
                             .convertBuildInValue(field.getMessageType().getFullName(), (DynamicMessage) value);
                     isNull = (object == null);
                     switch (ProtoSchemaUtil.ProtoType.of(field.getMessageType().getFullName())) {
-                        case BOOL_VALUE:
-                            builder.set(field.getName()).to(!isNull && ((BoolValue) object).getValue());
-                            return;
-                        case BYTES_VALUE:
-                            builder.set(field.getName()).to(isNull ? ByteArray.copyFrom("") : ByteArray.copyFrom(((BytesValue) object).getValue().toByteArray()));
-                            return;
-                        case STRING_VALUE:
-                            builder.set(field.getName()).to(isNull ? "" : ((StringValue) object).getValue());
-                            return;
-                        case INT32_VALUE:
-                            builder.set(field.getName()).to(isNull ? 0l : (long)((Int32Value) object).getValue());
-                            return;
-                        case INT64_VALUE:
-                            builder.set(field.getName()).to(isNull ? 0l : ((Int64Value) object).getValue());
-                            return;
-                        case UINT32_VALUE:
-                            builder.set(field.getName()).to(isNull ? 0l : (long)((UInt32Value) object).getValue());
-                            return;
-                        case UINT64_VALUE:
-                            builder.set(field.getName()).to(isNull ? 0l : ((UInt64Value) object).getValue());
-                            return;
-                        case FLOAT_VALUE:
-                            builder.set(field.getName()).to(isNull ? 0f : (double)((FloatValue) object).getValue());
-                            return;
-                        case DOUBLE_VALUE:
-                            builder.set(field.getName()).to(isNull ? 0d : ((DoubleValue) object).getValue());
-                            return;
-                        case DATE: {
+                        case BOOL_VALUE -> builder.set(field.getName()).to(!isNull && ((BoolValue) object).getValue());
+                        case BYTES_VALUE -> builder.set(field.getName()).to(isNull ? ByteArray.copyFrom("") : ByteArray.copyFrom(((BytesValue) object).getValue().toByteArray()));
+                        case STRING_VALUE -> builder.set(field.getName()).to(isNull ? "" : ((StringValue) object).getValue());
+                        case INT32_VALUE -> builder.set(field.getName()).to(isNull ? 0l : (long)((Int32Value) object).getValue());
+                        case INT64_VALUE -> builder.set(field.getName()).to(isNull ? 0l : ((Int64Value) object).getValue());
+                        case UINT32_VALUE -> builder.set(field.getName()).to(isNull ? 0l : (long)((UInt32Value) object).getValue());
+                        case UINT64_VALUE -> builder.set(field.getName()).to(isNull ? 0l : ((UInt64Value) object).getValue());
+                        case FLOAT_VALUE -> builder.set(field.getName()).to(isNull ? 0f : ((FloatValue) object).getValue());
+                        case DOUBLE_VALUE -> builder.set(field.getName()).to(isNull ? 0d : ((DoubleValue) object).getValue());
+                        case DATE -> {
                             final Date date = (Date) object;
                             builder.set(field.getName()).to(isNull ?
                                     com.google.cloud.Date.fromYearMonthDay(1, 1, 1) :
                                     com.google.cloud.Date.fromYearMonthDay(date.getYear(), date.getMonth(), date.getDay()));
-                            return;
                         }
-                        case TIME: {
+                        case TIME -> {
                             final TimeOfDay timeOfDay = (TimeOfDay) object;
                             builder.set(field.getName()).to(isNull ? "00:00:00" : String.format("%02d:%02d:%02d", timeOfDay.getHours(), timeOfDay.getMinutes(), timeOfDay.getSeconds()));
-                            return;
                         }
-                        case DATETIME: {
+                        case DATETIME -> {
                             final DateTime dt = (DateTime) object;
                             final Instant ldt;
                             if(isNull) {
@@ -441,9 +305,8 @@ public class ProtoToStructConverter {
                             }
                             builder.set(field.getName()).to(com.google.cloud.Timestamp
                                     .ofTimeSecondsAndNanos(ldt.getEpochSecond(), ldt.getNano()));
-                            return;
                         }
-                        case TIMESTAMP: {
+                        case TIMESTAMP -> {
                             if(isNull) {
                                 final Instant ldt = LocalDateTime.of(
                                         1, 1, 1,
@@ -457,32 +320,24 @@ public class ProtoToStructConverter {
                                 builder.set(field.getName()).to(com.google.cloud.Timestamp
                                         .ofTimeSecondsAndNanos(timestamp.getSeconds(), timestamp.getNanos()));
                             }
-                            return;
                         }
-                        case ANY: {
+                        case ANY -> {
                             final Any any = (Any) object;
                             try {
                                 builder.set(field.getName()).to(isNull ? "" : printer.print(any));
                             } catch (InvalidProtocolBufferException e) {
                                 builder.set(field.getName()).to(isNull ? "" : any.getValue().toStringUtf8());
                             }
-                            return;
                         }
-                        case EMPTY:
-                        case NULL_VALUE:
-                            builder.set(field.getName()).to("");
-                            return;
-                        case CUSTOM:
-                        default: {
+                        case EMPTY, NULL_VALUE -> builder.set(field.getName()).to("");
+                        default -> {
                             final Type type = convertSchema(field.getMessageType());
                             final Struct struct = convert(type, field.getMessageType(), (DynamicMessage) value, printer);
                             builder.set(field.getName()).to(type, struct);
-                            return;
                         }
                     }
                 }
-                default:
-                    throw new IllegalStateException("Not support data type: " + field);
+                default -> throw new IllegalStateException("Not support data type: " + field);
             }
         }
 

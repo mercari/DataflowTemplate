@@ -90,7 +90,7 @@ public class StructSchemaUtilTest {
         final Struct selectedStructGrandchild = selectedStructChild.getStruct("recordField");
         Assert.assertEquals(2, selectedStructGrandchild.getColumnCount());
         Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(selectedStructGrandchild.getLong("intField")).intValue());
-        Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(selectedStructGrandchild.getDouble("floatField")).floatValue(), DELTA);
+        Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(selectedStructGrandchild.getFloat("floatField")).floatValue(), DELTA);
 
         Assert.assertEquals(2, selectedStruct.getStructList("recordArrayField").size());
         for(final Struct child : selectedStruct.getStructList("recordArrayField")) {
@@ -102,12 +102,12 @@ public class StructSchemaUtilTest {
             for(final Struct grandchild : child.getStructList("recordArrayField")) {
                 Assert.assertEquals(2, grandchild.getColumnCount());
                 Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(grandchild.getLong("intField")).intValue());
-                Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getDouble("floatField")).floatValue(), DELTA);
+                Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getFloat("floatField")).floatValue(), DELTA);
             }
 
             final Struct grandchild = child.getStruct("recordField");
             Assert.assertEquals(TestDatum.getIntFieldValue().intValue(), Long.valueOf(grandchild.getLong("intField")).intValue());
-            Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getDouble("floatField")).floatValue(), DELTA);
+            Assert.assertEquals(TestDatum.getFloatFieldValue().floatValue(), Double.valueOf(grandchild.getFloat("floatField")).floatValue(), DELTA);
         }
 
         // null fields row test

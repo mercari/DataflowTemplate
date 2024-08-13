@@ -858,9 +858,21 @@ public class RowSchemaUtil {
             }
             case LOGICAL_TYPE -> {
                 if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    yield Long.valueOf(((LocalDate) fieldValue).toEpochDay()).intValue();
+                    if(fieldValue instanceof LocalDate) {
+                        yield Long.valueOf(((LocalDate) fieldValue).toEpochDay()).intValue();
+                    } else if(fieldValue instanceof Integer) {
+                        yield fieldValue;
+                    } else {
+                        throw new IllegalStateException("Nut supported date type: " + fieldValue);
+                    }
                 } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    yield ((LocalTime) fieldValue).toNanoOfDay() / 1000L;
+                    if(fieldValue instanceof LocalTime) {
+                        yield ((LocalTime) fieldValue).toNanoOfDay() / 1000L;
+                    } else if(fieldValue instanceof Long) {
+                        yield fieldValue;
+                    } else {
+                        throw new IllegalStateException("Nut supported time type: " + fieldValue);
+                    }
                 } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     if(fieldValue instanceof EnumerationType.Value) {
                         yield ((EnumerationType.Value) fieldValue).getValue();
@@ -933,47 +945,32 @@ public class RowSchemaUtil {
             return new ArrayList<>();
         }
 
-        switch (field.getType().getCollectionElementType().getTypeName()) {
-            case STRING:
-                return list.stream()
-                        .map(o -> (String)o)
-                        .map(Float::valueOf)
-                        .collect(Collectors.toList());
-            case INT16:
-                return list.stream()
-                        .map(o -> (Short)o)
-                        .map(Float::valueOf)
-                        .collect(Collectors.toList());
-            case INT32:
-                return list.stream()
-                        .map(o -> (Integer)o)
-                        .map(Float::valueOf)
-                        .collect(Collectors.toList());
-            case INT64:
-                return list.stream()
-                        .map(o -> (Long)o)
-                        .map(Float::valueOf)
-                        .collect(Collectors.toList());
-            case FLOAT:
-                return list.stream()
-                        .map(o -> (Float)o)
-                        .collect(Collectors.toList());
-            case DOUBLE:
-                return list.stream()
-                        .map(o -> (Double)o)
-                        .map(Double::floatValue)
-                        .collect(Collectors.toList());
-            case BYTES:
-            case BOOLEAN:
-            case MAP:
-            case DECIMAL:
-            case BYTE:
-            case ARRAY:
-            case ITERABLE:
-            case ROW:
-            default:
-                throw new IllegalStateException();
-        }
+        return switch (field.getType().getCollectionElementType().getTypeName()) {
+            case STRING -> list.stream()
+                    .map(o -> (String) o)
+                    .map(Float::valueOf)
+                    .collect(Collectors.toList());
+            case INT16 -> list.stream()
+                    .map(o -> (Short) o)
+                    .map(Float::valueOf)
+                    .collect(Collectors.toList());
+            case INT32 -> list.stream()
+                    .map(o -> (Integer) o)
+                    .map(Float::valueOf)
+                    .collect(Collectors.toList());
+            case INT64 -> list.stream()
+                    .map(o -> (Long) o)
+                    .map(Float::valueOf)
+                    .collect(Collectors.toList());
+            case FLOAT -> list.stream()
+                    .map(o -> (Float) o)
+                    .collect(Collectors.toList());
+            case DOUBLE -> list.stream()
+                    .map(o -> (Double) o)
+                    .map(Double::floatValue)
+                    .collect(Collectors.toList());
+            default -> throw new IllegalStateException();
+        };
 
     }
 
@@ -1050,6 +1047,15 @@ public class RowSchemaUtil {
                     yield primitiveValue.toString();
                 }
             }
+            case BYTES -> {
+                if(primitiveValue instanceof byte[]) {
+                    yield primitiveValue;
+                } else if(primitiveValue instanceof String) {
+                    yield Base64.getDecoder().decode((String) primitiveValue);
+                } else {
+                    yield Base64.getDecoder().decode(primitiveValue.toString());
+                }
+            }
             case BOOLEAN -> {
                 if(primitiveValue instanceof Boolean) {
                     yield primitiveValue;
@@ -1119,7 +1125,7 @@ public class RowSchemaUtil {
                     yield primitiveValue;
                 } else if(primitiveValue instanceof Map) {
                     final Map<String, Object> map = (Map<String, Object>) primitiveValue;
-                    yield convertMapToRow(fieldType.getRowSchema(), map);
+                    yield convertPrimitives(fieldType.getRowSchema(), map);
                 } else if(primitiveValue instanceof String) {
                     yield JsonToRowConverter.convert(fieldType.getRowSchema(), (String) primitiveValue);
                 } else {
@@ -1160,7 +1166,7 @@ public class RowSchemaUtil {
                                         return o;
                                     } else if(o instanceof Map) {
                                         final Map<String, Object> map = (Map<String, Object>) o;
-                                        return convertMapToRow(fieldType.getCollectionElementType().getRowSchema(), map);
+                                        return convertPrimitives(fieldType.getCollectionElementType().getRowSchema(), map);
                                     } else if(o instanceof String) {
                                         return JsonToRowConverter.convert(fieldType.getCollectionElementType().getRowSchema(), ((String) o));
                                     } else {
@@ -1170,11 +1176,11 @@ public class RowSchemaUtil {
                                 .collect(Collectors.toList());
                     default -> throw new IllegalStateException();
                 };
-            default -> throw new IllegalStateException();
+            default -> throw new IllegalStateException("Not supported fieldType: " + fieldType);
         };
     }
 
-    private static Row convertMapToRow(final Schema rowSchema, final Map<String, Object> map) {
+    public static Row convertPrimitives(final Schema rowSchema, final Map<String, Object> map) {
         final Row.FieldValueBuilder builder = Row.withSchema(rowSchema).withFieldValues(new HashMap<>());
         for(final Schema.Field field : rowSchema.getFields()) {
             final Object value = convertPrimitive(field.getType(), map.get(field.getName()));

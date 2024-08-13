@@ -8,6 +8,7 @@ import com.google.gson.*;
 import com.google.protobuf.ByteString;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.converter.JsonToRecordConverter;
+import com.mercari.solution.util.converter.RowToRecordConverter;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
@@ -681,8 +682,11 @@ public class AvroSchemaUtil {
         if(record == null) {
             return null;
         }
-        Schema.Field field = record.getSchema().getField(fieldName);
+        final Schema.Field field = record.getSchema().getField(fieldName);
         if(field == null) {
+            return null;
+        }
+        if(!record.hasField(fieldName)) {
             return null;
         }
         return record.get(fieldName);
@@ -692,8 +696,11 @@ public class AvroSchemaUtil {
         if(record == null) {
             return null;
         }
-        Schema.Field field = record.getSchema().getField(fieldName);
+        final Schema.Field field = record.getSchema().getField(fieldName);
         if(field == null) {
+            return null;
+        }
+        if(!record.hasField(fieldName)) {
             return null;
         }
 
@@ -795,6 +802,9 @@ public class AvroSchemaUtil {
         if(field == null) {
             return null;
         }
+        if(!record.hasField(fieldName)) {
+            return null;
+        }
         final Object value = record.get(fieldName);
         if(value == null) {
             return null;
@@ -815,6 +825,9 @@ public class AvroSchemaUtil {
     public static org.joda.time.Instant getTimestamp(final GenericRecord record, final String fieldName, final Instant defaultTimestamp) {
         final Schema.Field field = record.getSchema().getField(fieldName);
         if(field == null) {
+            return defaultTimestamp;
+        }
+        if(!record.hasField(fieldName)) {
             return defaultTimestamp;
         }
         final Object value = record.get(fieldName);
@@ -863,6 +876,9 @@ public class AvroSchemaUtil {
     }
 
     public static String getAsString(final GenericRecord record, final String fieldName) {
+        if(!record.hasField(fieldName)) {
+            return null;
+        }
         final Object value = record.get(fieldName);
         if(value == null) {
             return null;
@@ -911,6 +927,9 @@ public class AvroSchemaUtil {
     }
 
     public static Long getAsLong(final GenericRecord record, final String fieldName) {
+        if(!record.hasField(fieldName)) {
+            return null;
+        }
         final Object value = record.get(fieldName);
         if(value == null) {
             return null;
@@ -960,6 +979,9 @@ public class AvroSchemaUtil {
     }
 
     public static Double getAsDouble(final GenericRecord record, final String fieldName) {
+        if(!record.hasField(fieldName)) {
+            return null;
+        }
         final Object value = record.get(fieldName);
         if(value == null) {
             return null;
@@ -970,21 +992,15 @@ public class AvroSchemaUtil {
         }
 
         final Schema fieldSchema = unnestUnion(field.schema());
-        switch (fieldSchema.getType()) {
-            case BOOLEAN -> {
-                return (Boolean) value ? 1D : 0D;
-            }
-            case FLOAT -> {
-                return ((Float) value).doubleValue();
-            }
-            case DOUBLE -> {
-                return ((Double) value);
-            }
+        return switch (fieldSchema.getType()) {
+            case BOOLEAN -> (Boolean) value ? 1D : 0D;
+            case FLOAT -> ((Float) value).doubleValue();
+            case DOUBLE -> ((Double) value);
             case ENUM, STRING -> {
                 try {
-                    return Double.valueOf(value.toString());
+                    yield Double.valueOf(value.toString());
                 } catch (Exception e) {
-                    return null;
+                    yield null;
                 }
             }
             case FIXED, BYTES -> {
@@ -992,32 +1008,31 @@ public class AvroSchemaUtil {
                 if (isLogicalTypeDecimal(fieldSchema)) {
                     final int scale = fieldSchema.getObjectProp("scale") != null ?
                             Integer.valueOf(fieldSchema.getObjectProp("scale").toString()) : 0;
-                    return BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale).doubleValue();
+                    yield BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale).doubleValue();
                 }
-                return null;
+                yield null;
             }
-            case INT -> {
-                return ((Integer) value).doubleValue();
-            }
+            case INT -> ((Integer) value).doubleValue();
             case LONG -> {
                 final Long longValue = (Long) value;
                 if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
-                    return longValue.doubleValue();
+                    yield longValue.doubleValue();
                 } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
-                    return longValue.doubleValue() / 1000;
+                    yield longValue.doubleValue() / 1000;
                 } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
-                    return longValue.doubleValue() / 1000;
+                    yield longValue.doubleValue() / 1000;
                 } else {
-                    return longValue.doubleValue();
+                    yield longValue.doubleValue();
                 }
             }
-            default -> {
-                return null;
-            }
-        }
+            default -> null;
+        };
     }
 
     public static BigDecimal getAsBigDecimal(final GenericRecord record, final String fieldName) {
+        if(!record.hasField(fieldName)) {
+            return null;
+        }
         final Object value = record.get(fieldName);
         if(value == null) {
             return null;
@@ -1028,21 +1043,15 @@ public class AvroSchemaUtil {
         }
 
         final Schema fieldSchema = unnestUnion(field.schema());
-        switch (fieldSchema.getType()) {
-            case BOOLEAN -> {
-                return BigDecimal.valueOf((Boolean) value ? 1D : 0D);
-            }
-            case FLOAT -> {
-                return BigDecimal.valueOf(((Float) value).doubleValue());
-            }
-            case DOUBLE -> {
-                return BigDecimal.valueOf((Double) value);
-            }
+        return switch (fieldSchema.getType()) {
+            case BOOLEAN -> BigDecimal.valueOf((Boolean) value ? 1D : 0D);
+            case FLOAT -> BigDecimal.valueOf(((Float) value).doubleValue());
+            case DOUBLE -> BigDecimal.valueOf((Double) value);
             case ENUM, STRING -> {
                 try {
-                    return BigDecimal.valueOf(Double.valueOf(value.toString()));
+                    yield BigDecimal.valueOf(Double.valueOf(value.toString()));
                 } catch (Exception e) {
-                    return null;
+                    yield null;
                 }
             }
             case FIXED, BYTES -> {
@@ -1050,25 +1059,22 @@ public class AvroSchemaUtil {
                 if (isLogicalTypeDecimal(fieldSchema)) {
                     final int scale = fieldSchema.getObjectProp("scale") != null ?
                             Integer.valueOf(fieldSchema.getObjectProp("scale").toString()) : 0;
-                    return BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale);
+                    yield BigDecimal.valueOf(new BigInteger(byteBuffer.array()).longValue(), scale);
                 }
-                return null;
+                yield null;
             }
-            case INT -> {
-                return BigDecimal.valueOf(((Integer) value).longValue());
-            }
-            case LONG -> {
-                return BigDecimal.valueOf((Long) value);
-            }
-            default -> {
-                return null;
-            }
-        }
+            case INT -> BigDecimal.valueOf(((Integer) value).longValue());
+            case LONG -> BigDecimal.valueOf((Long) value);
+            default -> null;
+        };
     }
 
     // for bigtable
     public static ByteString getAsByteString(final GenericRecord record, final String fieldName) {
         if(record == null || fieldName == null) {
+            return null;
+        }
+        if(!record.hasField(fieldName)) {
             return null;
         }
         final Object value = record.get(fieldName);
@@ -1147,8 +1153,15 @@ public class AvroSchemaUtil {
         if(field.contains(".")) {
             final String[] fields = field.split("\\.", 2);
             final String parentField = fields[0];
+            if(!((GenericRecord) record).hasField(parentField)) {
+                return null;
+            }
             final Object child = ((GenericRecord) record).get(parentField);
             return getAsPrimitive(child, fieldType, fields[1]);
+        }
+
+        if(!((GenericRecord) record).hasField(field)) {
+            return null;
         }
 
         final Object value = ((GenericRecord) record).get(field);
@@ -1174,7 +1187,13 @@ public class AvroSchemaUtil {
             case LOGICAL_TYPE -> {
                 final Schema fieldSchema = unnestUnion(((GenericRecord) record).getSchema().getField(field).schema());
                 if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                    if(value instanceof LocalDate) {
+                        return Long.valueOf(((LocalDate) value).toEpochDay()).intValue();
+                    } else if(value instanceof Integer) {
+                        return value;
+                    } else {
+                        throw new IllegalArgumentException();
+                    }
                 } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
                     if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
                         return (Long) value * 1000L;
@@ -1198,7 +1217,6 @@ public class AvroSchemaUtil {
                         return ((List<Object>) value).stream().map(Object::toString).collect(Collectors.toList());
                     }
                     case DATETIME -> {
-
                         final long m;
                         if (LogicalTypes.timestampMillis().equals(elementSchema.getLogicalType())) {
                             m = 1000L;
@@ -1232,7 +1250,20 @@ public class AvroSchemaUtil {
                             throw new IllegalStateException();
                         }
                     }
-                    default -> throw new IllegalStateException();
+                    case ROW, MAP -> {
+                        return ((List<Object>) value).stream()
+                                .map(o -> {
+                                    if(o instanceof GenericRecord) {
+                                        return asPrimitiveMap((GenericRecord) o);
+                                    } else if(o instanceof Map<?,?>) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException("Not supported primitive type: " + fieldType.getCollectionElementType());
                 }
             }
             default -> throw new IllegalStateException();
@@ -1286,7 +1317,20 @@ public class AvroSchemaUtil {
                                 })
                                 .collect(Collectors.toList());
                     }
-                    default -> throw new IllegalStateException();
+                    case ROW, MAP -> {
+                        return ((List<Object>) fieldValue).stream()
+                                .map(o -> {
+                                    if(o instanceof GenericRecord) {
+                                        return asPrimitiveMap((GenericRecord) o);
+                                    } else if(o instanceof Map<?,?>) {
+                                        return o;
+                                    } else {
+                                        throw new IllegalStateException();
+                                    }
+                                })
+                                .collect(Collectors.toList());
+                    }
+                    default -> throw new IllegalStateException("Not supported primitive type: " + fieldType.getCollectionElementType());
                 }
             }
             default -> throw new IllegalStateException();
@@ -1294,6 +1338,9 @@ public class AvroSchemaUtil {
     }
 
     public static List<Float> getAsFloatList(final GenericRecord record, final String fieldName) {
+        if(!record.hasField(fieldName)) {
+            return new ArrayList<>();
+        }
         final Object value = record.get(fieldName);
         if(value == null) {
             return new ArrayList<>();
@@ -1340,60 +1387,65 @@ public class AvroSchemaUtil {
         if(primitiveValue == null) {
             return null;
         }
-        switch (fieldType.getTypeName()) {
-            case INT32:
-            case INT64:
-            case FLOAT:
-            case DOUBLE:
-            case STRING:
-            case BOOLEAN:
-                return primitiveValue;
-            case DATETIME: {
-                return (Long) primitiveValue;
-            }
-            case LOGICAL_TYPE: {
-                if(RowSchemaUtil.isLogicalTypeDate(fieldType)) {
-                    return (Integer) primitiveValue;
-                } else if(RowSchemaUtil.isLogicalTypeTime(fieldType)) {
-                    return (Long) primitiveValue;
-                } else if(RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
+        return switch (fieldType.getTypeName()) {
+            case INT32, INT64, FLOAT, DOUBLE, STRING, BOOLEAN -> primitiveValue;
+            case DATETIME -> (Long) primitiveValue;
+            case LOGICAL_TYPE -> {
+                if (RowSchemaUtil.isLogicalTypeDate(fieldType)) {
+                    yield (Integer) primitiveValue;
+                } else if (RowSchemaUtil.isLogicalTypeTime(fieldType)) {
+                    yield (Long) primitiveValue;
+                } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType)) {
                     final int index = (Integer) primitiveValue;
-                    return fieldType.getLogicalType(EnumerationType.class).valueOf(index);
+                    yield fieldType.getLogicalType(EnumerationType.class).valueOf(index);
                 } else {
                     throw new IllegalStateException();
                 }
             }
-            case ITERABLE:
-            case ARRAY: {
-                switch (fieldType.getCollectionElementType().getTypeName()) {
-                    case INT32, INT64, FLOAT, DOUBLE, STRING, BOOLEAN -> {
-                        return primitiveValue;
-                    }
-                    case DATETIME -> {
-                        return ((List<Long>) primitiveValue).stream()
+            case ITERABLE, ARRAY -> switch (fieldType.getCollectionElementType().getTypeName()) {
+                case INT32, INT64, FLOAT, DOUBLE, STRING, BOOLEAN -> primitiveValue;
+                case DATETIME -> ((List<Long>) primitiveValue).stream()
+                        .map(l -> l)
+                        .collect(Collectors.toList());
+                case LOGICAL_TYPE -> {
+                    if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
+                        yield primitiveValue;
+                    } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
+                        yield ((List<Long>) primitiveValue).stream()
                                 .map(l -> l)
                                 .collect(Collectors.toList());
-                    }
-                    case LOGICAL_TYPE -> {
-                        if (RowSchemaUtil.isLogicalTypeDate(fieldType.getCollectionElementType())) {
-                            return primitiveValue;
-                        } else if (RowSchemaUtil.isLogicalTypeTime(fieldType.getCollectionElementType())) {
-                            return ((List<Long>) primitiveValue).stream()
-                                    .map(l -> l)
-                                    .collect(Collectors.toList());
-                        } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
-                            return ((List<Integer>) primitiveValue).stream()
-                                    .map(index -> fieldType.getLogicalType(EnumerationType.class).valueOf(index))
-                                    .collect(Collectors.toList());
-                        } else {
-                            throw new IllegalStateException();
-                        }
+                    } else if (RowSchemaUtil.isLogicalTypeEnum(fieldType.getCollectionElementType())) {
+                        yield ((List<Integer>) primitiveValue).stream()
+                                .map(index -> fieldType.getLogicalType(EnumerationType.class).valueOf(index))
+                                .collect(Collectors.toList());
+                    } else {
+                        throw new IllegalStateException();
                     }
                 }
-            }
-            default:
-                throw new IllegalStateException();
-        }
+                case MAP -> ((List<Object>) primitiveValue).stream()
+                        .map(o -> {
+                            if(o instanceof Map<?,?>) {
+                                return o;
+                            } else {
+                                throw new IllegalStateException("Could not convert value: " + o + " to map");
+                            }
+                        })
+                        .collect(Collectors.toList());
+                case ROW -> ((List<Object>) primitiveValue).stream()
+                        .map(o -> {
+                            if(o instanceof Map<?,?>) {
+                                return create(RowToRecordConverter.convertSchema(fieldType.getCollectionElementType().getRowSchema()), (Map) o);
+                            } else if(o instanceof GenericRecord) {
+                                return o;
+                            } else {
+                                throw new IllegalStateException("Could not convert value: " + o + " to record");
+                            }
+                        })
+                        .collect(Collectors.toList());
+                default -> throw new IllegalStateException("Not supported array element type: " + fieldType.getCollectionElementType());
+            };
+            default -> throw new IllegalStateException();
+        };
     }
 
     public static Map<String, Object> asPrimitiveMap(final GenericRecord record) {
@@ -1402,7 +1454,12 @@ public class AvroSchemaUtil {
             return primitiveMap;
         }
         for(final Schema.Field field : record.getSchema().getFields()) {
-            final Object value = record.get(field.name());
+            final Object value;
+            if(record.hasField(field.name())) {
+                value = record.get(field.name());
+            } else {
+                value = null;
+            }
             primitiveMap.put(field.name(), value);
         }
         return primitiveMap;
@@ -1517,7 +1574,7 @@ public class AvroSchemaUtil {
         if(name == null) {
             return false;
         }
-        if(name.length() == 0) {
+        if(name.isEmpty()) {
             return false;
         }
         return PATTERN_FIELD_NAME.matcher(name).find();
@@ -1560,56 +1617,44 @@ public class AvroSchemaUtil {
         if(defaultValue == null) {
             return null;
         }
-        switch (fieldSchema.getType()) {
-            case ENUM, STRING -> {
-                return defaultValue;
-            }
-            case BOOLEAN -> {
-                return Boolean.valueOf(defaultValue);
-            }
+        return switch (fieldSchema.getType()) {
+            case ENUM, STRING -> defaultValue;
+            case BOOLEAN -> Boolean.valueOf(defaultValue);
+            case BYTES -> Base64.getDecoder().decode(defaultValue);
+            case FLOAT -> Float.valueOf(defaultValue);
+            case DOUBLE -> Double.valueOf(defaultValue);
             case INT -> {
                 if (LogicalTypes.date().equals(fieldSchema.getLogicalType())) {
                     final LocalDate localDate = DateTimeUtil.toLocalDate(defaultValue);
-                    return Long.valueOf(localDate.toEpochDay()).intValue();
+                    yield Long.valueOf(localDate.toEpochDay()).intValue();
                 } else if (LogicalTypes.timeMillis().equals(fieldSchema.getLogicalType())) {
                     final LocalTime localTime = DateTimeUtil.toLocalTime(defaultValue);
                     final int epochMillis = Long.valueOf(localTime.toNanoOfDay() / 1000_000).intValue();
-                    return epochMillis;
+                    yield epochMillis;
                 } else {
-                    return Integer.valueOf(defaultValue);
+                    yield Integer.valueOf(defaultValue);
                 }
             }
             case LONG -> {
                 if (LogicalTypes.timestampMillis().equals(fieldSchema.getLogicalType())) {
                     long epochMillis = DateTimeUtil.toEpochMicroSecond(defaultValue) / 1000L;
-                    return epochMillis;
+                    yield epochMillis;
                 } else if (LogicalTypes.timestampMicros().equals(fieldSchema.getLogicalType())) {
-                    return DateTimeUtil.toEpochMicroSecond(defaultValue);
+                    yield DateTimeUtil.toEpochMicroSecond(defaultValue);
                 } else if (LogicalTypes.timeMicros().equals(fieldSchema.getLogicalType())) {
                     final LocalTime localTime = DateTimeUtil.toLocalTime(defaultValue);
-                    return localTime.toNanoOfDay() / 1000L;
+                    yield localTime.toNanoOfDay() / 1000L;
                 } else {
-                    return Long.valueOf(defaultValue);
+                    yield Long.valueOf(defaultValue);
                 }
-            }
-            case FLOAT -> {
-                return Float.valueOf(defaultValue);
-            }
-            case DOUBLE -> {
-                return Double.valueOf(defaultValue);
-            }
-            case BYTES -> {
-                return Base64.getDecoder().decode(defaultValue);
             }
             case RECORD -> {
                 final JsonElement element = new Gson().fromJson(defaultValue, JsonElement.class);
-                return JsonToRecordConverter.convert(fieldSchema, element);
+                yield JsonToRecordConverter.convert(fieldSchema, element);
             }
-            case UNION -> {
-                return convertDefaultValue(unnestUnion(fieldSchema), defaultValue);
-            }
+            case UNION -> convertDefaultValue(unnestUnion(fieldSchema), defaultValue);
             default -> throw new IllegalStateException("Not supported default value type: " + fieldSchema);
-        }
+        };
     }
 
     private static Schema convertSchema(final TableFieldSchema fieldSchema, final String namespace) {
@@ -1697,45 +1742,30 @@ public class AvroSchemaUtil {
     }
 
     private static Schema convertSchema(final String name, final Value.ValueTypeCase valueTypeCase, final Value value) {
-        switch (valueTypeCase) {
-            case STRING_VALUE -> {
-                return NULLABLE_STRING;
-            }
-            case BLOB_VALUE -> {
-                return NULLABLE_BYTES;
-            }
-            case INTEGER_VALUE -> {
-                return NULLABLE_LONG;
-            }
-            case DOUBLE_VALUE -> {
-                return NULLABLE_DOUBLE;
-            }
-            case BOOLEAN_VALUE -> {
-                return NULLABLE_BOOLEAN;
-            }
-            case TIMESTAMP_VALUE -> {
-                return NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE;
-            }
+        return switch (valueTypeCase) {
+            case STRING_VALUE -> NULLABLE_STRING;
+            case BLOB_VALUE -> NULLABLE_BYTES;
+            case INTEGER_VALUE -> NULLABLE_LONG;
+            case DOUBLE_VALUE -> NULLABLE_DOUBLE;
+            case BOOLEAN_VALUE -> NULLABLE_BOOLEAN;
+            case TIMESTAMP_VALUE -> NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE;
             case ENTITY_VALUE -> {
                 final List<Schema.Field> fields = value.getEntityValue().getPropertiesMap().entrySet().stream()
                         .map(s -> new Schema.Field(s.getKey(), convertSchema(s.getKey(), s.getValue().getValueTypeCase(), s.getValue()), null, (Object) null, Schema.Field.Order.IGNORE))
                         .collect(Collectors.toList());
-                return Schema.createUnion(
+                yield Schema.createUnion(
                         Schema.create(Schema.Type.NULL),
                         Schema.createRecord(name, null, null, false, fields));
             }
             case ARRAY_VALUE -> {
                 final Value av = value.getArrayValue().getValues(0);
-                return Schema.createUnion(
+                yield Schema.createUnion(
                         Schema.create(Schema.Type.NULL),
                         Schema.createArray(convertSchema(name, av.getValueTypeCase(), av)));
             }
-            case VALUETYPE_NOT_SET, NULL_VALUE -> {
-                return convertSchema(name, value.getDefaultInstanceForType().getValueTypeCase(), value);
-            }
-            default ->
-                    throw new IllegalArgumentException(String.format("%s %s is not supported!", valueTypeCase.name(), name));
-        }
+            case VALUETYPE_NOT_SET, NULL_VALUE -> convertSchema(name, value.getDefaultInstanceForType().getValueTypeCase(), value);
+            default -> throw new IllegalArgumentException(String.format("%s %s is not supported!", valueTypeCase.name(), name));
+        };
     }
 
     private static Schema convertSchema(final JsonObject jsonObject) {

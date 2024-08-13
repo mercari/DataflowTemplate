@@ -36,6 +36,7 @@ public class FilterTransform implements TransformModule {
 
         private JsonElement filters;
         private JsonArray select;
+        private String flattenField;
         private List<String> fields;
         private Map<String, String> renameFields;
 
@@ -45,6 +46,10 @@ public class FilterTransform implements TransformModule {
 
         public JsonArray getSelect() {
             return select;
+        }
+
+        public String getFlattenField() {
+            return flattenField;
         }
 
         public List<String> getFields() {
@@ -110,13 +115,17 @@ public class FilterTransform implements TransformModule {
 
             final DataType outputType = input.getDataType();
             final List<SelectFunction> selectFunctions = SelectFunction.of(parameters.getSelect(), input.getSchema().getFields(), outputType);
+            Schema selectFunctionsOutputSchema = SelectFunction.createSchema(selectFunctions);
+            if(parameters.getFlattenField() != null) {
+                selectFunctionsOutputSchema = SelectFunction.createFlattenSchema(selectFunctionsOutputSchema, parameters.getFlattenField());
+            }
 
             switch (input.getDataType()) {
                 case ROW -> {
                     final FCollection<Row> inputCollection = (FCollection<Row>) input;
                     Schema schema;
                     if(useSelect) {
-                        schema = SelectFunction.createSchema(selectFunctions);
+                        schema = selectFunctionsOutputSchema;
                     } else if(useFields) {
                         schema = RowSchemaUtil.selectFields(inputCollection.getSchema(), parameters.getFields());
                     } else {
@@ -148,7 +157,7 @@ public class FilterTransform implements TransformModule {
                     final FCollection<GenericRecord> inputCollection = (FCollection<GenericRecord>) input;
                     org.apache.avro.Schema schema;
                     if(useSelect) {
-                        schema = RowToRecordConverter.convertSchema(SelectFunction.createSchema(selectFunctions));
+                        schema = RowToRecordConverter.convertSchema(selectFunctionsOutputSchema);
                     } else if(useFields) {
                         schema = AvroSchemaUtil.selectFields(inputCollection.getAvroSchema(), parameters.getFields());
                     } else {
@@ -175,7 +184,7 @@ public class FilterTransform implements TransformModule {
                     final FCollection<Struct> inputCollection = (FCollection<Struct>) input;
                     Type type;
                     if(useSelect) {
-                        type = RowToMutationConverter.convertSchema(SelectFunction.createSchema(selectFunctions));
+                        type = RowToMutationConverter.convertSchema(selectFunctionsOutputSchema);
                     } else if(useFields) {
                         type = StructSchemaUtil.selectFields(inputCollection.getSpannerType(), parameters.getFields());
                     } else {
@@ -201,7 +210,7 @@ public class FilterTransform implements TransformModule {
                     final FCollection<Document> inputCollection = (FCollection<Document>) input;
                     Schema schema;
                     if(useSelect) {
-                        schema = SelectFunction.createSchema(selectFunctions);
+                        schema = selectFunctionsOutputSchema;
                     } else if(useFields) {
                         schema = RowSchemaUtil.selectFields(inputCollection.getSchema(), parameters.getFields());
                     } else {
@@ -232,7 +241,7 @@ public class FilterTransform implements TransformModule {
                     final FCollection<Entity> inputCollection = (FCollection<Entity>) input;
                     Schema schema;
                     if(useSelect) {
-                        schema = SelectFunction.createSchema(selectFunctions);
+                        schema = selectFunctionsOutputSchema;
                     } else if(useFields) {
                         schema = RowSchemaUtil.selectFields(inputCollection.getSchema(), parameters.getFields());
                     } else {
@@ -320,7 +329,8 @@ public class FilterTransform implements TransformModule {
                         .of(new FieldsDoFn<>(inputSchema, schemaConverter, selector, reversedRenameFields)));
             } else {
                 return filtered.apply("Select", ParDo
-                        .of(new SelectDoFn<>(inputSchema, schemaConverter, valueCreator, inputType, inputType, selectFunctions)));
+                        .of(new SelectDoFn<>(inputSchema, schemaConverter, valueCreator, inputType, inputType,
+                                selectFunctions, parameters.getFlattenField())));
             }
 
         }
@@ -361,6 +371,7 @@ public class FilterTransform implements TransformModule {
             private final DataType inputType;
             private final DataType outputType;
             private final List<SelectFunction> selectFunctions;
+            private final String flattenField;
 
             private transient RuntimeSchemaT schema;
 
@@ -369,7 +380,8 @@ public class FilterTransform implements TransformModule {
                        final SchemaUtil.ValueCreator<RuntimeSchemaT, T> valueCreator,
                        final DataType inputType,
                        final DataType outputType,
-                       final List<SelectFunction> selectFunctions) {
+                       final List<SelectFunction> selectFunctions,
+                       final String flattenField) {
 
                 this.inputSchema = inputSchema;
                 this.schemaConverter = schemaConverter;
@@ -377,6 +389,7 @@ public class FilterTransform implements TransformModule {
                 this.inputType = inputType;
                 this.outputType = outputType;
                 this.selectFunctions = selectFunctions;
+                this.flattenField = flattenField;
             }
 
             @Setup
@@ -391,8 +404,18 @@ public class FilterTransform implements TransformModule {
             public void processElement(ProcessContext c) {
                 final T element = c.element();
                 final Map<String, Object> values = SelectFunction.apply(selectFunctions, element, inputType, outputType, c.timestamp());
-                final T output = valueCreator.create(schema, values);
-                c.output(output);
+                if(flattenField == null) {
+                    final T output = valueCreator.create(schema, values);
+                    c.output(output);
+                } else {
+                    final List<?> flattenList = Optional.ofNullable((List<?>) values.get(flattenField)).orElseGet(ArrayList::new);
+                    for(final Object value : flattenList) {
+                        final Map<String, Object> flattenValues = new HashMap<>(values);
+                        flattenValues.put(flattenField, value);
+                        final T output = valueCreator.create(schema, flattenValues);
+                        c.output(output);
+                    }
+                }
             }
         }
 

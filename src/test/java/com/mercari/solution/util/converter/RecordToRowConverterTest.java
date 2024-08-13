@@ -21,7 +21,7 @@ public class RecordToRowConverterTest {
                 .name("jsonField").type(AvroSchemaUtil.NULLABLE_JSON).noDefault()
                 .name("intField").doc("this is int field").type(AvroSchemaUtil.REQUIRED_INT).withDefault(0)
                 .name("longField").doc("this is long field").type(AvroSchemaUtil.REQUIRED_LONG).withDefault(0L)
-                .name("booleanField").doc("this is boolean field").type(AvroSchemaUtil.NULLABLE_BOOLEAN).withDefault(false)
+                .name("booleanField").doc("this is boolean field").type(AvroSchemaUtil.REQUIRED_BOOLEAN).withDefault(false)
                 .name("decimalField").doc("this is decimal field").type(AvroSchemaUtil.NULLABLE_LOGICAL_DECIMAL_TYPE).noDefault()
                 .name("floatField").doc("this is float field").type(AvroSchemaUtil.NULLABLE_FLOAT).noDefault()
                 .name("doubleField").doc("this is double field").type(AvroSchemaUtil.NULLABLE_DOUBLE).noDefault()
@@ -75,7 +75,7 @@ public class RecordToRowConverterTest {
         Assert.assertEquals(0L, (long)longField.getOptions().getValue("defaultVal"));
 
         final org.apache.beam.sdk.schemas.Schema.Field booleanField = outputSchema.getField("booleanField");
-        Assert.assertEquals(org.apache.beam.sdk.schemas.Schema.FieldType.BOOLEAN.withNullable(true), booleanField.getType());
+        Assert.assertEquals(org.apache.beam.sdk.schemas.Schema.FieldType.BOOLEAN, booleanField.getType());
         Assert.assertEquals("this is boolean field", booleanField.getDescription());
         Assert.assertEquals(4, (int)booleanField.getOptions().getValue("pos"));
         Assert.assertEquals("ASCENDING", booleanField.getOptions().getValue("order"));
