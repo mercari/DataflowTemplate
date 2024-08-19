@@ -1,11 +1,13 @@
 package com.mercari.solution.module.sink;
 
+import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.gson.Gson;
 import com.mercari.solution.config.SinkConfig;
 import com.mercari.solution.module.FCollection;
 import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.converter.ToStatementConverter;
 import com.mercari.solution.util.gcp.JdbcUtil;
+import com.mercari.solution.util.gcp.SecretManagerUtil;
 import org.apache.beam.sdk.coders.ListCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.jdbc.JdbcIO;
@@ -124,6 +126,19 @@ public class JdbcSink implements SinkModule {
                 keyFields = new ArrayList<>();
             }
         }
+
+        public void replaceParameters() {
+            if(SecretManagerUtil.isSecretName(user) || SecretManagerUtil.isSecretName(password)) {
+                try(final SecretManagerServiceClient secretClient = SecretManagerUtil.createClient()) {
+                    if(SecretManagerUtil.isSecretName(user)) {
+                        user = SecretManagerUtil.getSecret(secretClient, user).toStringUtf8();
+                    }
+                    if(SecretManagerUtil.isSecretName(password)) {
+                        password = SecretManagerUtil.getSecret(secretClient, password).toStringUtf8();
+                    }
+                }
+            }
+        }
     }
 
     public String getName() { return "jdbc"; }
@@ -147,6 +162,7 @@ public class JdbcSink implements SinkModule {
         final JdbcSinkParameters parameters = new Gson().fromJson(config.getParameters(), JdbcSinkParameters.class);
         parameters.validate();
         parameters.setDefaults();
+        parameters.replaceParameters();
 
         final JdbcWrite write = switch (collection.getDataType()) {
             case AVRO -> new JdbcWrite<>(collection, parameters, ToStatementConverter::convertRecord);
