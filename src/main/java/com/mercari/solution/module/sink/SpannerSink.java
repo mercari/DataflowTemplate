@@ -957,7 +957,9 @@ public class SpannerSink implements SinkModule {
 
             @Teardown
             public void teardown() {
-                this.spanner.close();
+                if(this.spanner != null) {
+                    this.spanner.close();
+                }
             }
 
             private List<String> createDDLs(org.apache.avro.Schema schema) {
@@ -1876,7 +1878,9 @@ public class SpannerSink implements SinkModule {
 
         @Teardown
         public void teardown() {
-            this.spanner.close();
+            if(this.spanner != null) {
+                this.spanner.close();
+            }
         }
     }
 
@@ -1931,7 +1935,9 @@ public class SpannerSink implements SinkModule {
         @Teardown
         public void teardown() {
             LOG.info("SpannerSink: " + name + " teardown");
-            this.spanner.close();
+            if(this.spanner != null) {
+                this.spanner.close();
+            }
         }
 
     }

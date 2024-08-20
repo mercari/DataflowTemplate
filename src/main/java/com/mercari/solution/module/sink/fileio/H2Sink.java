@@ -162,10 +162,12 @@ public class H2Sink implements FileIO.Sink<UnionValue> {
     }
 
     private void teardown() {
-        try {
-            this.connection.close();
-        } catch (SQLException e) {
-            throw new IllegalStateException("Failed to close connection", e);
+        if(this.connection != null) {
+            try {
+                this.connection.close();
+            } catch (SQLException e) {
+                throw new IllegalStateException("Failed to close connection", e);
+            }
         }
     }
 

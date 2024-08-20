@@ -865,7 +865,9 @@ public class SpannerSource implements SourceModule {
 
             @Teardown
             public void teardown() {
-                this.spanner.close();
+                if(this.spanner != null) {
+                    this.spanner.close();
+                }
                 LOG.info("ReadStructSpannerDoFn.teardown");
             }
 

@@ -421,7 +421,9 @@ public class JdbcSource implements SourceModule {
 
             @Teardown
             public void teardown() throws SQLException {
-                this.connection.close();
+                if(this.connection != null) {
+                    this.connection.close();
+                }
             }
 
             @ProcessElement
@@ -642,7 +644,9 @@ public class JdbcSource implements SourceModule {
             }
 
             protected void teardown() throws SQLException {
-                this.connection.close();
+                if(this.connection != null) {
+                    this.connection.close();
+                }
             }
 
             protected void process(
