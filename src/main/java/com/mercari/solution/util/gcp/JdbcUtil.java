@@ -19,6 +19,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -58,7 +62,7 @@ public class JdbcUtil {
             "OF","ON","OR","ORDER","OUTER","OVER","PARTITION","PRECEDING","PROTO","RANGE");
 
 
-    public static DataSource createDataSource(
+    public static CloseableDataSource createDataSource(
             final String driverClassName,
             final String url,
             final String username,
@@ -67,7 +71,7 @@ public class JdbcUtil {
         return createDataSource(driverClassName, url, username, password, false);
     }
 
-    public static DataSource createDataSource(
+    public static CloseableDataSource createDataSource(
             final String driverClassName,
             final String url,
             final String username,
@@ -93,7 +97,7 @@ public class JdbcUtil {
         poolableConnectionFactory.setPool(connectionPool);
         poolableConnectionFactory.setDefaultAutoCommit(false);
         poolableConnectionFactory.setDefaultReadOnly(readOnly);
-        return new PoolingDataSource(connectionPool);
+        return new CloseableDataSource(new PoolingDataSource(connectionPool));
     }
 
     public static Schema createAvroSchemaFromQuery(
@@ -1578,4 +1582,63 @@ public class JdbcUtil {
 
     }
 
+    public static class CloseableDataSource implements DataSource, AutoCloseable {
+        private final DataSource dataSource;
+
+        public CloseableDataSource(DataSource dataSource) {
+            this.dataSource = dataSource;
+        }
+
+        @Override
+        public java.util.logging.Logger getParentLogger() throws SQLFeatureNotSupportedException {
+            return this.dataSource.getParentLogger();
+        }
+
+        @Override
+        public boolean isWrapperFor(Class<?> iface) throws SQLException {
+            return this.dataSource.isWrapperFor(iface);
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) throws SQLException {
+            return this.dataSource.unwrap(iface);
+        }
+
+        @Override
+        public void close() throws IOException {
+            if(this.dataSource instanceof Closeable) {
+                ((Closeable)this.dataSource).close();
+            }
+        }
+
+        @Override
+        public Connection getConnection() throws SQLException {
+            return this.dataSource.getConnection();
+        }
+
+        @Override
+        public Connection getConnection(String username, String password) throws SQLException {
+            return this.dataSource.getConnection(username, password);
+        }
+
+        @Override
+        public PrintWriter getLogWriter() throws SQLException {
+            return this.dataSource.getLogWriter();
+        }
+
+        @Override
+        public int getLoginTimeout() throws SQLException {
+            return this.dataSource.getLoginTimeout();
+        }
+
+        @Override
+        public void setLogWriter(PrintWriter out) throws SQLException {
+            this.dataSource.setLogWriter(out);
+        }
+
+        @Override
+        public void setLoginTimeout(int seconds) throws SQLException {
+            this.dataSource.setLoginTimeout(seconds);
+        }
+    }
 }

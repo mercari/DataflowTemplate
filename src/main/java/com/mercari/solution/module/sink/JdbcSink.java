@@ -16,7 +16,7 @@ import org.apache.beam.sdk.values.PCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
+import java.io.IOException;
 import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -258,7 +258,7 @@ public class JdbcSink implements SinkModule {
         private final int batchSize;
         private final JdbcIO.PreparedStatementSetter<T> setter;
 
-        private transient DataSource dataSource;
+        private transient JdbcUtil.CloseableDataSource dataSource;
         private transient Connection connection = null;
         private transient PreparedStatement preparedStatement;
 
@@ -279,6 +279,11 @@ public class JdbcSink implements SinkModule {
         @Setup
         public void setup() {
             this.dataSource = JdbcUtil.createDataSource(driver, url, user, password);
+        }
+
+        @Teardown
+        public void teardown() throws Exception {
+            cleanUpDataSource();
         }
 
         @StartBundle
@@ -327,27 +332,33 @@ public class JdbcSink implements SinkModule {
             }
         }
 
-        @Override
-        protected void finalize() throws Throwable {
-            cleanUpStatementAndConnection();
+        private void cleanUpStatementAndConnection() throws Exception {
+            if (preparedStatement != null) {
+                try {
+                    preparedStatement.close();
+                } finally {
+                    preparedStatement = null;
+                }
+            }
+
+            if(connection != null) {
+                try {
+                    connection.close();
+                } finally {
+                    connection = null;
+                }
+            }
         }
 
-        private void cleanUpStatementAndConnection() throws Exception {
-            try {
-                if (preparedStatement != null) {
-                    try {
-                        preparedStatement.close();
-                    } finally {
-                        preparedStatement = null;
-                    }
-                }
-            } finally {
-                if (connection != null) {
-                    try {
-                        connection.close();
-                    } finally {
-                        connection = null;
-                    }
+        private void cleanUpDataSource() throws Exception {
+            cleanUpStatementAndConnection();
+
+            if(dataSource != null) {
+                try {
+                    dataSource.close();
+                } catch (IOException e) {
+                } finally {
+                    dataSource = null;
                 }
             }
         }
@@ -376,12 +387,14 @@ public class JdbcSink implements SinkModule {
                 c.output("ok");
                 return;
             }
-            try(final Connection connection = JdbcUtil.createDataSource(driver, url, user, password).getConnection()) {
-                for(final String sql : ddl) {
-                    LOG.info("ExecuteDDL: " + sql);
-                    connection.createStatement().executeUpdate(sql);
-                    connection.commit();
-                    LOG.info("ExecutedDDL: " + sql);
+            try(final JdbcUtil.CloseableDataSource dataSource = JdbcUtil.createDataSource(driver, url, user, password)) {
+                try(final Connection connection = dataSource.getConnection()) {
+                    for(final String sql : ddl) {
+                        LOG.info("ExecuteDDL: " + sql);
+                        connection.createStatement().executeUpdate(sql);
+                        connection.commit();
+                        LOG.info("ExecutedDDL: " + sql);
+                    }
                 }
             }
             c.output("ok");
