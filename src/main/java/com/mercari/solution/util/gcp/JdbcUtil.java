@@ -3,6 +3,8 @@ package com.mercari.solution.util.gcp;
 import com.mercari.solution.util.DateTimeUtil;
 import com.mercari.solution.util.schema.AvroSchemaUtil;
 import com.mercari.solution.util.converter.ResultSetToRecordConverter;
+import com.mercari.solution.util.sql.stmt.PreparedStatementTemplate;
+import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.reflect.Nullable;
@@ -32,6 +34,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 
 public class JdbcUtil {
@@ -108,9 +111,10 @@ public class JdbcUtil {
             final String query,
             final List<String> prepareCalls) throws Exception {
 
-        final DataSource source = createDataSource(driverClassName, url, username, password, true);
-        try(final Connection connection = source.getConnection()) {
-            return createAvroSchemaFromQuery(connection, query, prepareCalls);
+        try(final CloseableDataSource source = createDataSource(driverClassName, url, username, password, true)) {
+            try(final Connection connection = source.getConnection()) {
+                return createAvroSchemaFromQuery(connection, query, prepareCalls);
+            }
         }
     }
 
@@ -168,92 +172,245 @@ public class JdbcUtil {
         return sb.toString();
     }
 
-    public static String createStatement(final String table, final Schema schema,
+    public static PreparedStatementTemplate createStatement(final String table, final Schema schema,
                                          final OP op, final DB db,
                                          final List<String> keyFields) {
 
-        final StringBuilder sb;
-        if(OP.DELETE.equals(op)) {
-            /*
-            sb = new StringBuilder("DELETE FROM " + table + " WHERE ");
-            for(final String keyField : keyFields) {
-                sb.append(keyField);
-                sb.append("=? AND ");
-            }
-            sb.append("TRUE");
-            return sb.toString();
-            */
+        if(op.equals(OP.DELETE)) {
             throw new IllegalArgumentException("jdbc module does not support DELETE op.");
-        } else {
-            sb = new StringBuilder("INSERT INTO " + table + " (");
         }
-        for(final Schema.Field field : schema.getFields()) {
-            sb.append(field.name());
-            sb.append(",");
-        }
-        sb.deleteCharAt(sb.length() - 1);
-        sb.append(")");
 
-        sb.append(" VALUES(");
-        schema.getFields().forEach(f -> sb.append("?,"));
-        sb.deleteCharAt(sb.length() - 1);
-        sb.append(")");
-
-        if(op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING)) {
-            switch (db) {
-                case MYSQL -> {
-                    sb.append(" ON DUPLICATE KEY UPDATE ");
-                    if(op.equals(OP.INSERT_OR_DONOTHING)) {
-                        for (final String keyField : keyFields) {
-                            sb.append("`").append(keyField).append("`=VALUES(`").append(keyField).append("`),");
-                        }
-                    } else {
-                        for (final Schema.Field field : schema.getFields()) {
-                            if (keyFields.contains(field.name())) {
-                                continue;
-                            }
-                            sb.append("`").append(field.name()).append("`=VALUES(`").append(field.name()).append("`),");
-                        }
-                    }
-                    sb.deleteCharAt(sb.length() - 1);
-                }
-                case POSTGRESQL -> {
-                    sb.append(" ON CONFLICT (");
-                    for (final String keyField : keyFields) {
-                        sb.append(keyField);
-                        sb.append(",");
-                    }
-                    sb.deleteCharAt(sb.length() - 1);
-                    if(op.equals(OP.INSERT_OR_DONOTHING)) {
-                        sb.append(") DO NOTHING");
-                    } else {
-                        /*
-                        sb.append(") DO UPDATE SET ");
-                        for (final Schema.Field field : schema.getFields()) {
-                            if(keyFields.contains(field.name())) {
-                                continue;
-                            }
-                            sb.append(field.name() + "'" + field.name() + "'),");
-                        }
-                        sb.deleteCharAt(sb.length() - 1);
-                        */
-                        throw new IllegalArgumentException("jdbc module does not support PostgreSQL INSERT_OR_UPDATE op.");
-                    }
-                }
-                case H2 -> {
-                    if(op.equals(OP.INSERT_OR_DONOTHING)) {
-                        sb.append(") DO NOTHING");
-                    } else {
-                        sb.replace(0, 6, "MERGE");
-                    }
-                }
-                case SQLSERVER -> {
-
-                }
+        switch (db) {
+            case MYSQL -> {
+                return createMySQLStatement(table, schema, op, keyFields);
             }
+            case POSTGRESQL -> {
+                return createPostgreSQLStatement(table, schema, op, keyFields);
+            }
+            case H2 -> {
+                return createH2Statement(table, schema, op, keyFields);
+            }
+            case SQLSERVER -> {
+                return createSQLServerStatement(table, schema, op, keyFields);
+            }
+            default -> throw new IllegalArgumentException("Not supported database: " + db);
+        }
+    }
+
+    private static PreparedStatementTemplate createMySQLStatement(final String table, final Schema schema,
+                                         final OP op, final List<String> keyFields) {
+
+        final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
+
+        sb.appendString("INSERT INTO ").appendString(table);
+
+        sb.appendString(" (");
+        schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+        sb.removeLast();
+        sb.appendString(")");
+
+        sb.appendString(" VALUES (");
+        IntStream.range(0, schema.getFields().size()).forEach(
+            i -> sb.appendPlaceholder(i + 1).appendString(",")
+        );
+        sb.removeLast();
+        sb.appendString(")");
+
+        if(op.equals(OP.INSERT_OR_UPDATE)) {
+            sb.appendString(" ON DUPLICATE KEY UPDATE ");
+            schema.getFields().forEach(f -> {
+                if (keyFields.contains(f.name())) return;
+
+                sb.appendBackQuoted(f.name()).appendString(" = VALUES(").appendBackQuoted(f.name()).appendString(")");
+                sb.appendString(",");
+            });
+            sb.removeLast();
+        } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
+            sb.appendString(" ON DUPLICATE KEY UPDATE ");
+            keyFields.forEach(f -> {
+                sb.appendBackQuoted(f).appendString(" = VALUES(").appendBackQuoted(f).appendString(")");
+                sb.appendString(",");
+            });
+            sb.removeLast();
         }
 
-        return sb.toString();
+        return sb.build();
+    }
+
+    private static void appendPostgreSQLTypedPlaceholder(PreparedStatementTemplate.Builder sb, int index , Schema.Field field) {
+        sb.appendPlaceholder(index);
+
+         if (field.schema().getType() == Schema.Type.UNION) {
+             if (
+                 field.schema().equals(AvroSchemaUtil.NULLABLE_LOGICAL_DATE_TYPE) ||
+                 field.schema().equals(AvroSchemaUtil.REQUIRED_LOGICAL_DATE_TYPE)
+             ) {
+                 sb.appendString("::date");
+             } else if (
+                 field.schema().equals(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MICRO_TYPE) ||
+                 field.schema().equals(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE) ||
+                 field.schema().equals(AvroSchemaUtil.NULLABLE_LOGICAL_TIMESTAMP_MILLI_TYPE) ||
+                 field.schema().equals(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MILLI_TYPE)
+             ) {
+                 sb.appendString("::timestamp");
+             }
+         } else {
+             LogicalType logicalType = field.schema().getLogicalType();
+             if (logicalType != null) {
+                 if (logicalType.equals(LogicalTypes.date())) {
+                     sb.appendString("::date");
+                 } else if (logicalType.equals(LogicalTypes.timestampMicros()) ||
+                         logicalType.equals(LogicalTypes.timestampMillis())) {
+                     sb.appendString("::timestamp");
+                 }
+             }
+         }
+    }
+
+    private static PreparedStatementTemplate createPostgreSQLStatement(final String table, final Schema schema,
+                                         final OP op, final List<String> keyFields) {
+
+        final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
+
+        if (op.equals(OP.INSERT)) {
+            sb.appendString("INSERT INTO ").appendString(table);
+
+            sb.appendString(" (");
+            schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(")");
+
+            sb.appendString(" VALUES (");
+            IntStream.range(0, schema.getFields().size()).forEach(i -> {
+                appendPostgreSQLTypedPlaceholder(sb, i + 1, schema.getFields().get(i));
+                sb.appendString(",");
+            });
+            sb.removeLast();
+            sb.appendString(")");
+        } else if (op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING)) {
+            sb.appendString("MERGE INTO ");
+            sb.appendString(table);
+
+            sb.appendString(" USING (VALUES (");
+            IntStream.range(0, schema.getFields().size()).forEach(i -> {
+                    appendPostgreSQLTypedPlaceholder(sb, i + 1, schema.getFields().get(i));
+                    sb.appendString(",");
+                }
+            );
+            sb.removeLast();
+            sb.appendString("))");
+
+            sb.appendString(" AS item (");
+            schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(") ON ");
+
+            keyFields.forEach(f -> {
+                sb.appendString("item.").appendString(f).appendString(" = ").appendString(table).appendString(".").appendString(f);
+                sb.appendString(" AND ");
+            });
+            sb.removeLast();
+
+            sb.appendString(" WHEN MATCHED THEN ");
+
+            if (op.equals(OP.INSERT_OR_DONOTHING)) {
+                sb.appendString("DO NOTHING");
+            } else {
+                sb.appendString("UPDATE SET ");
+                schema.getFields().forEach(f -> {
+                    if (keyFields.contains(f.name())) return;
+
+                    sb.appendString(f.name()).appendString(" = item.").appendString(f.name());
+                    sb.appendString(",");
+                });
+                sb.removeLast();
+            }
+
+            sb.appendString(" WHEN NOT MATCHED THEN ");
+
+            sb.appendString("INSERT (");
+            schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(") VALUES (");
+            schema.getFields().forEach(f -> sb.appendString("item.").appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(")");
+        }
+
+        return sb.build();
+    }
+
+    private static PreparedStatementTemplate createH2Statement(final String table, final Schema schema,
+                                         final OP op, final List<String> keyFields) {
+
+        final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
+
+        if(op.equals(OP.INSERT)) {
+            sb.appendString("INSERT INTO ").appendString(table);
+
+            sb.appendString(" (");
+            schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(")");
+
+            sb.appendString(" VALUES (");
+            IntStream.range(0, schema.getFields().size()).forEach(
+                i -> sb.appendPlaceholder(i + 1).appendString(",")
+            );
+            sb.removeLast();
+            sb.appendString(")");
+        } else if(op.equals(OP.INSERT_OR_UPDATE)) {
+            sb.appendString("MERGE INTO ").appendString(table);
+
+            sb.appendString(" (");
+            schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(")");
+
+            sb.appendString(" KEY (");
+            keyFields.forEach(f -> sb.appendString(f).appendString(","));
+            sb.removeLast();
+            sb.appendString(")");
+
+            sb.appendString(" VALUES (");
+            IntStream.range(0, schema.getFields().size()).forEach(
+                i -> sb.appendPlaceholder(i + 1).appendString(",")
+            );
+            sb.removeLast();
+            sb.appendString(")");
+        } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
+            throw new IllegalArgumentException("H2 does not support INSERT_OR_DONOTHING.");
+        }
+
+        return sb.build();
+    }
+
+    private static PreparedStatementTemplate createSQLServerStatement(final String table, final Schema schema,
+                                         final OP op, final List<String> keyFields) {
+
+        final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
+
+        if(op.equals(OP.INSERT)) {
+            sb.appendString("INSERT INTO ").appendString(table);
+
+            sb.appendString(" (");
+            schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
+            sb.removeLast();
+            sb.appendString(")");
+
+            sb.appendString(" VALUES (");
+            IntStream.range(0, schema.getFields().size()).forEach(
+                i -> sb.appendPlaceholder(i + 1).appendString(",")
+            );
+            sb.removeLast();
+            sb.appendString(")");
+        } else if(op.equals(OP.INSERT_OR_UPDATE)) {
+            throw new IllegalArgumentException("SQLServer does not support INSERT_OR_UPDATE.");
+        } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
+            throw new IllegalArgumentException("SQLServer does not support INSERT_OR_DONOTHING.");
+        }
+
+        return sb.build();
     }
 
     public static void setStatement(final PreparedStatement statement,
