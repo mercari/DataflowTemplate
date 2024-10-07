@@ -8,9 +8,10 @@ import com.mercari.solution.module.SinkModule;
 import com.mercari.solution.util.converter.ToStatementConverter;
 import com.mercari.solution.util.gcp.JdbcUtil;
 import com.mercari.solution.util.gcp.SecretManagerUtil;
+import com.mercari.solution.util.sql.stmt.PreparedStatementTemplate;
+import com.mercari.solution.util.sql.stmt.PreparedStatementSetter;
 import org.apache.beam.sdk.coders.ListCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.PCollection;
 import org.slf4j.Logger;
@@ -186,12 +187,12 @@ public class JdbcSink implements SinkModule {
         private FCollection<?> inputCollection;
         private final JdbcSinkParameters parameters;
 
-        private final JdbcIO.PreparedStatementSetter<InputT> formatter;
+        private final PreparedStatementSetter<InputT> formatter;
 
         private JdbcWrite(
                 final FCollection<?> inputCollection,
                 final JdbcSinkParameters parameters,
-                final JdbcIO.PreparedStatementSetter<InputT> formatter) {
+                final PreparedStatementSetter<InputT> formatter) {
 
             this.inputCollection = inputCollection;
             this.parameters = parameters;
@@ -226,14 +227,14 @@ public class JdbcSink implements SinkModule {
                         .setCoder(input.getCoder());
             }
 
-            final String statementString = JdbcUtil.createStatement(
+            final PreparedStatementTemplate statementTemplate = JdbcUtil.createStatement(
                     parameters.getTable(), inputCollection.getAvroSchema(),
                     JdbcUtil.OP.valueOf(parameters.getOp()), db,
                     parameters.getKeyFields());
 
             return tableReady.apply("WriteJdbc", ParDo.of(new WriteDoFn<>(
                     parameters.getDriver(), parameters.getUrl(), parameters.getUser(), parameters.getPassword(),
-                    statementString, parameters.getBatchSize(), formatter)));
+                    statementTemplate, parameters.getBatchSize(), formatter)));
         }
 
         private JdbcUtil.DB getDB(final String driver) {
@@ -254,9 +255,9 @@ public class JdbcSink implements SinkModule {
         private final String url;
         private final String user;
         private final String password;
-        private final String statement;
+        private final PreparedStatementTemplate statementTemplate;
         private final int batchSize;
-        private final JdbcIO.PreparedStatementSetter<T> setter;
+        private final PreparedStatementSetter<T> setter;
 
         private transient JdbcUtil.CloseableDataSource dataSource;
         private transient Connection connection = null;
@@ -265,12 +266,12 @@ public class JdbcSink implements SinkModule {
         private transient int bufferSize;
 
         public WriteDoFn(final String driver, final String url, final String user, final String password,
-                         final String statement, final int batchSize, final JdbcIO.PreparedStatementSetter<T> setter) {
+                         final PreparedStatementTemplate statementTemplate, final int batchSize, final PreparedStatementSetter<T> setter) {
             this.driver = driver;
             this.url = url;
             this.user = user;
             this.password = password;
-            this.statement = statement;
+            this.statementTemplate = statementTemplate;
             this.batchSize = batchSize;
             this.setter = setter;
         }
@@ -291,7 +292,7 @@ public class JdbcSink implements SinkModule {
             if (connection == null) {
                 connection = dataSource.getConnection();
                 connection.setAutoCommit(false);
-                preparedStatement = connection.prepareStatement(statement);
+                preparedStatement = connection.prepareStatement(statementTemplate.getStatementString());
             }
             bufferSize = 0;
         }
@@ -300,7 +301,7 @@ public class JdbcSink implements SinkModule {
         public void processElement(ProcessContext c) throws Exception {
             try {
                 preparedStatement.clearParameters();
-                setter.setParameters(c.element(), preparedStatement);
+                setter.setParameters(c.element(), this.statementTemplate.createPlaceholderSetterProxy(preparedStatement));
                 preparedStatement.addBatch();
                 bufferSize += 1;
 
