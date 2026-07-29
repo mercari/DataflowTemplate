@@ -198,22 +198,37 @@ public class JdbcUtil {
     public static PreparedStatementTemplate createStatement(final String table, final Schema schema,
                                          final OP op, final DB db,
                                          final List<String> keyFields) {
+        return createStatement(table, schema, op, db, keyFields, 1);
+    }
+
+    public static PreparedStatementTemplate createStatement(final String table, final Schema schema,
+                                         final OP op, final DB db,
+                                         final List<String> keyFields,
+                                         final int bulkInsertSize) {
 
         if(op.equals(OP.DELETE)) {
             throw new IllegalArgumentException("jdbc module does not support DELETE op.");
         }
+        if((op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING))
+                && (keyFields == null || keyFields.isEmpty())) {
+            throw new IllegalArgumentException("keyFields must not be empty for op: " + op);
+        }
+        if(bulkInsertSize < 1) {
+            throw new IllegalArgumentException("bulkInsertSize must be greater than or equal to 1.");
+        }
 
         return switch (db) {
-            case MYSQL -> createMySQLStatement(table, schema, op, keyFields);
-            case POSTGRESQL -> createPostgreSQLStatement(table, schema, op, keyFields);
-            case H2 -> createH2Statement(table, schema, op, keyFields);
-            case SQLSERVER -> createSQLServerStatement(table, schema, op, keyFields);
+            case MYSQL -> createMySQLStatement(table, schema, op, keyFields, bulkInsertSize);
+            case POSTGRESQL -> createPostgreSQLStatement(table, schema, op, keyFields, bulkInsertSize);
+            case H2 -> createH2Statement(table, schema, op, keyFields, bulkInsertSize);
+            case SQLSERVER -> createSQLServerStatement(table, schema, op, keyFields, bulkInsertSize);
             default -> throw new IllegalArgumentException("Not supported database: " + db);
         };
     }
 
     private static PreparedStatementTemplate createMySQLStatement(final String table, final Schema schema,
-                                         final OP op, final List<String> keyFields) {
+                                         final OP op, final List<String> keyFields,
+                                         final int bulkInsertSize) {
 
         final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
 
@@ -224,12 +239,16 @@ public class JdbcUtil {
         sb.removeLast();
         sb.appendString(")");
 
-        sb.appendString(" VALUES (");
-        IntStream.range(0, schema.getFields().size()).forEach(
-            i -> sb.appendPlaceholder(i + 1).appendString(",")
-        );
+        sb.appendString(" VALUES ");
+        IntStream.range(0, bulkInsertSize).forEach(rowIndex -> {
+            sb.appendString("(");
+            IntStream.range(0, schema.getFields().size()).forEach(
+                    i -> sb.appendPlaceholder(rowIndex * schema.getFields().size() + i + 1).appendString(",")
+            );
+            sb.removeLast();
+            sb.appendString(")").appendString(",");
+        });
         sb.removeLast();
-        sb.appendString(")");
 
         if(op.equals(OP.INSERT_OR_UPDATE)) {
             sb.appendString(" ON DUPLICATE KEY UPDATE ");
@@ -271,7 +290,8 @@ public class JdbcUtil {
     }
 
     private static PreparedStatementTemplate createPostgreSQLStatement(final String table, final Schema schema,
-                                         final OP op, final List<String> keyFields) {
+                                         final OP op, final List<String> keyFields,
+                                         final int bulkInsertSize) {
 
         final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
 
@@ -283,25 +303,35 @@ public class JdbcUtil {
             sb.removeLast();
             sb.appendString(")");
 
-            sb.appendString(" VALUES (");
-            IntStream.range(0, schema.getFields().size()).forEach(i -> {
-                appendPostgreSQLTypedPlaceholder(sb, i + 1, schema.getFields().get(i));
-                sb.appendString(",");
+            sb.appendString(" VALUES ");
+            IntStream.range(0, bulkInsertSize).forEach(rowIndex -> {
+                sb.appendString("(");
+                IntStream.range(0, schema.getFields().size()).forEach(i -> {
+                    appendPostgreSQLTypedPlaceholder(
+                            sb, rowIndex * schema.getFields().size() + i + 1, schema.getFields().get(i));
+                    sb.appendString(",");
+                });
+                sb.removeLast();
+                sb.appendString(")").appendString(",");
             });
             sb.removeLast();
-            sb.appendString(")");
         } else if (op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING)) {
             sb.appendString("MERGE INTO ");
             sb.appendString(table);
 
-            sb.appendString(" USING (VALUES (");
-            IntStream.range(0, schema.getFields().size()).forEach(i -> {
-                    appendPostgreSQLTypedPlaceholder(sb, i + 1, schema.getFields().get(i));
+            sb.appendString(" USING (VALUES ");
+            IntStream.range(0, bulkInsertSize).forEach(rowIndex -> {
+                sb.appendString("(");
+                IntStream.range(0, schema.getFields().size()).forEach(i -> {
+                    appendPostgreSQLTypedPlaceholder(
+                            sb, rowIndex * schema.getFields().size() + i + 1, schema.getFields().get(i));
                     sb.appendString(",");
-                }
-            );
+                });
+                sb.removeLast();
+                sb.appendString(")").appendString(",");
+            });
             sb.removeLast();
-            sb.appendString("))");
+            sb.appendString(")");
 
             sb.appendString(" AS item (");
             schema.getFields().forEach(f -> sb.appendString(f.name()).appendString(","));
@@ -344,7 +374,8 @@ public class JdbcUtil {
     }
 
     private static PreparedStatementTemplate createH2Statement(final String table, final Schema schema,
-                                         final OP op, final List<String> keyFields) {
+                                         final OP op, final List<String> keyFields,
+                                         final int bulkInsertSize) {
 
         final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
 
@@ -356,12 +387,16 @@ public class JdbcUtil {
             sb.removeLast();
             sb.appendString(")");
 
-            sb.appendString(" VALUES (");
-            IntStream.range(0, schema.getFields().size()).forEach(
-                i -> sb.appendPlaceholder(i + 1).appendString(",")
-            );
+            sb.appendString(" VALUES ");
+            IntStream.range(0, bulkInsertSize).forEach(rowIndex -> {
+                sb.appendString("(");
+                IntStream.range(0, schema.getFields().size()).forEach(
+                        i -> sb.appendPlaceholder(rowIndex * schema.getFields().size() + i + 1).appendString(",")
+                );
+                sb.removeLast();
+                sb.appendString(")").appendString(",");
+            });
             sb.removeLast();
-            sb.appendString(")");
         } else if(op.equals(OP.INSERT_OR_UPDATE)) {
             sb.appendString("MERGE INTO ").appendString(table);
 
@@ -375,12 +410,16 @@ public class JdbcUtil {
             sb.removeLast();
             sb.appendString(")");
 
-            sb.appendString(" VALUES (");
-            IntStream.range(0, schema.getFields().size()).forEach(
-                i -> sb.appendPlaceholder(i + 1).appendString(",")
-            );
+            sb.appendString(" VALUES ");
+            IntStream.range(0, bulkInsertSize).forEach(rowIndex -> {
+                sb.appendString("(");
+                IntStream.range(0, schema.getFields().size()).forEach(
+                        i -> sb.appendPlaceholder(rowIndex * schema.getFields().size() + i + 1).appendString(",")
+                );
+                sb.removeLast();
+                sb.appendString(")").appendString(",");
+            });
             sb.removeLast();
-            sb.appendString(")");
         } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
             throw new IllegalArgumentException("H2 does not support INSERT_OR_DONOTHING.");
         }
@@ -389,7 +428,12 @@ public class JdbcUtil {
     }
 
     private static PreparedStatementTemplate createSQLServerStatement(final String table, final Schema schema,
-                                         final OP op, final List<String> keyFields) {
+                                         final OP op, final List<String> keyFields,
+                                         final int bulkInsertSize) {
+
+        if (op.equals(OP.INSERT) && bulkInsertSize > 1000) {
+            throw new IllegalArgumentException("SQLServer supports at most 1000 records per bulk insert.");
+        }
 
         final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
 
@@ -401,12 +445,16 @@ public class JdbcUtil {
             sb.removeLast();
             sb.appendString(")");
 
-            sb.appendString(" VALUES (");
-            IntStream.range(0, schema.getFields().size()).forEach(
-                i -> sb.appendPlaceholder(i + 1).appendString(",")
-            );
+            sb.appendString(" VALUES ");
+            IntStream.range(0, bulkInsertSize).forEach(rowIndex -> {
+                sb.appendString("(");
+                IntStream.range(0, schema.getFields().size()).forEach(
+                        i -> sb.appendPlaceholder(rowIndex * schema.getFields().size() + i + 1).appendString(",")
+                );
+                sb.removeLast();
+                sb.appendString(")").appendString(",");
+            });
             sb.removeLast();
-            sb.appendString(")");
         } else if(op.equals(OP.INSERT_OR_UPDATE)) {
             throw new IllegalArgumentException("SQLServer does not support INSERT_OR_UPDATE.");
         } else if(op.equals(OP.INSERT_OR_DONOTHING)) {

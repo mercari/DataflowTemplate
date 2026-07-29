@@ -38,6 +38,7 @@ public class JdbcSink extends Sink {
         private Boolean emptyTable;
         private List<String> keyFields;
         private Integer batchSize;
+        private Integer bulkInsertSize;
         private String op;
 
 
@@ -58,6 +59,17 @@ public class JdbcSink extends Sink {
             if(password == null) {
                 errorMessages.add("Parameter must contain password");
             }
+            if(batchSize != null && batchSize < 1) {
+                errorMessages.add("Parameter batchSize must be greater than or equal to 1");
+            }
+            if(bulkInsertSize != null && bulkInsertSize < 1) {
+                errorMessages.add("Parameter bulkInsertSize must be greater than or equal to 1");
+            }
+            if((JdbcUtil.OP.INSERT_OR_UPDATE.name().equals(op)
+                    || JdbcUtil.OP.INSERT_OR_DONOTHING.name().equals(op))
+                    && (keyFields == null || keyFields.isEmpty())) {
+                errorMessages.add("Parameter keyFields must not be empty for op: " + op);
+            }
 
             if(!errorMessages.isEmpty()) {
                 throw new IllegalModuleException(errorMessages);
@@ -76,6 +88,9 @@ public class JdbcSink extends Sink {
             }
             if(batchSize == null) {
                 batchSize = 1000;
+            }
+            if(bulkInsertSize == null) {
+                bulkInsertSize = 1;
             }
             if(keyFields == null) {
                 keyFields = new ArrayList<>();
@@ -139,15 +154,11 @@ public class JdbcSink extends Sink {
                     .setCoder(input.getCoder());
         }
 
-        final PreparedStatementTemplate statementTemplate = JdbcUtil.createStatement(
-                parameters.table, inputSchema.getAvroSchema(),
-                JdbcUtil.OP.valueOf(parameters.op), db,
-                parameters.keyFields);
-
         final PCollection<MElement> results = tableReady
                 .apply("WriteJdbc", ParDo.of(new WriteDoFn(
                         parameters.driver, parameters.url, parameters.user, parameters.password,
-                        statementTemplate, parameters.batchSize)));
+                        parameters.table, inputSchema.getAvroSchema(), JdbcUtil.OP.valueOf(parameters.op), db,
+                        parameters.keyFields, parameters.batchSize, parameters.bulkInsertSize)));
 
         return MCollectionTuple
                 .of(results, Schema.builder().withField("dummy", Schema.FieldType.STRING).build());
@@ -169,34 +180,54 @@ public class JdbcSink extends Sink {
         private final String url;
         private final String user;
         private final String password;
-        private final PreparedStatementTemplate statementTemplate;
+        private final String table;
+        private final org.apache.avro.Schema schema;
+        private final JdbcUtil.OP op;
+        private final JdbcUtil.DB db;
+        private final List<String> keyFields;
         private final int batchSize;
+        private final int bulkInsertSize;
+        private final int fieldSize;
 
         private transient JdbcUtil.CloseableDataSource dataSource;
+        private transient PreparedStatementTemplate statementTemplate;
         private transient Connection connection = null;
         private transient PreparedStatement preparedStatement;
 
-        private transient int bufferSize;
+        private transient List<MElement> elementBuffer;
+        private transient int batchBufferSize;
 
         public WriteDoFn(
                 final String driver,
                 final String url,
                 final String user,
                 final String password,
-                final PreparedStatementTemplate statementTemplate,
-                final int batchSize) {
+                final String table,
+                final org.apache.avro.Schema schema,
+                final JdbcUtil.OP op,
+                final JdbcUtil.DB db,
+                final List<String> keyFields,
+                final int batchSize,
+                final int bulkInsertSize) {
 
             this.driver = driver;
             this.url = url;
             this.user = user;
             this.password = password;
-            this.statementTemplate = statementTemplate;
+            this.table = table;
+            this.schema = schema;
+            this.op = op;
+            this.db = db;
+            this.keyFields = keyFields;
             this.batchSize = batchSize;
+            this.bulkInsertSize = bulkInsertSize;
+            this.fieldSize = schema.getFields().size();
         }
 
 
         @Setup
         public void setup() {
+            this.statementTemplate = createStatementTemplate(bulkInsertSize);
             this.dataSource = JdbcUtil.createDataSource(driver, url, user, password);
         }
 
@@ -212,25 +243,23 @@ public class JdbcSink extends Sink {
                 connection.setAutoCommit(false);
                 preparedStatement = connection.prepareStatement(statementTemplate.getStatementString());
             }
-            bufferSize = 0;
+            elementBuffer = new ArrayList<>(bulkInsertSize);
+            batchBufferSize = 0;
         }
 
         @ProcessElement
         public void processElement(ProcessContext c) throws Exception {
             try {
-                preparedStatement.clearParameters();
-                ToStatementConverter.convertElement(c.element(), this.statementTemplate.createPlaceholderSetterProxy(preparedStatement));
-                preparedStatement.addBatch();
-                bufferSize += 1;
-
-                if (bufferSize >= batchSize) {
-                    preparedStatement.executeBatch();
-                    connection.commit();
-                    bufferSize = 0;
+                elementBuffer.add(c.element());
+                if (elementBuffer.size() >= bulkInsertSize) {
+                    addBufferedElementsToBatch(statementTemplate, preparedStatement, true);
+                    elementBuffer.clear();
                 }
             } catch (SQLException e) {
                 preparedStatement.clearBatch();
                 connection.rollback();
+                elementBuffer.clear();
+                batchBufferSize = 0;
                 throw new RuntimeException(e);
             }
         }
@@ -238,8 +267,17 @@ public class JdbcSink extends Sink {
         @FinishBundle
         public void finishBundle() throws Exception {
             try {
-                if (bufferSize > 0) {
+                boolean flushed = false;
+                if (batchBufferSize > 0) {
                     preparedStatement.executeBatch();
+                    batchBufferSize = 0;
+                    flushed = true;
+                }
+                if (!elementBuffer.isEmpty()) {
+                    executeRemainingElements();
+                    flushed = true;
+                }
+                if (flushed) {
                     connection.commit();
                 }
                 cleanUpStatementAndConnection();
@@ -248,6 +286,44 @@ public class JdbcSink extends Sink {
                 connection.rollback();
                 cleanUpStatementAndConnection();
                 throw new RuntimeException(e);
+            }
+        }
+
+        private void addBufferedElementsToBatch(
+                final PreparedStatementTemplate template,
+                final PreparedStatement statement,
+                final boolean commitOnBatchSize) throws SQLException {
+
+            statement.clearParameters();
+            for (int i = 0; i < elementBuffer.size(); i++) {
+                ToStatementConverter.convertElement(
+                        elementBuffer.get(i),
+                        template.createPlaceholderSetterProxy(statement, i * fieldSize));
+            }
+            statement.addBatch();
+            batchBufferSize += 1;
+
+            if (commitOnBatchSize && batchBufferSize >= batchSize) {
+                statement.executeBatch();
+                connection.commit();
+                batchBufferSize = 0;
+            }
+        }
+
+        private PreparedStatementTemplate createStatementTemplate(final int size) {
+            return JdbcUtil.createStatement(table, schema, op, db, keyFields, size);
+        }
+
+        private void executeRemainingElements() throws SQLException {
+            final PreparedStatementTemplate partialTemplate = createStatementTemplate(elementBuffer.size());
+            try(final PreparedStatement partialStatement = connection.prepareStatement(partialTemplate.getStatementString())) {
+                addBufferedElementsToBatch(partialTemplate, partialStatement, false);
+                if(batchBufferSize > 0) {
+                    partialStatement.executeBatch();
+                    batchBufferSize = 0;
+                }
+            } finally {
+                elementBuffer.clear();
             }
         }
 

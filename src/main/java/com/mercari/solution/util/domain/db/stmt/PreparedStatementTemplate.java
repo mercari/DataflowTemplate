@@ -44,111 +44,121 @@ public class PreparedStatementTemplate implements Serializable {
     }
 
     public PlaceholderSetterProxy createPlaceholderSetterProxy(PreparedStatement preparedStatement) {
-        return new PlaceholderSetterProxy(preparedStatement, this.placeholderMappings);
+        return createPlaceholderSetterProxy(preparedStatement, 0);
+    }
+
+    public PlaceholderSetterProxy createPlaceholderSetterProxy(PreparedStatement preparedStatement, int indexOffset) {
+        return new PlaceholderSetterProxy(preparedStatement, this.placeholderMappings, indexOffset);
     }
 
     public static class PlaceholderSetterProxy {
         private final PreparedStatement preparedStatement;
         private final PlaceholderMappings placeholderMappings;
+        private final int indexOffset;
 
-        PlaceholderSetterProxy(PreparedStatement preparedStatement, PlaceholderMappings placeholderMappings) {
+        PlaceholderSetterProxy(PreparedStatement preparedStatement, PlaceholderMappings placeholderMappings, int indexOffset) {
             this.preparedStatement = preparedStatement;
             this.placeholderMappings = placeholderMappings;
+            this.indexOffset = indexOffset;
+        }
+
+        private List<Integer> getMappedIndices(int index) {
+            return placeholderMappings.getMappings().get(index + indexOffset);
         }
 
         public void setString(int index, String value) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setString(placeholderIndex, value);
             }
         }
 
         public void setShort(int index, short value) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setShort(placeholderIndex, value);
             }
         }
 
         public void setInt(int index, int value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setInt(placeholderIndex, value);
             }
         }
 
         public void setLong(int index, long value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setLong(placeholderIndex, value);
             }
         }
 
         public void setFloat(int index, float value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setFloat(placeholderIndex, value);
             }
         }
 
         public void setDouble(int index, double value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setDouble(placeholderIndex, value);
             }
         }
 
         public void setBigDecimal(int index, BigDecimal value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setBigDecimal(placeholderIndex, value);
             }
         }
 
         public void setBoolean(int index, boolean value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setBoolean(placeholderIndex, value);
             }
         }
 
         public void setTime(int index, Time value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setTime(placeholderIndex, value);
             }
         }
 
         public void setTimestamp(int index, Timestamp value) throws java.sql.SQLException  {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setTimestamp(placeholderIndex, value);
             }
         }
 
         public void setDate(int index, Date value) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setDate(placeholderIndex, value);
             }
         }
 
         public void setNull(int index, int sqlType) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setNull(placeholderIndex, sqlType);
             }
         }
 
         public void setBytes(int index, byte[] value) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setBytes(placeholderIndex, value);
             }
         }
 
         public void setUUID(int index, String value) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 if(value == null) {
                     preparedStatement.setNull(placeholderIndex, Types.OTHER, "uuid");
@@ -160,7 +170,7 @@ public class PreparedStatementTemplate implements Serializable {
         }
 
         public void setObject(int index, Object value) throws java.sql.SQLException {
-            List<Integer> mappedIndices = placeholderMappings.getMappings().get(index);
+            List<Integer> mappedIndices = getMappedIndices(index);
             for (Integer placeholderIndex : mappedIndices) {
                 preparedStatement.setObject(placeholderIndex, value, Types.OTHER);
             }
