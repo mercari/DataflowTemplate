@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -174,6 +176,135 @@ public class JdbcSink extends Sink {
         }
     }
 
+    static class BulkInsertBuffer {
+
+        private final JdbcUtil.OP op;
+        private final List<String> keyFields;
+        private final int capacity;
+        private final List<MElement> elements;
+        private final Map<CompositeKey, Integer> keyIndexes;
+
+        BulkInsertBuffer(final JdbcUtil.OP op, final List<String> keyFields, final int capacity) {
+            this.op = op;
+            this.keyFields = keyFields;
+            this.capacity = capacity;
+            this.elements = new ArrayList<>(capacity);
+            this.keyIndexes = new HashMap<>(capacity);
+        }
+
+        void add(final MElement element) {
+            if (!isUpsert()) {
+                elements.add(element);
+                return;
+            }
+
+            final CompositeKey key = CompositeKey.of(element, keyFields);
+            if (key == null) {
+                // SQL equality does not consider NULL keys equal.
+                elements.add(element);
+                return;
+            }
+
+            final Integer index = keyIndexes.get(key);
+            if (index == null) {
+                keyIndexes.put(key, elements.size());
+                elements.add(element);
+            } else if (JdbcUtil.OP.INSERT_OR_UPDATE.equals(op)) {
+                elements.set(index, element);
+            }
+        }
+
+        MElement get(final int index) {
+            return elements.get(index);
+        }
+
+        int size() {
+            return elements.size();
+        }
+
+        boolean isEmpty() {
+            return elements.isEmpty();
+        }
+
+        boolean isFull() {
+            return elements.size() >= capacity;
+        }
+
+        void clear() {
+            elements.clear();
+            keyIndexes.clear();
+        }
+
+        private boolean isUpsert() {
+            return JdbcUtil.OP.INSERT_OR_UPDATE.equals(op)
+                    || JdbcUtil.OP.INSERT_OR_DONOTHING.equals(op);
+        }
+    }
+
+    private static class CompositeKey {
+
+        private final Object[] values;
+        private final int hashCode;
+
+        private CompositeKey(final Object[] values) {
+            this.values = values;
+            this.hashCode = Arrays.deepHashCode(values);
+        }
+
+        static CompositeKey of(final MElement element, final List<String> keyFields) {
+            final Object[] values = new Object[keyFields.size()];
+            for (int i = 0; i < keyFields.size(); i++) {
+                final Object value = element.getPrimitiveValue(keyFields.get(i));
+                if (value == null) {
+                    return null;
+                }
+                values[i] = normalize(value);
+            }
+            return new CompositeKey(values);
+        }
+
+        private static Object normalize(final Object value) {
+            return switch (value) {
+                case CharSequence sequence -> sequence.toString();
+                case ByteBuffer buffer -> {
+                    final ByteBuffer duplicate = buffer.duplicate();
+                    final byte[] bytes = new byte[duplicate.remaining()];
+                    duplicate.get(bytes);
+                    yield bytes;
+                }
+                case BigDecimal decimal -> decimal.stripTrailingZeros();
+                case byte[] values -> values.clone();
+                case short[] values -> values.clone();
+                case int[] values -> values.clone();
+                case long[] values -> values.clone();
+                case char[] values -> values.clone();
+                case float[] values -> values.clone();
+                case double[] values -> values.clone();
+                case boolean[] values -> values.clone();
+                case Object[] values -> Arrays.stream(values)
+                        .map(CompositeKey::normalize)
+                        .toArray(Object[]::new);
+                default -> value;
+            };
+        }
+
+        @Override
+        public boolean equals(final Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof CompositeKey other)) {
+                return false;
+            }
+            return Arrays.deepEquals(values, other.values);
+        }
+
+        @Override
+        public int hashCode() {
+            return hashCode;
+        }
+    }
+
     private static class WriteDoFn extends DoFn<MElement, MElement> {
 
         private final String driver;
@@ -194,7 +325,7 @@ public class JdbcSink extends Sink {
         private transient Connection connection = null;
         private transient PreparedStatement preparedStatement;
 
-        private transient List<MElement> elementBuffer;
+        private transient BulkInsertBuffer elementBuffer;
         private transient int batchBufferSize;
 
         public WriteDoFn(
@@ -243,7 +374,7 @@ public class JdbcSink extends Sink {
                 connection.setAutoCommit(false);
                 preparedStatement = connection.prepareStatement(statementTemplate.getStatementString());
             }
-            elementBuffer = new ArrayList<>(bulkInsertSize);
+            elementBuffer = new BulkInsertBuffer(op, keyFields, bulkInsertSize);
             batchBufferSize = 0;
         }
 
@@ -251,7 +382,7 @@ public class JdbcSink extends Sink {
         public void processElement(ProcessContext c) throws Exception {
             try {
                 elementBuffer.add(c.element());
-                if (elementBuffer.size() >= bulkInsertSize) {
+                if (elementBuffer.isFull()) {
                     addBufferedElementsToBatch(statementTemplate, preparedStatement, true);
                     elementBuffer.clear();
                 }

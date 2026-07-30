@@ -29,6 +29,8 @@ Sink module to insert, update, delete input records to a specified RDB table.
 
 `bulkInsertSize` controls the maximum number of records written in one bulk operation, while `batchSize` controls the number of bulk operations processed before committing. For example, with `bulkInsertSize: 100` and `batchSize: 10`, up to 100 records are written per bulk operation and up to 1,000 records are processed before each commit. The final operation may contain fewer records.
 
+For `INSERT_OR_DONOTHING` and `INSERT_OR_UPDATE`, records with duplicate `keyFields` values are consolidated within each bulk operation. `INSERT_OR_DONOTHING` keeps the first record, while `INSERT_OR_UPDATE` keeps the last record. `bulkInsertSize` is applied after this consolidation.
+
 * url examples
   * MySQL for Cloud SQL
     * `jdbc:mysql://google/mydatabase?cloudSqlInstance=myproject:us-central1:myinstance&socketFactory=com.google.cloud.sql.mysql.SocketFactory`
