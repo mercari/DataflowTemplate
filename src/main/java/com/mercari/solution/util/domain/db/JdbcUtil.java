@@ -206,16 +206,7 @@ public class JdbcUtil {
                                          final List<String> keyFields,
                                          final int bulkInsertSize) {
 
-        if(op.equals(OP.DELETE)) {
-            throw new IllegalArgumentException("jdbc module does not support DELETE op.");
-        }
-        if((op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING))
-                && (keyFields == null || keyFields.isEmpty())) {
-            throw new IllegalArgumentException("keyFields must not be empty for op: " + op);
-        }
-        if(bulkInsertSize < 1) {
-            throw new IllegalArgumentException("bulkInsertSize must be greater than or equal to 1.");
-        }
+        validateStatementParameters(op, db, keyFields, bulkInsertSize);
 
         return switch (db) {
             case MYSQL -> createMySQLStatement(table, schema, op, keyFields, bulkInsertSize);
@@ -224,6 +215,45 @@ public class JdbcUtil {
             case SQLSERVER -> createSQLServerStatement(table, schema, op, keyFields, bulkInsertSize);
             default -> throw new IllegalArgumentException("Not supported database: " + db);
         };
+    }
+
+    public static void validateStatementParameters(
+            final OP op,
+            final DB db,
+            final List<String> keyFields,
+            final int bulkInsertSize) {
+
+        if(op.equals(OP.DELETE)) {
+            throw new IllegalArgumentException("jdbc module does not support DELETE op.");
+        }
+
+        if((op.equals(OP.INSERT_OR_UPDATE) || op.equals(OP.INSERT_OR_DONOTHING))
+                && (keyFields == null || keyFields.isEmpty())) {
+            throw new IllegalArgumentException("keyFields must not be empty for op: " + op);
+        }
+
+        if(bulkInsertSize < 1) {
+            throw new IllegalArgumentException("bulkInsertSize must be greater than or equal to 1.");
+        }
+
+        switch (db) {
+            case H2 -> {
+                if(op.equals(OP.INSERT_OR_DONOTHING)) {
+                    throw new IllegalArgumentException("H2 does not support INSERT_OR_DONOTHING.");
+                }
+            }
+            case SQLSERVER -> {
+                if(op.equals(OP.INSERT) && bulkInsertSize > 1000) {
+                    throw new IllegalArgumentException("SQLServer supports at most 1000 records per bulk insert.");
+                } else if(op.equals(OP.INSERT_OR_UPDATE)) {
+                    throw new IllegalArgumentException("SQLServer does not support INSERT_OR_UPDATE.");
+                } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
+                    throw new IllegalArgumentException("SQLServer does not support INSERT_OR_DONOTHING.");
+                }
+            }
+            case MYSQL, POSTGRESQL -> {
+            }
+        }
     }
 
     private static PreparedStatementTemplate createMySQLStatement(final String table, final Schema schema,
@@ -420,8 +450,6 @@ public class JdbcUtil {
                 sb.appendString(")").appendString(",");
             });
             sb.removeLast();
-        } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
-            throw new IllegalArgumentException("H2 does not support INSERT_OR_DONOTHING.");
         }
 
         return sb.build();
@@ -430,10 +458,6 @@ public class JdbcUtil {
     private static PreparedStatementTemplate createSQLServerStatement(final String table, final Schema schema,
                                          final OP op, final List<String> keyFields,
                                          final int bulkInsertSize) {
-
-        if (op.equals(OP.INSERT) && bulkInsertSize > 1000) {
-            throw new IllegalArgumentException("SQLServer supports at most 1000 records per bulk insert.");
-        }
 
         final PreparedStatementTemplate.Builder sb = new PreparedStatementTemplate.Builder();
 
@@ -455,10 +479,6 @@ public class JdbcUtil {
                 sb.appendString(")").appendString(",");
             });
             sb.removeLast();
-        } else if(op.equals(OP.INSERT_OR_UPDATE)) {
-            throw new IllegalArgumentException("SQLServer does not support INSERT_OR_UPDATE.");
-        } else if(op.equals(OP.INSERT_OR_DONOTHING)) {
-            throw new IllegalArgumentException("SQLServer does not support INSERT_OR_DONOTHING.");
         }
 
         return sb.build();

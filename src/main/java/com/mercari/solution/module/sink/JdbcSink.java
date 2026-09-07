@@ -156,10 +156,13 @@ public class JdbcSink extends Sink {
                     .setCoder(input.getCoder());
         }
 
+        final JdbcUtil.OP op = JdbcUtil.OP.valueOf(parameters.op);
+        JdbcUtil.validateStatementParameters(op, db, parameters.keyFields, parameters.bulkInsertSize);
+
         final PCollection<MElement> results = tableReady
                 .apply("WriteJdbc", ParDo.of(new WriteDoFn(
                         parameters.driver, parameters.url, parameters.user, parameters.password,
-                        parameters.table, inputSchema.getAvroSchema(), JdbcUtil.OP.valueOf(parameters.op), db,
+                        parameters.table, inputSchema.getAvroSchema(), op, db,
                         parameters.keyFields, parameters.batchSize, parameters.bulkInsertSize)));
 
         return MCollectionTuple

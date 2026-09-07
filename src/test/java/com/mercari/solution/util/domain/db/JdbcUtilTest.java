@@ -586,6 +586,42 @@ public class JdbcUtilTest {
     }
 
     @Test
+    public void testValidateStatementParameters() {
+        JdbcUtil.validateStatementParameters(
+                JdbcUtil.OP.INSERT, JdbcUtil.DB.MYSQL, null, 100);
+
+        IllegalArgumentException deleteException = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.validateStatementParameters(
+                        JdbcUtil.OP.DELETE, JdbcUtil.DB.POSTGRESQL, null, 1));
+        Assert.assertEquals(
+                "jdbc module does not support DELETE op.",
+                deleteException.getMessage());
+    }
+
+    @Test
+    public void testValidateH2StatementParameters() {
+        IllegalArgumentException h2Exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.validateStatementParameters(
+                        JdbcUtil.OP.INSERT_OR_DONOTHING, JdbcUtil.DB.H2, List.of("id"), 1));
+        Assert.assertEquals(
+                "H2 does not support INSERT_OR_DONOTHING.",
+                h2Exception.getMessage());
+    }
+
+    @Test
+    public void testValidateSQLServerStatementParameters() {
+        IllegalArgumentException sqlServerException = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.validateStatementParameters(
+                        JdbcUtil.OP.INSERT, JdbcUtil.DB.SQLSERVER, null, 1001));
+        Assert.assertEquals(
+                "SQLServer supports at most 1000 records per bulk insert.",
+                sqlServerException.getMessage());
+    }
+
+    @Test
     public void testCreateSQLServerStatementInsert() {
         Schema schema = SchemaBuilder.builder()
                 .record("root").fields()
