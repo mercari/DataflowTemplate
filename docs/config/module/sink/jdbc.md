@@ -13,18 +13,23 @@ Sink module to insert, update, delete input records to a specified RDB table.
 
 ## JDBC sink module parameters
 
-| parameter   | optional | type           | description                                                                                                                                            |
-|-------------|----------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| table       | required | String         | Destination table name.                                                                                                                                |
-| url         | required | String         | Connection destination for reading data in JDBC.                                                                                                       |
-| driver      | required | String         | Specify driver class such as `com.mysql.cj.jdbc.Driver`, `org.postgresql.Driver`                                                                       |
-| user        | required | String         | User name to access the database. You can also specify a Secret Manager resource name like `projects/{myproj}/secrets/{mysecret}/versions/latest`.     |
-| password    | required | String         | User password to access the database. You can also specify a Secret Manager resource name like `projects/{myproj}/secrets/{mysecret}/versions/latest`. |
-| op          | optional | String         | One of `INSERT`, `INSERT_OR_UPDATE`(only MySQL support), or `INSERT_OR_DONOTHING`. The default is `INSERT`                                             |
-| batchSize   | optional | Integer        | Specify the batch size when writing.                                                                                                                   |
-| createTable | optional | Boolean        | Specify true if you want to generate the table automatically if the destination table does not exist.                                                  |
-| emptyTable  | optional | Boolean        | Specify true if you want to delete all data from the destination table before inserting data.                                                          |
-| keyFields   | optional | Array<String\> | Specify the primary key fields.                                                                                                                        |
+| parameter      | optional | type           | description                                                                                                                                            |
+|----------------|----------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| table          | required | String         | Destination table name.                                                                                                                                |
+| url            | required | String         | Connection destination for reading data in JDBC.                                                                                                       |
+| driver         | required | String         | Specify driver class such as `com.mysql.cj.jdbc.Driver`, `org.postgresql.Driver`                                                                       |
+| user           | required | String         | User name to access the database. You can also specify a Secret Manager resource name like `projects/{myproj}/secrets/{mysecret}/versions/latest`.     |
+| password       | required | String         | User password to access the database. You can also specify a Secret Manager resource name like `projects/{myproj}/secrets/{mysecret}/versions/latest`. |
+| op             | optional | String         | Write operation. `INSERT` supports all databases, and `INSERT_OR_UPDATE` and `INSERT_OR_DONOTHING` support MySQL and PostgreSQL. The default is `INSERT`. |
+| batchSize      | optional | Integer        | Number of bulk operations to process together before committing. The default is 1000.                                                                  |
+| bulkInsertSize | optional | Integer        | Maximum number of records to write in a single bulk operation. The default is 1. SQL Server supports a maximum of 1000.                                |
+| createTable    | optional | Boolean        | Specify true if you want to generate the table automatically if the destination table does not exist.                                                  |
+| emptyTable     | optional | Boolean        | Specify true if you want to delete all data from the destination table before inserting data.                                                          |
+| keyFields      | optional | Array<String\> | Primary key fields used to identify matching records. Required for `INSERT_OR_UPDATE` and `INSERT_OR_DONOTHING`.                                       |
+
+`bulkInsertSize` controls the maximum number of records written in one bulk operation, while `batchSize` controls the number of bulk operations processed before committing. For example, with `bulkInsertSize: 100` and `batchSize: 10`, up to 100 records are written per bulk operation and up to 1,000 records are processed before each commit. The final operation may contain fewer records.
+
+For `INSERT_OR_DONOTHING` and `INSERT_OR_UPDATE`, records with duplicate `keyFields` values are consolidated within each bulk operation. `INSERT_OR_DONOTHING` keeps the first record, while `INSERT_OR_UPDATE` keeps the last record. `bulkInsertSize` is applied after this consolidation.
 
 * url examples
   * MySQL for Cloud SQL

@@ -8,6 +8,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class JdbcUtilTest {
@@ -280,6 +281,30 @@ public class JdbcUtilTest {
     }
 
     @Test
+    public void testCreateMySQLStatementBulkInsert() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .requiredInt("age")
+                .name("created_at").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .endRecord();
+
+        PreparedStatementTemplate template = JdbcUtil.createStatement("people", schema, JdbcUtil.OP.INSERT, JdbcUtil.DB.MYSQL, null, 2);
+        List<List<Integer>> mappings = template.getPlaceholderMappings().getMappings();
+
+        String expectedStatement =
+                "INSERT INTO people (id,name,age,created_at)" +
+                        " VALUES (?,?,?,?),(?,?,?,?)";
+
+        Assert.assertEquals(expectedStatement, template.getStatementString());
+        Assert.assertArrayEquals(new int[]{1}, toIntArray(mappings.get(1)));
+        Assert.assertArrayEquals(new int[]{4}, toIntArray(mappings.get(4)));
+        Assert.assertArrayEquals(new int[]{5}, toIntArray(mappings.get(5)));
+        Assert.assertArrayEquals(new int[]{8}, toIntArray(mappings.get(8)));
+    }
+
+    @Test
     public void testCreateMySQLStatementInsertOrUpdate() {
         Schema schema = SchemaBuilder.builder()
                 .record("root").fields()
@@ -306,6 +331,30 @@ public class JdbcUtilTest {
         Assert.assertArrayEquals(new int[]{2}, toIntArray(mappings.get(2)));
         Assert.assertArrayEquals(new int[]{3}, toIntArray(mappings.get(3)));
         Assert.assertArrayEquals(new int[]{4}, toIntArray(mappings.get(4)));
+    }
+
+    @Test
+    public void testCreateMySQLStatementBulkInsertOrUpdate() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .requiredInt("age")
+                .name("created_at").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .endRecord();
+
+        List<String> keyFields = Arrays.stream(new String[]{"id"}).toList();
+        PreparedStatementTemplate template = JdbcUtil.createStatement("people", schema, JdbcUtil.OP.INSERT_OR_UPDATE, JdbcUtil.DB.MYSQL, keyFields, 2);
+
+        String expectedStatement =
+                "INSERT INTO people (id,name,age,created_at)" +
+                        " VALUES (?,?,?,?),(?,?,?,?)" +
+                        " ON DUPLICATE KEY UPDATE " +
+                        "`name` = VALUES(`name`)," +
+                        "`age` = VALUES(`age`)," +
+                        "`created_at` = VALUES(`created_at`)";
+
+        Assert.assertEquals(expectedStatement, template.getStatementString());
     }
 
     @Test
@@ -336,6 +385,27 @@ public class JdbcUtilTest {
     }
 
     @Test
+    public void testCreateMySQLStatementBulkInsertOrDoNothing() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .endRecord();
+
+        PreparedStatementTemplate template = JdbcUtil.createStatement(
+                "people", schema, JdbcUtil.OP.INSERT_OR_DONOTHING,
+                JdbcUtil.DB.MYSQL, List.of("id"), 2);
+
+        Assert.assertEquals(
+                "INSERT INTO people (id,name) VALUES (?,?),(?,?)" +
+                        " ON DUPLICATE KEY UPDATE `id` = VALUES(`id`)",
+                template.getStatementString());
+        Assert.assertArrayEquals(
+                new int[]{4},
+                toIntArray(template.getPlaceholderMappings().getMappings().get(4)));
+    }
+
+    @Test
     public void testCreatePostgreSQLStatementInsert() {
         Schema schema = SchemaBuilder.builder()
                 .record("root").fields()
@@ -357,6 +427,30 @@ public class JdbcUtilTest {
         Assert.assertArrayEquals(new int[]{2}, toIntArray(mappings.get(2)));
         Assert.assertArrayEquals(new int[]{3}, toIntArray(mappings.get(3)));
         Assert.assertArrayEquals(new int[]{4}, toIntArray(mappings.get(4)));
+    }
+
+    @Test
+    public void testCreatePostgreSQLStatementBulkInsert() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .requiredInt("age")
+                .name("created_at").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .endRecord();
+
+        PreparedStatementTemplate template = JdbcUtil.createStatement("people", schema, JdbcUtil.OP.INSERT, JdbcUtil.DB.POSTGRESQL, null, 2);
+        List<List<Integer>> mappings = template.getPlaceholderMappings().getMappings();
+
+        String expectedStatement =
+                "INSERT INTO people (id,name,age,created_at)" +
+                        " VALUES (?,?,?,?::timestamp),(?,?,?,?::timestamp)";
+
+        Assert.assertEquals(expectedStatement, template.getStatementString());
+        Assert.assertArrayEquals(new int[]{1}, toIntArray(mappings.get(1)));
+        Assert.assertArrayEquals(new int[]{4}, toIntArray(mappings.get(4)));
+        Assert.assertArrayEquals(new int[]{5}, toIntArray(mappings.get(5)));
+        Assert.assertArrayEquals(new int[]{8}, toIntArray(mappings.get(8)));
     }
 
     @Test
@@ -393,6 +487,37 @@ public class JdbcUtilTest {
     }
 
     @Test
+    public void testCreatePostgreSQLStatementBulkInsertOrUpdate() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .requiredInt("age")
+                .name("created_at").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .endRecord();
+
+        List<String> keyFields = Arrays.stream(new String[]{"id"}).toList();
+        PreparedStatementTemplate template = JdbcUtil.createStatement("people", schema, JdbcUtil.OP.INSERT_OR_UPDATE, JdbcUtil.DB.POSTGRESQL, keyFields, 2);
+        List<List<Integer>> mappings = template.getPlaceholderMappings().getMappings();
+
+        String expectedStatement =
+                "MERGE INTO people " +
+                        "USING (VALUES (?,?,?,?::timestamp),(?,?,?,?::timestamp)) AS item (id,name,age,created_at) ON item.id = people.id" +
+                        " WHEN MATCHED THEN" +
+                        " UPDATE SET " +
+                        "name = item.name," +
+                        "age = item.age," +
+                        "created_at = item.created_at" +
+                        " WHEN NOT MATCHED THEN" +
+                        " INSERT (id,name,age,created_at)" +
+                        " VALUES (item.id,item.name,item.age,item.created_at)";
+
+        Assert.assertEquals(expectedStatement, template.getStatementString());
+        Assert.assertArrayEquals(new int[]{1}, toIntArray(mappings.get(1)));
+        Assert.assertArrayEquals(new int[]{8}, toIntArray(mappings.get(8)));
+    }
+
+    @Test
     public void testCreatePostgreSQLStatementInsertOrDoNothing() {
         Schema schema = SchemaBuilder.builder()
                 .record("root").fields()
@@ -423,6 +548,80 @@ public class JdbcUtilTest {
     }
 
     @Test
+    public void testCreateStatementInsertOrUpdateWithoutKeyFields() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .endRecord();
+
+        IllegalArgumentException exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.createStatement(
+                        "people", schema, JdbcUtil.OP.INSERT_OR_UPDATE,
+                        JdbcUtil.DB.POSTGRESQL, Collections.emptyList()));
+
+        Assert.assertEquals(
+                "keyFields must not be empty for op: INSERT_OR_UPDATE",
+                exception.getMessage());
+    }
+
+    @Test
+    public void testCreateStatementInsertOrDoNothingWithoutKeyFields() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .endRecord();
+
+        IllegalArgumentException exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.createStatement(
+                        "people", schema, JdbcUtil.OP.INSERT_OR_DONOTHING,
+                        JdbcUtil.DB.POSTGRESQL, null));
+
+        Assert.assertEquals(
+                "keyFields must not be empty for op: INSERT_OR_DONOTHING",
+                exception.getMessage());
+    }
+
+    @Test
+    public void testValidateStatementParameters() {
+        JdbcUtil.validateStatementParameters(
+                JdbcUtil.OP.INSERT, JdbcUtil.DB.MYSQL, null, 100);
+
+        IllegalArgumentException deleteException = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.validateStatementParameters(
+                        JdbcUtil.OP.DELETE, JdbcUtil.DB.POSTGRESQL, null, 1));
+        Assert.assertEquals(
+                "jdbc module does not support DELETE op.",
+                deleteException.getMessage());
+    }
+
+    @Test
+    public void testValidateH2StatementParameters() {
+        IllegalArgumentException h2Exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.validateStatementParameters(
+                        JdbcUtil.OP.INSERT_OR_DONOTHING, JdbcUtil.DB.H2, List.of("id"), 1));
+        Assert.assertEquals(
+                "H2 does not support INSERT_OR_DONOTHING.",
+                h2Exception.getMessage());
+    }
+
+    @Test
+    public void testValidateSQLServerStatementParameters() {
+        IllegalArgumentException sqlServerException = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.validateStatementParameters(
+                        JdbcUtil.OP.INSERT, JdbcUtil.DB.SQLSERVER, null, 1001));
+        Assert.assertEquals(
+                "SQLServer supports at most 1000 records per bulk insert.",
+                sqlServerException.getMessage());
+    }
+
+    @Test
     public void testCreateSQLServerStatementInsert() {
         Schema schema = SchemaBuilder.builder()
                 .record("root").fields()
@@ -444,6 +643,44 @@ public class JdbcUtilTest {
         Assert.assertArrayEquals(new int[]{2}, toIntArray(mappings.get(2)));
         Assert.assertArrayEquals(new int[]{3}, toIntArray(mappings.get(3)));
         Assert.assertArrayEquals(new int[]{4}, toIntArray(mappings.get(4)));
+    }
+
+    @Test
+    public void testCreateSQLServerStatementBulkInsert() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .endRecord();
+
+        PreparedStatementTemplate template = JdbcUtil.createStatement(
+                "people", schema, JdbcUtil.OP.INSERT,
+                JdbcUtil.DB.SQLSERVER, null, 2);
+
+        Assert.assertEquals(
+                "INSERT INTO people (id,name) VALUES (?,?),(?,?)",
+                template.getStatementString());
+        Assert.assertArrayEquals(
+                new int[]{4},
+                toIntArray(template.getPlaceholderMappings().getMappings().get(4)));
+    }
+
+    @Test
+    public void testCreateSQLServerStatementBulkInsertExceedsRowLimit() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .endRecord();
+
+        IllegalArgumentException exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> JdbcUtil.createStatement(
+                        "people", schema, JdbcUtil.OP.INSERT,
+                        JdbcUtil.DB.SQLSERVER, null, 1001));
+
+        Assert.assertEquals(
+                "SQLServer supports at most 1000 records per bulk insert.",
+                exception.getMessage());
     }
 
     @Test
@@ -505,6 +742,28 @@ public class JdbcUtilTest {
     }
 
     @Test
+    public void testCreateH2StatementBulkInsert() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .requiredInt("age")
+                .name("created_at").type(AvroSchemaUtil.REQUIRED_LOGICAL_TIMESTAMP_MICRO_TYPE).noDefault()
+                .endRecord();
+
+        PreparedStatementTemplate template = JdbcUtil.createStatement("people", schema, JdbcUtil.OP.INSERT, JdbcUtil.DB.H2, null, 2);
+        List<List<Integer>> mappings = template.getPlaceholderMappings().getMappings();
+
+        String expectedStatement =
+                "INSERT INTO people (id,name,age,created_at)" +
+                        " VALUES (?,?,?,?),(?,?,?,?)";
+
+        Assert.assertEquals(expectedStatement, template.getStatementString());
+        Assert.assertArrayEquals(new int[]{1}, toIntArray(mappings.get(1)));
+        Assert.assertArrayEquals(new int[]{8}, toIntArray(mappings.get(8)));
+    }
+
+    @Test
     public void testCreateH2StatementInsertOrUpdate() {
         Schema schema = SchemaBuilder.builder()
                 .record("root").fields()
@@ -527,6 +786,26 @@ public class JdbcUtilTest {
         Assert.assertArrayEquals(new int[]{2}, toIntArray(mappings.get(2)));
         Assert.assertArrayEquals(new int[]{3}, toIntArray(mappings.get(3)));
         Assert.assertArrayEquals(new int[]{4}, toIntArray(mappings.get(4)));
+    }
+
+    @Test
+    public void testCreateH2StatementBulkInsertOrUpdate() {
+        Schema schema = SchemaBuilder.builder()
+                .record("root").fields()
+                .requiredInt("id")
+                .requiredString("name")
+                .endRecord();
+
+        PreparedStatementTemplate template = JdbcUtil.createStatement(
+                "people", schema, JdbcUtil.OP.INSERT_OR_UPDATE,
+                JdbcUtil.DB.H2, List.of("id"), 2);
+
+        Assert.assertEquals(
+                "MERGE INTO people (id,name) KEY (id) VALUES (?,?),(?,?)",
+                template.getStatementString());
+        Assert.assertArrayEquals(
+                new int[]{4},
+                toIntArray(template.getPlaceholderMappings().getMappings().get(4)));
     }
 
     @Test
